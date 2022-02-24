@@ -7,18 +7,12 @@ import torch
 
 
 def save(tensor_dict: Dict[str, np.ndarray]) -> bytes:
-    import datetime
-
-    start = datetime.datetime.now()
     flattened = {
         k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
         for k, v in tensor_dict.items()
     }
-    print("Flattened", datetime.datetime.now() - start)
     serialized = serialize(flattened)
-    print("Serialized", datetime.datetime.now() - start)
     result = bytes(serialized)
-    print("Bytes", datetime.datetime.now() - start)
     return result
 
 

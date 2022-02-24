@@ -231,32 +231,14 @@ mod tests {
         use std::time::Instant;
         let start = Instant::now();
         let out = SafeTensor::serialize(&metadata);
-        println!("Serialization {:?}", start.elapsed());
 
         let start = Instant::now();
         std::fs::write(&filename, out).unwrap();
-        println!("Write to file {:?}", start.elapsed());
 
         let start = Instant::now();
         let raw = std::fs::read(&filename).unwrap();
-        println!("Read from file {:?}", start.elapsed());
 
         let start = Instant::now();
         SafeTensor::deserialize(raw).unwrap();
-        println!("Deserialization {:?}", start.elapsed());
     }
-
-    // use std::fs::File;
-    // use std::io::Read;
-    // use std::time::Instant;
-    // #[test]
-    // fn read_gpt2() {
-    //     let start = Instant::now();
-    //     let filename = "gpt2.bin";
-    //     let mut f = File::open(&filename).unwrap();
-    //     let metadata = std::fs::metadata(&filename).expect("unable to read metadata");
-    //     let mut buffer = vec![0; metadata.len() as usize];
-    //     f.read(&mut buffer).expect("buffer overflow");
-    //     println!("Read gpt2 in {:?}", start.elapsed());
-    // }
 }

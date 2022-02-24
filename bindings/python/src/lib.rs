@@ -1,6 +1,6 @@
 use pyo3::exceptions;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
 use safetensors::{Dtype, SafeTensor, SafeTensorBorrowed, Tensor};
 use std::collections::HashMap;
 
@@ -59,7 +59,7 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
         let pyshape: PyObject = PyList::new(py, tensor.shape.into_iter()).into();
         let pydtype: PyObject = format!("{:?}", tensor.dtype).into_py(py);
 
-        let pydata: PyObject = PyBytes::new(py, tensor.data).into();
+        let pydata: PyObject = PyByteArray::new(py, tensor.data).into();
 
         map.insert("shape".to_string(), pyshape);
         map.insert("dtype".to_string(), pydtype);
