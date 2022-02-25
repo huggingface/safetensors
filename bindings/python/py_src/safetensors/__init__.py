@@ -2,7 +2,7 @@ __version__ = "0.0.1"
 
 from typing import Dict
 import numpy as np
-from .safetensors_rust import deserialize, serialize
+from .safetensors_rust import deserialize, serialize, deserialize_file
 import torch
 
 
@@ -23,22 +23,29 @@ def getdtype(dtype_str: str) -> np.dtype:
     return TYPES[dtype_str]
 
 
+def load_file(filename: str) -> Dict[str, np.ndarray]:
+    flat = deserialize_file(filename)
+    return to_numpy(flat)
+
+
 def load(buffer: bytes) -> Dict[str, np.ndarray]:
     flat = deserialize(buffer)
+    return to_numpy(flat)
 
+
+def to_numpy(safeview):
     result = {}
-    for k, v in flat:
+    for k, v in safeview:
         dtype = getdtype(v["dtype"])
         arr = np.frombuffer(v["data"], dtype=dtype)
         result[k] = arr
     return result
 
 
-def load_pt(buffer: bytes) -> Dict[str, torch.Tensor]:
-    out = load(buffer)
-    for k, v in out.items():
-        out[k] = torch.from_numpy(v)
-    return out
+def to_pt(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, torch.Tensor]:
+    for k, v in numpy_dict.items():
+        numpy_dict[k] = torch.from_numpy(v)
+    return numpy_dict
 
 
 def save_pt(tensors: Dict[str, torch.Tensor]) -> bytes:

@@ -1,5 +1,5 @@
 import unittest
-from safetensors import load_pt, save_pt
+from safetensors import save_pt, load_file, to_pt, load
 from huggingface_hub import hf_hub_download
 import torch
 import datetime
@@ -20,7 +20,21 @@ class BigTestCase(unittest.TestCase):
             serialized = f.read()
         print()
         print("Reading file took ", datetime.datetime.now() - start)
-        load_pt(serialized)
+        to_pt(load(serialized))
+        print("Deserialization (Safe) took ", datetime.datetime.now() - start)
+
+    def test_gpt2_deserialization_safe_mmap(self):
+        filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
+        local = "out_safe.bin"
+        data = torch.load(filename)
+
+        out = save_pt(data)
+        with open(local, "wb") as f:
+            f.write(out)
+
+        start = datetime.datetime.now()
+        to_pt(load_file(local))
+        print()
         print("Deserialization (Safe) took ", datetime.datetime.now() - start)
 
     def test_gpt2_deserialization_pt(self):
