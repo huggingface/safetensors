@@ -7,12 +7,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
-/// Formats the sum of two numbers as string.
-#[pyfunction]
-fn serialize<'a, 'b>(
+fn prepare<'a, 'b>(
     py: Python<'b>,
     tensor_dict: HashMap<String, &'a PyDict>,
-) -> PyResult<&'b PyBytes> {
+) -> PyResult<HashMap<String, Tensor<'a>>> {
     let start = std::time::Instant::now();
     let mut tensors = HashMap::new();
     for (tensor_name, tensor_desc) in tensor_dict {
@@ -42,9 +40,29 @@ fn serialize<'a, 'b>(
         let tensor = Tensor::new(data, dtype, shape);
         tensors.insert(tensor_name, tensor);
     }
+    Ok(tensors)
+}
+
+#[pyfunction]
+fn serialize<'a, 'b>(
+    py: Python<'b>,
+    tensor_dict: HashMap<String, &'a PyDict>,
+) -> PyResult<&'b PyBytes> {
+    let tensors = prepare(py, tensor_dict)?;
     let out = SafeTensor::serialize(&tensors);
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
+}
+
+#[pyfunction]
+fn serialize_file<'a, 'b>(
+    py: Python<'b>,
+    tensor_dict: HashMap<String, &'a PyDict>,
+    filename: &str,
+) -> PyResult<()> {
+    let tensors = prepare(py, tensor_dict)?;
+    SafeTensor::serialize_to_file(&tensors, filename)?;
+    Ok(())
 }
 
 #[pyfunction]
@@ -85,6 +103,7 @@ fn deserialize_file(
 #[pymodule]
 fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize_file, m)?)?;
     Ok(())

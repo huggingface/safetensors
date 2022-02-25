@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
 #[derive(Debug)]
 pub enum SafeTensorError {
@@ -13,13 +15,14 @@ pub struct SafeTensor {
 }
 
 impl SafeTensor {
-    pub fn serialize(data: &HashMap<String, Tensor>) -> Vec<u8> {
+    fn prepare<'hash, 'data>(
+        data: &'hash HashMap<String, Tensor<'data>>,
+    ) -> (Metadata, Vec<&'hash Tensor<'data>>, usize) {
         let mut tensors: Vec<&Tensor> = vec![];
         let mut hmetadata = HashMap::new();
         let mut offset = 0;
         for (name, tensor) in data {
             let n = tensor.data.len();
-
             let tensor_info = TensorInfo {
                 dtype: tensor.dtype.clone(),
                 shape: tensor.shape.clone(),
@@ -32,9 +35,14 @@ impl SafeTensor {
 
         let metadata: Metadata = Metadata(hmetadata);
 
-        let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
+        (metadata, tensors, offset)
+    }
 
-        let mut buffer: Vec<u8> = Vec::with_capacity(1 + metadata_buf.len() + offset);
+    pub fn serialize(data: &HashMap<String, Tensor>) -> Vec<u8> {
+        let (metadata, tensors, offset) = Self::prepare(data);
+        let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
+        let expected_size = 8 + metadata_buf.len() + offset;
+        let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
         let n: u64 = metadata_buf.len() as u64;
         buffer.extend(&n.to_le_bytes().to_vec());
         buffer.extend(&metadata_buf);
@@ -42,6 +50,23 @@ impl SafeTensor {
             buffer.extend(tensor.data);
         }
         buffer
+    }
+
+    pub fn serialize_to_file(
+        data: &HashMap<String, Tensor>,
+        filename: &str,
+    ) -> Result<(), std::io::Error> {
+        let (metadata, tensors, _) = Self::prepare(data);
+        let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
+        let n: u64 = metadata_buf.len() as u64;
+        let mut f = BufWriter::new(File::create(filename)?);
+        f.write_all(&n.to_le_bytes().to_vec())?;
+        f.write_all(&metadata_buf)?;
+        for tensor in tensors {
+            f.write_all(tensor.data)?;
+        }
+        f.flush()?;
+        Ok(())
     }
 
     pub fn deserialize(buffer: Vec<u8>) -> Result<SafeTensor, SafeTensorError> {
@@ -228,17 +253,12 @@ mod tests {
 
         let filename = format!("./out_{}.bin", model_id);
 
-        use std::time::Instant;
-        let start = Instant::now();
         let out = SafeTensor::serialize(&metadata);
 
-        let start = Instant::now();
         std::fs::write(&filename, out).unwrap();
 
-        let start = Instant::now();
         let raw = std::fs::read(&filename).unwrap();
 
-        let start = Instant::now();
         SafeTensor::deserialize(raw).unwrap();
     }
 }
