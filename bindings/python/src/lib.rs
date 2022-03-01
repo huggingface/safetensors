@@ -1,17 +1,14 @@
+#![deny(missing_docs)]
+//! Dummy doc
 use memmap::MmapOptions;
 use pyo3::exceptions;
 use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
-use safetensors::{Dtype, SafeTensor, SafeTensorBorrowed, Tensor};
+use safetensors::{Dtype, SafeTensors, Tensor};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Write;
 
-fn prepare<'a, 'b>(
-    py: Python<'b>,
-    tensor_dict: HashMap<String, &'a PyDict>,
-) -> PyResult<HashMap<String, Tensor<'a>>> {
-    let start = std::time::Instant::now();
+fn prepare<'a>(tensor_dict: HashMap<String, &'a PyDict>) -> PyResult<HashMap<String, Tensor<'a>>> {
     let mut tensors = HashMap::new();
     for (tensor_name, tensor_desc) in tensor_dict {
         let mut shape: Vec<usize> = vec![];
@@ -24,9 +21,18 @@ fn prepare<'a, 'b>(
                 "dtype" => {
                     let value: &str = value.extract()?;
                     dtype = match value {
+                        "bool" => Dtype::BOOL,
+                        "int8" => Dtype::I8,
+                        "uint8" => Dtype::U8,
+                        "int16" => Dtype::I16,
+                        "uint16" => Dtype::U16,
+                        "int32" => Dtype::I32,
+                        "uint32" => Dtype::U32,
+                        "int64" => Dtype::I64,
+                        "uint64" => Dtype::U64,
+                        "float16" => Dtype::F16,
                         "float32" => Dtype::F32,
                         "float64" => Dtype::F64,
-                        "int32" => Dtype::I32,
                         dtype_str => {
                             unimplemented!("Did not cover this dtype: {}", dtype_str)
                         }
@@ -48,27 +54,22 @@ fn serialize<'a, 'b>(
     py: Python<'b>,
     tensor_dict: HashMap<String, &'a PyDict>,
 ) -> PyResult<&'b PyBytes> {
-    let tensors = prepare(py, tensor_dict)?;
-    let out = SafeTensor::serialize(&tensors);
+    let tensors = prepare(tensor_dict)?;
+    let out = safetensors::serialize(&tensors);
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
 
 #[pyfunction]
-fn serialize_file<'a, 'b>(
-    py: Python<'b>,
-    tensor_dict: HashMap<String, &'a PyDict>,
-    filename: &str,
-) -> PyResult<()> {
-    let tensors = prepare(py, tensor_dict)?;
-    SafeTensor::serialize_to_file(&tensors, filename)?;
+fn serialize_file<'a>(tensor_dict: HashMap<String, &'a PyDict>, filename: &str) -> PyResult<()> {
+    let tensors = prepare(tensor_dict)?;
+    safetensors::serialize_to_file(&tensors, filename)?;
     Ok(())
 }
 
 #[pyfunction]
 fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
-    let start = std::time::Instant::now();
-    let safetensor = SafeTensorBorrowed::deserialize(bytes).map_err(|e| {
+    let safetensor = SafeTensors::deserialize(bytes).map_err(|e| {
         exceptions::PyException::new_err(format!("Error while deserializing: {:?}", e))
     })?;
     let mut items = vec![];
@@ -76,10 +77,10 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
     for (tensor_name, tensor) in safetensor.tensors() {
         let mut map = HashMap::new();
 
-        let pyshape: PyObject = PyList::new(py, tensor.shape.into_iter()).into();
-        let pydtype: PyObject = format!("{:?}", tensor.dtype).into_py(py);
+        let pyshape: PyObject = PyList::new(py, tensor.get_shape().into_iter()).into();
+        let pydtype: PyObject = format!("{:?}", tensor.get_dtype()).into_py(py);
 
-        let pydata: PyObject = PyByteArray::new(py, tensor.data).into();
+        let pydata: PyObject = PyByteArray::new(py, tensor.get_data()).into();
 
         map.insert("shape".to_string(), pyshape);
         map.insert("dtype".to_string(), pydtype);
@@ -95,8 +96,14 @@ fn deserialize_file(
     filename: &str,
 ) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let file = File::open(filename)?;
+
+    // SAFETY: Mmap is used to prevent allocating in Rust
+    // before making a copy within Python.
     let mmap = unsafe { MmapOptions::new().map(&file)? };
-    deserialize(py, &mmap)
+    let deserialized = deserialize(py, &mmap);
+    // Make sure mmap does not leak.
+    drop(mmap);
+    deserialized
 }
 
 /// A Python module implemented in Rust.

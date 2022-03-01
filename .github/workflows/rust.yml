@@ -1,0 +1,56 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+
+    steps:
+      - uses: actions/checkout@v1
+
+      - name: Install Rust Stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true
+
+      - name: Install cargo-readme for Ubuntu
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-readme
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-targets --verbose --manifest-path ./safetensors/Cargo.toml
+
+      - name: Lint with Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path ./safetensors/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Run Tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose --manifest-path ./safetensors/Cargo.toml
+
+      # Verify that Readme.md is up to date.
+      - name: Make sure, Readme generated from lib.rs matches actual Readme
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        working-directory: ./safetensors
+        run: cargo readme > must_match_readme.md && diff must_match_readme.md README.md
