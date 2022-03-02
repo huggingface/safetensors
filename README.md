@@ -44,8 +44,8 @@ some tensors in it without scanning the whole file (distributed setting) ?
 ## Main oppositions
 
 - Pickle: Unsafe, runs arbitrary code
-- H5: Slow (also now discouraged for TF/Keras)
-- SavedModel: Tensorflow specific
+- H5: Apparently now discouraged for TF/Keras. Seems like a great fit otherwise actually. Some classic user after free issues: https://www.cvedetails.com/vulnerability-list/vendor_id-15991/product_id-35054/Hdfgroup-Hdf5.html. On a very different level than pickle security wise. Also 210k lines of code vs ~400 lines for this lib currently.
+- SavedModel: Tensorflow specific (it contains TF graph information).
 - MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
 - Protobuf: Hard 2Go max file size limit
 - Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
