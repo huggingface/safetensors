@@ -36,8 +36,8 @@ This is my very personal and probably biased view:
 - Zero-copy: Does reading the file require more memory than the original file ?
 - Lazy loading: Can I inspect the file without loading everything ? And loading only
 some tensors in it without scanning the whole file (distributed setting) ?
+- Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling layout to keep fast access to single tensors is important.
 - No file size limit: Is there a limit to the file size ?
-- Layout control: Is the format saved in such a way that we don't need to look at the whole file when reading only 0/1 tensor in lazy mode
 - Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
 
 
@@ -48,7 +48,7 @@ some tensors in it without scanning the whole file (distributed setting) ?
 - SavedModel: Tensorflow specific
 - MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
 - Protobuf: Hard 2Go max file size limit
-- Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary + 
+- Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
 
 ## Notes
 

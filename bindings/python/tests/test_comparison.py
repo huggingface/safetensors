@@ -1,5 +1,5 @@
 import unittest
-from safetensors import save_file_pt, load_file, np2pt, load
+from safetensors.torch import save_file, load_file, load
 from huggingface_hub import hf_hub_download
 import torch
 import datetime
@@ -15,14 +15,14 @@ class BigTestCase(unittest.TestCase):
         data = torch.load(filename)
 
         local = "out_safe.bin"
-        save_file_pt(data, local)
+        save_file(data, local)
 
         start = datetime.datetime.now()
         with open(local, "rb") as f:
             serialized = f.read()
         print()
         print("Reading file took ", datetime.datetime.now() - start)
-        np2pt(load(serialized))
+        load(serialized)
         print("Deserialization (Safe) took ", datetime.datetime.now() - start)
 
     def test_gpt2_deserialization_safe_mmap(self):
@@ -30,10 +30,10 @@ class BigTestCase(unittest.TestCase):
         data = torch.load(filename)
 
         local = "out_safe_mmap.bin"
-        save_file_pt(data, local)
+        save_file(data, local)
 
         start = datetime.datetime.now()
-        np2pt(load_file(local))
+        load_file(local)
         print()
         print("Deserialization (Safe) took ", datetime.datetime.now() - start)
 
@@ -48,7 +48,7 @@ class BigTestCase(unittest.TestCase):
     def test_gpt2_deserialization_flax(self):
         from flax.serialization import msgpack_restore
 
-        filename = "/home/nicolas/src/gpt2/flax_model.msgpack"
+        filename = hf_hub_download(MODEL_ID, filename="flax_model.msgpack")
         start = datetime.datetime.now()
         with open(filename, "rb") as f:
             data = f.read()
@@ -60,7 +60,7 @@ class BigTestCase(unittest.TestCase):
         import h5py
         import numpy as np
 
-        filename = "/home/nicolas/src/gpt2/tf_model.h5"
+        filename = hf_hub_download(MODEL_ID, filename="tf_model.h5")
         start = datetime.datetime.now()
         tensors = {}
 
@@ -91,6 +91,6 @@ class BigTestCase(unittest.TestCase):
         data = torch.load(filename)
         start = datetime.datetime.now()
         outfilename = "out_py_test.bin"
-        out = save_file_pt(data, outfilename)
+        out = save_file(data, outfilename)
         print("Serialization (safe) took ", datetime.datetime.now() - start)
         del out

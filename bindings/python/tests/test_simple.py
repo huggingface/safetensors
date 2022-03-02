@@ -1,5 +1,6 @@
 import unittest
-from safetensors import save, load, load_pt, save_pt
+from safetensors.numpy import save, load, save_file, load_file
+from safetensors.torch import load_file as load_file_pt, save_file as save_file_pt
 import numpy as np
 from huggingface_hub import hf_hub_download
 import torch
@@ -30,3 +31,37 @@ class TestCase(unittest.TestCase):
         out = load(serialized)
         self.assertEqual(list(out.keys()), ["test"])
         np.testing.assert_array_equal(out["test"], np.zeros((2, 2), dtype=np.int32))
+
+
+class ReadmeTestCase(unittest.TestCase):
+    def assertTensorEqual(self, tensors1, tensors2, equality_fn):
+        self.assertEqual(tensors1.keys(), tensors2.keys(), "tensor keys don't match")
+
+        for k, v1 in tensors1.items():
+            v2 = tensors2[k]
+
+            self.assertTrue(equality_fn(v1, v2), f"{k} tensors are different")
+
+    def test_numpy_example(self):
+        tensors = {"a": np.zeros((2, 2)), "b": np.zeros((2, 3), dtype=np.uint8)}
+
+        save_file(tensors, "./out.bin")
+
+        # Now loading
+        loaded = load_file("./out.bin")
+        self.assertTensorEqual(tensors, loaded, np.allclose)
+
+    def test_torch_example(self):
+        tensors = {
+            "a": torch.zeros((2, 2)),
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+        # Saving modifies the tensors to type numpy, so we must copy for the
+        # test to be correct.
+        tensors2 = tensors.copy()
+
+        save_file_pt(tensors, "./out.bin")
+
+        # Now loading
+        loaded = load_file_pt("./out.bin")
+        self.assertTensorEqual(tensors2, loaded, torch.allclose)
