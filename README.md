@@ -22,14 +22,14 @@ formats.
 Let's take a look at alternatives and why this format is deemed interesting.
 This is my very personal and probably biased view:
 
-| Format | Safe | Zero-copy | Lazy loading | No file size limit | (B)Float-16 support | Flexibility |
+| Format | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility |
 | --- | --- | --- | --- | --- | --- | --- |
-| pickle (PyTorch) | ✗ | ✗ | ✗ | 🗸 | 🗸  | 🗸 |
-| H5 (Tensorflow) | 🗸 | ✗ | 🗸 | 🗸 | 🗸  | ~ |
-| SavedModel (Tensorflow) | 🗸? | ✗? | ✗ | 🗸  | 🗸 | 🗸 | 🗸 |
+| pickle (PyTorch) | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 |
+| H5 (Tensorflow) | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ |
+| SavedModel (Tensorflow) | 🗸? | ✗? | ✗ | 🗸  | 🗸 | ✗ | 🗸 |
 | MsgPack (flax) | 🗸 | 🗸 | ✗ | 🗸 | ✗ | ✗ | ~ |
 | Protobuf (ONNX) | 🗸 | ✗ | ✗ | ✗ | ✗ | ✗ | ~ |
-| Cap'n'Proto | 🗸  | 🗸 | ~ | 🗸  | 🗸  | ✗ | ~ |
+| Cap'n'Proto | 🗸  | 🗸 | ~ | 🗸  | 🗸 | ~ | ~ |
 | SafeTensors | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ | 
 
 Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
@@ -37,7 +37,7 @@ Zero-copy: Does reading the file require more memory than the original file ?
 Lazy loading: Can I inspect the file without loading everything ? And loading only
 some tensors in it without scanning the whole file (distributed setting) ?
 No file size limit: Is there a limit to the file size ?
-(B)float16 support: In machine learning, float16 is becoming common as a means to reduce RAM requirements, bf16 is still a bit new but supposed to be more fit for machine learning than float16.
+Layout control: Is the format saved in such a way that we don't need to look at the whole file when reading only 0/1 tensor in lazy mode
 Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ?
 
 
@@ -48,8 +48,7 @@ H5: Slow (also now discouraged for TF/Keras)
 SavedModel: Tensorflow specific
 MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
 Protobuf: Hard 2Go max file size limit
-Cap'n'proto: Float16 support is lacking. This one has the most merits, but specifying the full layout to enable real lazy loading probably requires domain knowledge which is simpler (in my view) written in bare code and enable more control over the whole thing.
-
+Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary + 
 
 ## Notes
 
