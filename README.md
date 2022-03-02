@@ -32,23 +32,23 @@ This is my very personal and probably biased view:
 | Cap'n'Proto | 🗸  | 🗸 | ~ | 🗸  | 🗸 | ~ | ~ |
 | SafeTensors | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ | 
 
-Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
-Zero-copy: Does reading the file require more memory than the original file ?
-Lazy loading: Can I inspect the file without loading everything ? And loading only
+- Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
+- Zero-copy: Does reading the file require more memory than the original file ?
+- Lazy loading: Can I inspect the file without loading everything ? And loading only
 some tensors in it without scanning the whole file (distributed setting) ?
-No file size limit: Is there a limit to the file size ?
-Layout control: Is the format saved in such a way that we don't need to look at the whole file when reading only 0/1 tensor in lazy mode
-Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ?
+- No file size limit: Is there a limit to the file size ?
+- Layout control: Is the format saved in such a way that we don't need to look at the whole file when reading only 0/1 tensor in lazy mode
+- Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
 
 
 ## Main oppositions
 
-Pickle: Unsafe, runs arbitrary code
-H5: Slow (also now discouraged for TF/Keras)
-SavedModel: Tensorflow specific
-MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
-Protobuf: Hard 2Go max file size limit
-Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary + 
+- Pickle: Unsafe, runs arbitrary code
+- H5: Slow (also now discouraged for TF/Keras)
+- SavedModel: Tensorflow specific
+- MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
+- Protobuf: Hard 2Go max file size limit
+- Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary + 
 
 ## Notes
 
