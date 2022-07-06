@@ -33,6 +33,7 @@ fn prepare<'a>(tensor_dict: HashMap<String, &'a PyDict>) -> PyResult<HashMap<Str
                         "float16" => Dtype::F16,
                         "float32" => Dtype::F32,
                         "float64" => Dtype::F64,
+                        "bfloat16" => Dtype::BF16,
                         dtype_str => {
                             unimplemented!("Did not cover this dtype: {}", dtype_str)
                         }
