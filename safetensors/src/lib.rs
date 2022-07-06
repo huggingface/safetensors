@@ -13,6 +13,8 @@ pub enum SafeTensorError {
     InvalidHeader,
     /// The header does contain a valid string, but it is not valid JSON.
     InvalidHeaderDeserialization,
+    /// The tensor name was not found in the archive
+    TensorNotFound,
 }
 
 fn prepare<'hash, 'data>(
@@ -118,6 +120,30 @@ impl<'data> SafeTensors<'data> {
             tensors.push((name.to_string(), tensorview));
         }
         tensors
+    }
+
+    /// Allow the user to get a specific tensor within the SafeTensors.
+    /// The tensor returned is merely a view and the data is not owned by this
+    /// structure.
+    pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'_>, SafeTensorError> {
+        for (name, info) in &self.metadata.0 {
+            if name == tensor_name {
+                return Ok(TensorView {
+                    dtype: &info.dtype,
+                    shape: &info.shape,
+                    data: &self.data
+                        [info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset],
+                });
+            }
+        }
+        Err(SafeTensorError::TensorNotFound)
+    }
+
+    /// Allow the user to get a specific tensor within the SafeTensors.
+    /// The tensor returned is merely a view and the data is not owned by this
+    /// structure.
+    pub fn names(&self) -> Vec<&'_ String> {
+        self.metadata.0.iter().map(|(name, _)| name).collect()
     }
 }
 
@@ -290,7 +316,6 @@ mod tests {
         std::fs::write(&filename, out).unwrap();
 
         let raw = std::fs::read(&filename).unwrap();
-
         let _deserialized = SafeTensors::deserialize(&raw).unwrap();
     }
 }
