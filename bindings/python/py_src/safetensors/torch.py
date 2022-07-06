@@ -1,4 +1,5 @@
 from safetensors import numpy
+from .safetensors_rust import serialize_file
 import numpy as np
 from typing import Dict
 import torch
@@ -21,9 +22,36 @@ def save(tensors: Dict[str, torch.Tensor]) -> bytes:
     return numpy.save(np_tensors)
 
 
+SIZE = {
+    torch.bfloat16: 2,
+    torch.float16: 2,
+    torch.int32: 4,
+    torch.int64: 4,
+}
+
+
+def tobytes(tensor: torch.Tensor) -> bytes:
+    import ctypes
+
+    length = np.prod(tensor.shape)
+    bytes_per_item = SIZE[tensor.dtype]
+
+    total_bytes = length * bytes_per_item
+
+    ptr = tensor.data_ptr()
+    newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
+
+    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
+
+    return data.tobytes()
+
+
 def save_file(tensors: Dict[str, torch.Tensor], filename: str):
-    np_tensors = pt2np(tensors)
-    return numpy.save_file(np_tensors, filename)
+    flattened = {
+        k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": tobytes(v)}
+        for k, v in tensors.items()
+    }
+    serialize_file(flattened, filename)
 
 
 def load(buffer: bytes) -> Dict[str, torch.Tensor]:
