@@ -22,8 +22,9 @@ jobs:
       # v1 is required when using manylinux2010
       - uses: actions/checkout@v1
 
-      - name: Install dependencies
-        run: yum install -y openssl-devel
+      - uses: actions-rs/toolchain@v1
+        with:
+         toolchain: stable
 
       - name: Build and audit wheels
         working-directory: ./bindings/python
