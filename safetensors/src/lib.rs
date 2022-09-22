@@ -66,7 +66,7 @@ pub fn serialize_to_file(
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let n: u64 = metadata_buf.len() as u64;
     let mut f = BufWriter::new(File::create(filename)?);
-    f.write_all(&n.to_le_bytes().to_vec())?;
+    f.write_all(n.to_le_bytes().as_ref())?;
     f.write_all(&metadata_buf)?;
     for tensor in tensors {
         f.write_all(tensor.data)?;
