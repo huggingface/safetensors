@@ -3,7 +3,7 @@
 This repository implements a new simple format for storing tensors
 safely (as opposed to pickle) and that is still fast (zero-copy). 
 
-##Format
+## Format
 
 8 bytes: `N`, a u64 int, containing the size of the header
 N bytes: a JSON utf-8 string representing the header.
