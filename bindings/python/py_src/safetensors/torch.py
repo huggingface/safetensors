@@ -25,8 +25,12 @@ def save(tensors: Dict[str, torch.Tensor]) -> bytes:
 SIZE = {
     torch.bfloat16: 2,
     torch.float16: 2,
+    torch.float32: 4,
+    torch.uint8: 1,
+    torch.int8: 1,
+    torch.int16: 2,
     torch.int32: 4,
-    torch.int64: 4,
+    torch.int64: 8,
 }
 
 
