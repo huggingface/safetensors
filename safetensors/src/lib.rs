@@ -252,7 +252,7 @@ impl<'data> TensorView<'data> {
         &'data self,
         slices: Vec<TensorIndexer>,
     ) -> Result<SliceIterator<'data>, InvalidSlice> {
-        SliceIterator::new(&self, slices)
+        SliceIterator::new(self, slices)
     }
 }
 
@@ -382,8 +382,7 @@ mod tests {
             .unwrap()
             .i((.., ..1))
             .unwrap()
-            .map(|b| b.to_vec())
-            .flatten()
+            .flat_map(|b| b.to_vec())
             .collect();
         assert_eq!(out_buffer, vec![0u8, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 64]);
         assert_eq!(
@@ -398,8 +397,7 @@ mod tests {
             .unwrap()
             .i((.., .., ..1))
             .unwrap()
-            .map(|b| b.to_vec())
-            .flatten()
+            .flat_map(|b| b.to_vec())
             .collect();
         assert_eq!(out_buffer, vec![0u8, 0, 0, 0, 0, 0, 64, 64]);
         assert_eq!(

@@ -9,7 +9,7 @@ pub enum InvalidSlice {
     TooManySlices,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum TensorIndexer {
     //Select(usize),
     Narrow(Bound<usize>, Bound<usize>),
@@ -295,7 +295,7 @@ mod tests {
 
         let attn_0 = TensorView {
             dtype: &Dtype::F32,
-            shape: &vec![1, 2, 3],
+            shape: &[1, 2, 3],
             data: &data,
         };
 
@@ -362,7 +362,7 @@ mod tests {
 
         let attn_0 = TensorView {
             dtype: &Dtype::F32,
-            shape: &vec![1, 2, 3],
+            shape: &[1, 2, 3],
             data: &data,
         };
 

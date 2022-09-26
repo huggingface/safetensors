@@ -8,7 +8,7 @@ use safetensors::{Dtype, SafeTensors, Tensor};
 use std::collections::HashMap;
 use std::fs::File;
 
-fn prepare<'a>(tensor_dict: HashMap<String, &'a PyDict>) -> PyResult<HashMap<String, Tensor<'a>>> {
+fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Tensor<'_>>> {
     let mut tensors = HashMap::new();
     for (tensor_name, tensor_desc) in tensor_dict {
         let mut shape: Vec<usize> = vec![];
@@ -62,7 +62,7 @@ fn serialize<'a, 'b>(
 }
 
 #[pyfunction]
-fn serialize_file<'a>(tensor_dict: HashMap<String, &'a PyDict>, filename: &str) -> PyResult<()> {
+fn serialize_file(tensor_dict: HashMap<String, &PyDict>, filename: &str) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
     safetensors::serialize_to_file(&tensors, filename)?;
     Ok(())
@@ -78,7 +78,7 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
     for (tensor_name, tensor) in safetensor.tensors() {
         let mut map = HashMap::new();
 
-        let pyshape: PyObject = PyList::new(py, tensor.get_shape().into_iter()).into();
+        let pyshape: PyObject = PyList::new(py, tensor.get_shape().iter()).into();
         let pydtype: PyObject = format!("{:?}", tensor.get_dtype()).into_py(py);
 
         let pydata: PyObject = PyByteArray::new(py, tensor.get_data()).into();
