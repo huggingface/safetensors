@@ -275,7 +275,9 @@ impl<'data> Iterator for SliceIterator<'data> {
     type Item = &'data [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO
+        // TODO We might want to move the logic from `new`
+        // here actually to remove the need to get all the indices
+        // upfront.
         let (start, stop) = self.indices.pop()?;
         Some(&self.view.data[start..stop])
     }
