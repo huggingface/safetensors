@@ -66,6 +66,9 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
+mod slice;
+use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
+
 /// Possible errors that could occur while reading
 /// A Safetensor file.
 #[derive(Debug)]
@@ -145,7 +148,7 @@ pub struct SafeTensors<'data> {
 }
 
 impl<'data> SafeTensors<'data> {
-    /// Given a byte-buffer representing the whole safetenosr file
+    /// Given a byte-buffer representing the whole safetensor file
     /// parses it and returns the Deserialized form (No Tensor allocation).
     pub fn deserialize<'in_data>(buffer: &'in_data [u8]) -> Result<Self, SafeTensorError>
     where
@@ -159,6 +162,9 @@ impl<'data> SafeTensors<'data> {
             std::str::from_utf8(&buffer[8..8 + n]).map_err(|_| SafeTensorError::InvalidHeader)?;
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
+        // TODO validate metadata
+        // - Rest of buffer is used
+        // - Indidivual tensors have the appropriate declared size
         Ok(Self {
             metadata,
             offset: n + 8,
@@ -240,6 +246,16 @@ impl<'data> TensorView<'data> {
     }
 }
 
+impl<'data> TensorView<'data> {
+    /// The various pieces of the data buffer according to the asked slice
+    pub fn get_sliced_data(
+        &'data self,
+        slices: Vec<TensorIndexer>,
+    ) -> Result<SliceIterator<'data>, InvalidSlice> {
+        SliceIterator::new(&self, slices)
+    }
+}
+
 /// A single tensor information.
 /// Endianness is assumed to be little endian
 /// Ordering is assumed to be 'C'.
@@ -285,6 +301,27 @@ pub enum Dtype {
     F64,
 }
 
+impl Dtype {
+    /// Gives out the size (in bytes) of 1 element of this dtype.
+    pub fn size(&self) -> usize {
+        match self {
+            Dtype::BOOL => 1,
+            Dtype::U8 => 1,
+            Dtype::I8 => 1,
+            Dtype::I16 => 2,
+            Dtype::U16 => 2,
+            Dtype::I32 => 4,
+            Dtype::U32 => 4,
+            Dtype::I64 => 8,
+            Dtype::U64 => 8,
+            Dtype::F16 => 2,
+            Dtype::BF16 => 2,
+            Dtype::F32 => 4,
+            Dtype::F64 => 8,
+        }
+    }
+}
+
 /// A struct representing a Tensor, the byte-buffer is not owned
 /// but dtype a shape are.
 pub struct Tensor<'data> {
@@ -303,6 +340,7 @@ impl<'a> Tensor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::slice::IndexOp;
 
     #[test]
     fn test_serialization() {
@@ -320,6 +358,57 @@ mod tests {
 
         let out = serialize(&metadata);
         let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_slicing() {
+        let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let attn_0 = Tensor {
+            dtype: Dtype::F32,
+            shape: vec![1, 2, 3],
+            data: &data,
+        };
+        let metadata: HashMap<String, Tensor> =
+            [("attn.0".to_string(), attn_0)].into_iter().collect();
+
+        let out = serialize(&metadata);
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+
+        let out_buffer: Vec<u8> = parsed
+            .tensor("attn.0")
+            .unwrap()
+            .i((.., ..1))
+            .unwrap()
+            .map(|b| b.to_vec())
+            .flatten()
+            .collect();
+        assert_eq!(out_buffer, vec![0u8, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 64]);
+        assert_eq!(
+            out_buffer,
+            vec![0.0f32, 1.0, 2.0]
+                .into_iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect::<Vec<_>>()
+        );
+        let out_buffer: Vec<u8> = parsed
+            .tensor("attn.0")
+            .unwrap()
+            .i((.., .., ..1))
+            .unwrap()
+            .map(|b| b.to_vec())
+            .flatten()
+            .collect();
+        assert_eq!(out_buffer, vec![0u8, 0, 0, 0, 0, 0, 64, 64]);
+        assert_eq!(
+            out_buffer,
+            vec![0.0f32, 3.0]
+                .into_iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -378,5 +467,6 @@ mod tests {
 
         let raw = std::fs::read(&filename).unwrap();
         let _deserialized = SafeTensors::deserialize(&raw).unwrap();
+        std::fs::remove_file(&filename).unwrap();
     }
 }
