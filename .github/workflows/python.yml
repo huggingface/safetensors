@@ -1,0 +1,72 @@
+name: Python
+
+on:
+  pull_request:
+    paths:
+      - bindings/python/**
+      - safetensors/**
+
+jobs:
+  build_and_test:
+    name: Check everything builds & tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-18.04, macos-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v1
+        
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Install Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+          architecture: "x64"
+
+
+      - name: Cache Cargo Registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Lint with RustFmt
+        uses: actions-rs/cargo@v1
+        with:
+          toolchain: stable
+          command: fmt
+          args: --manifest-path ./bindings/python/Cargo.toml -- --check
+
+      - name: Lint with Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path ./bindings/python/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Install
+        working-directory: ./bindings/python
+        run: |
+          pip install -U pip
+          pip install pytest requests setuptools_rust numpy pyarrow datasets
+          pip install torch tensorflow numpy
+          pip install jax jaxlib flax
+          python setup.py develop
+
+      - name: Check style
+        working-directory: ./bindings/python
+        run: |
+          pip install black==20.8b1 click==8.0.4
+          black --check --line-length 100 --target-version py36 py_src/safetensors tests
+
+      - name: Run tests
+        working-directory: ./bindings/python
+        run: |
+          cargo test
+          pytest -sv tests/

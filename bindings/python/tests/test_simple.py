@@ -2,9 +2,7 @@ import unittest
 from safetensors.numpy import save, load, save_file, load_file
 from safetensors.torch import load_file as load_file_pt, save_file as save_file_pt
 import numpy as np
-from huggingface_hub import hf_hub_download
 import torch
-import datetime
 
 
 class TestCase(unittest.TestCase):
