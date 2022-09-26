@@ -33,6 +33,21 @@ SIZE = {
     torch.int64: 8,
 }
 
+DTYPES = {
+    "F32": torch.float32,
+    "BF16": torch.bfloat16,
+    "F16": torch.float16,
+    "U8": torch.uint8,
+    "I8": torch.int8,
+    "I16": torch.int16,
+    "I32": torch.int32,
+    "I64": torch.int64,
+}
+
+
+def to_dtype(dtype_str: str) -> torch.dtype:
+    return DTYPES[dtype_str]
+
 
 def tobytes(tensor: torch.Tensor) -> bytes:
     import ctypes

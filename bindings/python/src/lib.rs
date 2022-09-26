@@ -107,6 +107,82 @@ fn deserialize_file(
     deserialized
 }
 
+use pyo3::types::PySlice;
+use pyo3::{intern, PyErr};
+use safetensors::slice::TensorIndexer;
+use std::ops::Bound;
+
+fn slice_to_indexer(slice: &PySlice) -> Result<TensorIndexer, PyErr> {
+    let py_start = slice.getattr(intern!(slice.py(), "start"))?;
+    let start: Option<usize> = py_start.extract()?;
+    let start = if let Some(start) = start {
+        Bound::Included(start)
+    } else {
+        Bound::Unbounded
+    };
+
+    let py_stop = slice.getattr(intern!(slice.py(), "stop"))?;
+    let stop: Option<usize> = py_stop.extract()?;
+    let stop = if let Some(stop) = stop {
+        Bound::Excluded(stop)
+    } else {
+        Bound::Unbounded
+    };
+
+    Ok(TensorIndexer::Narrow(start, stop))
+}
+
+#[pyfunction]
+fn deserialize_file_slice(
+    py: Python,
+    filename: &str,
+    tensor_name: &str,
+    slices: Vec<&PySlice>,
+) -> PyResult<HashMap<String, PyObject>> {
+    let file = File::open(filename)?;
+
+    // SAFETY: Mmap is used to prevent allocating in Rust
+    // before making a copy within Python.
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
+    let safetensor = SafeTensors::deserialize(&mmap).map_err(|e| {
+        exceptions::PyException::new_err(format!("Error while deserializing: {:?}", e))
+    })?;
+    let tensor = safetensor
+        .tensor(tensor_name)
+        .map_err(|e| exceptions::PyException::new_err(format!("Tensor not found {:?}", e)))?;
+    let mut map = HashMap::new();
+
+    let pyshape: PyObject = PyList::new(py, tensor.get_shape().iter()).into();
+    let pydtype: PyObject = format!("{:?}", tensor.get_dtype()).into_py(py);
+
+    let slices: Vec<TensorIndexer> = slices
+        .into_iter()
+        .map(slice_to_indexer)
+        .collect::<Result<_, _>>()?;
+    let iterator = tensor
+        .get_sliced_data(slices)
+        .map_err(|e| exceptions::PyException::new_err(format!("Erro during slicing {:?}", e)))?;
+
+    let mut offset = 0;
+    let pydata: PyObject =
+        PyByteArray::new_with(py, iterator.remaining_byte_len(), |bytes: &mut [u8]| {
+            for slice in iterator {
+                let len = slice.len();
+                bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                offset += len
+            }
+            Ok(())
+        })?
+        .into();
+
+    map.insert("shape".to_string(), pyshape);
+    map.insert("dtype".to_string(), pydtype);
+    map.insert("data".to_string(), pydata);
+    // Make sure mmap does not leak.
+    drop(mmap);
+    Ok(map)
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -114,5 +190,6 @@ fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize_file, m)?)?;
+    m.add_function(wrap_pyfunction!(deserialize_file_slice, m)?)?;
     Ok(())
 }

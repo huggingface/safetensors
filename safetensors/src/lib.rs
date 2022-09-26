@@ -66,7 +66,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-mod slice;
+pub mod slice;
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 
 /// Possible errors that could occur while reading

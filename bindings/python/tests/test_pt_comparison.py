@@ -1,5 +1,5 @@
 import unittest
-from safetensors.torch import save_file, load_file, load
+from safetensors.torch import save_file, load_file, load, to_dtype
 from huggingface_hub import hf_hub_download
 import torch
 import datetime
@@ -30,6 +30,31 @@ class SafeTestCase(unittest.TestCase):
         save_file(self.data, outfilename)
         print()
         print("Serialization (safe) took ", datetime.datetime.now() - start)
+
+
+class SliceTestCase(unittest.TestCase):
+    def setUp(self):
+        self.tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
+        self.data = {"test": self.tensor}
+        self.local = "./tests/data/out_safe_pt_mmap.bin"
+        # Need to copy since that call mutates the tensors to numpy
+        save_file(self.data.copy(), self.local)
+
+    def test_deserialization_slice(self):
+        from safetensors.safetensors_rust import deserialize_file_slice
+
+        slices = (slice(None), slice(None), slice(1, 2))
+
+        item = deserialize_file_slice(self.local, "test", slices)
+        self.assertEqual(
+            item["data"],
+            b"\x00\x00\x80?\x00\x00\x80@",
+        )
+
+        dtype = to_dtype(item["dtype"])
+        tensor = torch.frombuffer(item["data"], dtype=dtype).view(1, 2, 1)
+        self.assertTrue(torch.equal(tensor, torch.Tensor([[[1.0], [4.0]]])))
+        self.assertTrue(torch.equal(tensor, self.tensor[:, :, 1:2]))
 
 
 class TorchTestCase(unittest.TestCase):

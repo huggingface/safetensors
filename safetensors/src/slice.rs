@@ -1,3 +1,4 @@
+//! Module handling lazy loading via iterating on slices on the original buffer.
 use crate::TensorView;
 use std::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
@@ -6,12 +7,15 @@ use std::ops::{
 /// Error representing invalid slicing attempt
 #[derive(Debug)]
 pub enum InvalidSlice {
+    /// When the client asked for more slices than the tensors has dimensions
     TooManySlices,
 }
 
 #[derive(Debug)]
+/// Generic structure used to index a slice of the tensor
 pub enum TensorIndexer {
     //Select(usize),
+    /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
     //IndexSelect(Tensor),
 }
@@ -67,7 +71,11 @@ impl_from_range!(RangeInclusive<usize>);
 impl_from_range!(RangeTo<usize>);
 impl_from_range!(RangeToInclusive<usize>);
 
+/// Trait used to implement multiple signatures for ease of use of the slicing
+/// of a tensor
 pub trait IndexOp<'data, T> {
+    /// Returns a slicing iterator which are the chunks of data necessary to
+    /// reconstruct the desired tensor.
     fn i(&'data self, index: T) -> Result<SliceIterator<'data>, InvalidSlice>;
 }
 
@@ -268,6 +276,14 @@ impl<'data> SliceIterator<'data> {
         // Reversing so we can pop faster while iterating on the slice
         let indices = indices.into_iter().rev().collect();
         Ok(Self { view, indices })
+    }
+
+    /// Gives back the amount of bytes still being in the iterator
+    pub fn remaining_byte_len(&self) -> usize {
+        self.indices
+            .iter()
+            .map(|(start, stop)| (stop - start))
+            .sum()
     }
 }
 
