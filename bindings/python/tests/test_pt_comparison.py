@@ -1,5 +1,8 @@
 import unittest
-from safetensors.torch import save_file, load_file, load
+from safetensors.torch import save_file, load_file
+from safetensors.safetensors_rust import (
+    deserialize_file,
+)
 from huggingface_hub import hf_hub_download
 import torch
 import datetime
@@ -7,6 +10,23 @@ import os
 
 
 MODEL_ID = os.getenv("MODEL_ID", "gpt2")
+
+
+class SimpleTestCase(unittest.TestCase):
+    def setUp(self):
+        tensor = torch.ones((2, 3), dtype=torch.bfloat16)
+        self.local = "./small.bin"
+        save_file({"tensor": tensor}, self.local)
+
+    def tearDown(self):
+        os.remove(self.local)
+
+    def test_lazy_load(self):
+        flat = deserialize_file(self.local)
+        tensor = torch.tensor["tensor"][:, 1:]
+        for k, v in flat:
+            tensor = v[
+            print(k)
 
 
 class SafeTestCase(unittest.TestCase):

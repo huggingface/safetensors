@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-//! Dummy doc
+//! Bindings of safetesors
 use memmap::MmapOptions;
 use pyo3::exceptions;
 use pyo3::prelude::*;
