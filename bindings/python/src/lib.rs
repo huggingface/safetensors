@@ -198,6 +198,10 @@ impl safe_open {
         })
     }
 
+    pub fn get_keys(&self) -> PyResult<Vec<String>> {
+        Ok(self.metadata.0.keys().cloned().collect())
+    }
+
     pub fn get_tensor(&self, py: Python, name: &str) -> PyResult<PyObject> {
         if let Some(info) = self.metadata.0.get(name) {
             let data =
