@@ -160,14 +160,15 @@ impl<'source> FromPyObject<'source> for Framework {
 }
 
 #[pyclass]
-struct PySafeFile {
+#[allow(non_camel_case_types)]
+struct safe_open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
     mmap: Arc<Mmap>,
 }
 #[pymethods]
-impl PySafeFile {
+impl safe_open {
     #[new]
     fn new(filename: &str, framework: Framework) -> PyResult<Self> {
         let file = File::open(filename)?;
@@ -197,9 +198,39 @@ impl PySafeFile {
         })
     }
 
-    pub fn __getitem__(&self, name: &str) -> PyResult<PySafeTensor> {
+    pub fn get_tensor(&self, py: Python, name: &str) -> PyResult<PyObject> {
         if let Some(info) = self.metadata.0.get(name) {
-            Ok(PySafeTensor {
+            let data =
+                &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+
+            let array: PyObject = PyByteArray::new(py, data).into_py(py);
+            match self.framework {
+                Framework::Pytorch => {
+                    let module = PyModule::import(py, "torch")?;
+                    let frombuffer = module.getattr("frombuffer")?;
+                    let dtype: PyObject = match info.dtype {
+                        Dtype::F32 => module.getattr("float32")?.into(),
+                        _ => todo!("Pytorch dtypes"),
+                    };
+                    let kwargs = [("buffer", array), ("dtype", dtype)].into_py_dict(py);
+                    let tensor = frombuffer.call((), Some(kwargs))?;
+                    let shape = info.shape.clone();
+                    let shape: PyObject = shape.into_py(py);
+                    let tensor: PyObject = tensor.getattr("view")?.call1((shape,))?.into();
+                    Ok(tensor)
+                }
+                _ => todo!(),
+            }
+        } else {
+            Err(exceptions::PyException::new_err(format!(
+                "File does not contain tensor {name}",
+            )))
+        }
+    }
+
+    pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
+        if let Some(info) = self.metadata.0.get(name) {
+            Ok(PySafeSlice {
                 info: info.clone(),
                 framework: self.framework.clone(),
                 offset: self.offset,
@@ -220,7 +251,7 @@ impl PySafeFile {
 }
 
 #[pyclass]
-struct PySafeTensor {
+struct PySafeSlice {
     info: TensorInfo,
     framework: Framework,
     offset: usize,
@@ -228,11 +259,11 @@ struct PySafeTensor {
 }
 
 #[pymethods]
-impl PySafeTensor {
+impl PySafeSlice {
     pub fn __getitem__(&self, py: Python, slices: Vec<&PySlice>) -> PyResult<PyObject> {
         let data = &self.mmap
             [self.info.data_offsets.0 + self.offset..self.info.data_offsets.1 + self.offset];
-        let tensor = TensorView::new(&self.info.dtype, &self.info.shape, &data);
+        let tensor = TensorView::new(&self.info.dtype, &self.info.shape, data);
         let slices: Vec<TensorIndexer> = slices
             .into_iter()
             .map(slice_to_indexer)
@@ -279,6 +310,6 @@ fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize_file, m)?)?;
-    m.add_class::<PySafeFile>()?;
+    m.add_class::<safe_open>()?;
     Ok(())
 }

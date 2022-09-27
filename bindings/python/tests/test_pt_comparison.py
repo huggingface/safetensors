@@ -1,5 +1,6 @@
 import unittest
-from safetensors.torch import save_file, load_file, load, to_dtype
+from safetensors.torch import save_file, load_file, load
+from safetensors.safetensors_rust import safe_open
 from huggingface_hub import hf_hub_download
 import torch
 import datetime
@@ -41,10 +42,9 @@ class SliceTestCase(unittest.TestCase):
         save_file(self.data.copy(), self.local)
 
     def test_deserialization_slice(self):
-        from safetensors.safetensors_rust import PySafeFile
 
-        with PySafeFile(self.local, framework="pt") as f:
-            tensor = f["test"][:, :, 1:2]
+        with safe_open(self.local, framework="pt") as f:
+            tensor = f.get_slice("test")[:, :, 1:2]
 
         self.assertEqual(
             tensor.numpy().tobytes(),
