@@ -1,7 +1,7 @@
 from safetensors import numpy
-from .safetensors_rust import serialize_file
+from .safetensors_rust import serialize_file, read_metadata
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 import torch
 
 
@@ -17,9 +17,13 @@ def pt2np(torch_dict: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
     return torch_dict
 
 
-def save(tensors: Dict[str, torch.Tensor]) -> bytes:
+def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = pt2np(tensors)
-    return numpy.save(np_tensors)
+    if metadata is None:
+        metadata = {}
+    if "format" not in metadata:
+        metadata["format"] = "pt"
+    return numpy.save(np_tensors, metadata=metadata)
 
 
 SIZE = {
@@ -50,12 +54,16 @@ def tobytes(tensor: torch.Tensor) -> bytes:
     return data.tobytes()
 
 
-def save_file(tensors: Dict[str, torch.Tensor], filename: str):
+def save_file(tensors: Dict[str, torch.Tensor], filename: str, metadata: Optional[Dict[str, str]] = None):
     flattened = {
         k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": tobytes(v)}
         for k, v in tensors.items()
     }
-    serialize_file(flattened, filename)
+    if metadata is None:
+        metadata = {}
+    if "format" not in metadata:
+        metadata["format"] = "pt"
+    serialize_file(flattened, metadata, filename)
 
 
 def load(buffer: bytes) -> Dict[str, torch.Tensor]:
@@ -66,3 +74,7 @@ def load(buffer: bytes) -> Dict[str, torch.Tensor]:
 def load_file(filename: str) -> Dict[str, torch.Tensor]:
     flat = numpy.load_file(filename)
     return np2pt(flat)
+
+
+def read_metadata_in_file(filename: str) -> Dict[str, str]:
+    return read_metadata(filename)

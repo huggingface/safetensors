@@ -80,6 +80,7 @@ pub enum SafeTensorError {
 
 fn prepare<'hash, 'data>(
     data: &'hash HashMap<String, Tensor<'data>>,
+    data_info: &'hash HashMap<String, String>,
 ) -> (Metadata, Vec<&'hash Tensor<'data>>, usize) {
     let mut tensors: Vec<&Tensor> = vec![];
     let mut hmetadata = HashMap::new();
@@ -96,14 +97,14 @@ fn prepare<'hash, 'data>(
         tensors.push(tensor);
     }
 
-    let metadata: Metadata = Metadata(hmetadata);
+    let metadata: Metadata = Metadata(data_info.clone(), hmetadata);
 
     (metadata, tensors, offset)
 }
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
-pub fn serialize(data: &HashMap<String, Tensor>) -> Vec<u8> {
-    let (metadata, tensors, offset) = prepare(data);
+pub fn serialize(data: &HashMap<String, Tensor>, data_info: &HashMap<String, String>) -> Vec<u8> {
+    let (metadata, tensors, offset) = prepare(data, data_info);
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let expected_size = 8 + metadata_buf.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
@@ -121,9 +122,10 @@ pub fn serialize(data: &HashMap<String, Tensor>) -> Vec<u8> {
 /// memory.
 pub fn serialize_to_file(
     data: &HashMap<String, Tensor>,
+    data_info: &HashMap<String, String>,
     filename: &str,
 ) -> Result<(), std::io::Error> {
-    let (metadata, tensors, _) = prepare(data);
+    let (metadata, tensors, _) = prepare(data, data_info);
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let n: u64 = metadata_buf.len() as u64;
     let mut f = BufWriter::new(File::create(filename)?);
@@ -171,7 +173,7 @@ impl<'data> SafeTensors<'data> {
     /// structure.
     pub fn tensors(&self) -> Vec<(String, TensorView<'_>)> {
         let mut tensors = vec![];
-        for (name, info) in &self.metadata.0 {
+        for (name, info) in &self.metadata.1 {
             let tensorview = TensorView {
                 dtype: &info.dtype,
                 shape: &info.shape,
@@ -187,7 +189,7 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'_>, SafeTensorError> {
-        for (name, info) in &self.metadata.0 {
+        for (name, info) in &self.metadata.1 {
             if name == tensor_name {
                 return Ok(TensorView {
                     dtype: &info.dtype,
@@ -204,14 +206,19 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn names(&self) -> Vec<&'_ String> {
-        self.metadata.0.iter().map(|(name, _)| name).collect()
+        self.metadata.1.iter().map(|(name, _)| name).collect()
+    }
+
+    /// Returns additional metadata passed along by the user.
+    pub fn get_metadata(&self) -> HashMap<String, String> {
+        self.metadata.0.clone()
     }
 }
 
 /// The stuct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Deserialize, Serialize)]
-struct Metadata(HashMap<String, TensorInfo>);
+struct Metadata(HashMap<String, String>, HashMap<String, TensorInfo>);
 
 /// A view of a Tensor within the file.
 /// Contains references to data within the full byte-buffer
@@ -310,6 +317,7 @@ mod tests {
             .into_iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
+        let data_info: HashMap<String, String> = HashMap::new();
         let attn_0 = Tensor {
             dtype: Dtype::F32,
             shape: vec![1, 2, 3],
@@ -318,7 +326,7 @@ mod tests {
         let metadata: HashMap<String, Tensor> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata);
+        let out = serialize(&metadata, &data_info);
         let _parsed = SafeTensors::deserialize(&out).unwrap();
     }
 
@@ -354,6 +362,8 @@ mod tests {
         tensors_desc.push(("ln_f.weight".to_string(), vec![768]));
         tensors_desc.push(("ln_f.bias".to_string(), vec![768]));
 
+        let data_info: HashMap<String, String> = HashMap::from([("framework".to_string(), "pt".to_string())]);
+
         let n: usize = tensors_desc
             .iter()
             .map(|item| item.1.iter().product::<usize>())
@@ -372,7 +382,7 @@ mod tests {
 
         let filename = format!("./out_{}.bin", model_id);
 
-        let out = serialize(&metadata);
+        let out = serialize(&metadata, &data_info);
 
         std::fs::write(&filename, out).unwrap();
 

@@ -1,14 +1,18 @@
 import numpy as np
-from .safetensors_rust import deserialize, serialize, deserialize_file, serialize_file
-from typing import Dict
+from .safetensors_rust import deserialize, serialize, deserialize_file, serialize_file, read_metadata
+from typing import Dict, Optional
 
 
-def save(tensor_dict: Dict[str, np.ndarray]) -> bytes:
+def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     flattened = {
         k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
         for k, v in tensor_dict.items()
     }
-    serialized = serialize(flattened)
+    if metadata is None:
+        metadata = {}
+    if "format" not in metadata:
+        metadata["format"] = "np"
+    serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -52,9 +56,17 @@ def view2np(safeview):
     return result
 
 
-def save_file(tensor_dict: Dict[str, np.ndarray], filename: str):
+def save_file(tensor_dict: Dict[str, np.ndarray], filename: str, metadata: Optional[Dict[str, str]] = None):
     flattened = {
         k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
         for k, v in tensor_dict.items()
     }
-    serialize_file(flattened, filename)
+    if metadata is None:
+        metadata = {}
+    if "format" not in metadata:
+        metadata["format"] = "np"
+    serialize_file(flattened, metadata, filename)
+
+
+def read_metadata_in_file(filename: str) -> Dict[str, str]:
+    return read_metadata(filename)

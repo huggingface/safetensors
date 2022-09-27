@@ -1,6 +1,6 @@
 from safetensors import numpy
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 import jax.numpy as jnp
 
 
@@ -16,14 +16,22 @@ def jnp2np(jnp_dict: Dict[str, jnp.DeviceArray]) -> Dict[str, np.array]:
     return jnp_dict
 
 
-def save(tensors: Dict[str, jnp.DeviceArray]) -> bytes:
+def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = jnp2np(tensors)
-    return numpy.save(np_tensors)
+    if metadata is None:
+        metadata = {}
+    if "format" not in metadata:
+        metadata["format"] = "flax"
+    return numpy.save(np_tensors, metadata=metadata)
 
 
-def save_file(tensors: Dict[str, jnp.DeviceArray], filename: str):
+def save_file(tensors: Dict[str, jnp.DeviceArray], filename: str, metadata: Optional[Dict[str, str]] = None):
     np_tensors = jnp2np(tensors)
-    return numpy.save_file(np_tensors, filename)
+    if metadata is None:
+        metadata = {}
+    if "format" not in metadata:
+        metadata["format"] = "flax"
+    return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 
 def load(buffer: bytes) -> Dict[str, jnp.DeviceArray]:
@@ -34,3 +42,7 @@ def load(buffer: bytes) -> Dict[str, jnp.DeviceArray]:
 def load_file(filename: str) -> Dict[str, jnp.DeviceArray]:
     flat = numpy.load_file(filename)
     return np2jnp(flat)
+
+
+def read_metadata_in_file(filename: str) -> Dict[str, str]:
+    return numpy.read_metadata(filename)
