@@ -41,18 +41,16 @@ class SliceTestCase(unittest.TestCase):
         save_file(self.data.copy(), self.local)
 
     def test_deserialization_slice(self):
-        from safetensors.safetensors_rust import deserialize_file_slice
+        from safetensors.safetensors_rust import PySafeFile
 
-        slices = (slice(None), slice(None), slice(1, 2))
+        with PySafeFile(self.local, framework="pt") as f:
+            tensor = f["test"][:, :, 1:2]
 
-        item = deserialize_file_slice(self.local, "test", slices)
         self.assertEqual(
-            item["data"],
+            tensor.numpy().tobytes(),
             b"\x00\x00\x80?\x00\x00\x80@",
         )
 
-        dtype = to_dtype(item["dtype"])
-        tensor = torch.frombuffer(item["data"], dtype=dtype).view(1, 2, 1)
         self.assertTrue(torch.equal(tensor, torch.Tensor([[[1.0], [4.0]]])))
         self.assertTrue(torch.equal(tensor, self.tensor[:, :, 1:2]))
 

@@ -217,7 +217,7 @@ impl<'data> SafeTensors<'data> {
 /// The stuct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Deserialize, Serialize)]
-struct Metadata(HashMap<String, TensorInfo>);
+pub struct Metadata(pub HashMap<String, TensorInfo>);
 
 /// A view of a Tensor within the file.
 /// Contains references to data within the full byte-buffer
@@ -230,6 +230,10 @@ pub struct TensorView<'data> {
 }
 
 impl<'data> TensorView<'data> {
+    /// Create new tensor view
+    pub fn new(dtype: &'data Dtype, shape: &'data [usize], data: &'data [u8]) -> Self {
+        Self { dtype, shape, data }
+    }
     /// The current tensor dtype
     pub fn get_dtype(&self) -> &'data Dtype {
         self.dtype
@@ -260,13 +264,13 @@ impl<'data> TensorView<'data> {
 /// Endianness is assumed to be little endian
 /// Ordering is assumed to be 'C'.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct TensorInfo {
+pub struct TensorInfo {
     /// The type of each element of the tensor
-    dtype: Dtype,
+    pub dtype: Dtype,
     /// The shape of the tensor
-    shape: Vec<usize>,
+    pub shape: Vec<usize>,
     /// The offsets to find the data within the byte-buffer array.
-    data_offsets: (usize, usize),
+    pub data_offsets: (usize, usize),
 }
 
 /// The various available dtypes

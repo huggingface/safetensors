@@ -205,6 +205,7 @@ where
 pub struct SliceIterator<'data> {
     view: &'data TensorView<'data>,
     indices: Vec<(usize, usize)>,
+    newshape: Vec<usize>,
 }
 
 impl<'data> SliceIterator<'data> {
@@ -218,6 +219,7 @@ impl<'data> SliceIterator<'data> {
         if n_slice > n_shape {
             return Err(InvalidSlice::TooManySlices);
         }
+        let mut newshape = Vec::with_capacity(view.shape.len());
 
         // Minimum span is the span of 1 item;
         let mut span = view.dtype.size();
@@ -226,6 +228,7 @@ impl<'data> SliceIterator<'data> {
         for (i, &shape) in view.shape.iter().enumerate().rev() {
             if i >= slices.len() {
                 // We are  not slicing yet, just increase the local span
+                newshape.push(shape);
                 span *= shape;
             } else {
                 let slice = &slices[i];
@@ -248,6 +251,7 @@ impl<'data> SliceIterator<'data> {
                         (*s + 1, *stop + 1)
                     }
                 };
+                newshape.push(stop - start);
                 if indices.is_empty() {
                     if start == 0 && stop == shape {
                         // We haven't started to slice yet, just increase the span
@@ -275,7 +279,11 @@ impl<'data> SliceIterator<'data> {
         }
         // Reversing so we can pop faster while iterating on the slice
         let indices = indices.into_iter().rev().collect();
-        Ok(Self { view, indices })
+        Ok(Self {
+            view,
+            indices,
+            newshape: newshape.into_iter().rev().collect(),
+        })
     }
 
     /// Gives back the amount of bytes still being in the iterator
@@ -284,6 +292,11 @@ impl<'data> SliceIterator<'data> {
             .iter()
             .map(|(start, stop)| (stop - start))
             .sum()
+    }
+
+    /// Gives back the amount of bytes still being in the iterator
+    pub fn newshape(&self) -> Vec<usize> {
+        self.newshape.clone()
     }
 }
 
@@ -303,6 +316,39 @@ impl<'data> Iterator for SliceIterator<'data> {
 mod tests {
     use super::*;
     use crate::{Dtype, TensorView};
+
+    #[test]
+    fn test_helpers() {
+        let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+
+        let attn_0 = TensorView {
+            dtype: &Dtype::F32,
+            shape: &[1, 2, 3],
+            data: &data,
+        };
+
+        let iterator = SliceIterator::new(
+            &attn_0,
+            vec![TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
+        )
+        .unwrap();
+        assert_eq!(iterator.remaining_byte_len(), 24);
+        assert_eq!(iterator.newshape(), vec![1, 2, 3]);
+
+        let iterator = SliceIterator::new(
+            &attn_0,
+            vec![
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
+                TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(iterator.remaining_byte_len(), 12);
+        assert_eq!(iterator.newshape(), vec![1, 1, 3]);
+    }
 
     #[test]
     fn test_dummy() {
