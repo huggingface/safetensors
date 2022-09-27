@@ -68,14 +68,14 @@ impl_from_range!(RangeTo<usize>);
 impl_from_range!(RangeToInclusive<usize>);
 
 pub trait IndexOp<'data, T> {
-    fn i(&'data self, index: T) -> Result<SliceIterator<'data>, InvalidSlice>;
+    fn slice(&'data self, index: T) -> Result<SliceIterator<'data>, InvalidSlice>;
 }
 
 impl<'data, A> IndexOp<'data, A> for TensorView<'data>
 where
     A: Into<TensorIndexer>,
 {
-    fn i(&'data self, index: A) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&'data self, index: A) -> Result<SliceIterator<'data>, InvalidSlice> {
         self.get_sliced_data(vec![index.into()])
     }
 }
@@ -84,7 +84,7 @@ impl<'data, A> IndexOp<'data, (A,)> for TensorView<'data>
 where
     A: Into<TensorIndexer>,
 {
-    fn i(&'data self, index: (A,)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&'data self, index: (A,)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
         self.get_sliced_data(vec![idx_a])
     }
@@ -95,7 +95,7 @@ where
     A: Into<TensorIndexer>,
     B: Into<TensorIndexer>,
 {
-    fn i(&'data self, index: (A, B)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&'data self, index: (A, B)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         self.get_sliced_data(vec![idx_a, idx_b])
@@ -108,7 +108,7 @@ where
     B: Into<TensorIndexer>,
     C: Into<TensorIndexer>,
 {
-    fn i(&'data self, index: (A, B, C)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&'data self, index: (A, B, C)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         let idx_c = index.2.into();
@@ -123,7 +123,7 @@ where
 //     C: Into<TensorIndexer>,
 //     D: Into<TensorIndexer>,
 // {
-//     fn i(&self, index: (A, B, C, D)) -> TensorView<'data> {
+//     fn slice(&self, index: (A, B, C, D)) -> TensorView<'data> {
 //         let idx_a = index.0.into();
 //         let idx_b = index.1.into();
 //         let idx_c = index.2.into();
@@ -140,7 +140,7 @@ where
 //     D: Into<TensorIndexer>,
 //     E: Into<TensorIndexer>,
 // {
-//     fn i(&self, index: (A, B, C, D, E)) -> TensorView<'data> {
+//     fn slice(&self, index: (A, B, C, D, E)) -> TensorView<'data> {
 //         let idx_a = index.0.into();
 //         let idx_b = index.1.into();
 //         let idx_c = index.2.into();
@@ -159,7 +159,7 @@ where
 //     E: Into<TensorIndexer>,
 //     F: Into<TensorIndexer>,
 // {
-//     fn i(&self, index: (A, B, C, D, E, F)) -> TensorView<'data> {
+//     fn slice(&self, index: (A, B, C, D, E, F)) -> TensorView<'data> {
 //         let idx_a = index.0.into();
 //         let idx_b = index.1.into();
 //         let idx_c = index.2.into();
@@ -180,7 +180,7 @@ where
 //     F: Into<TensorIndexer>,
 //     G: Into<TensorIndexer>,
 // {
-//     fn i(&self, index: (A, B, C, D, E, F, G)) -> TensorView<'data> {
+//     fn slice(&self, index: (A, B, C, D, E, F, G)) -> TensorView<'data> {
 //         let idx_a = index.0.into();
 //         let idx_b = index.1.into();
 //         let idx_c = index.2.into();

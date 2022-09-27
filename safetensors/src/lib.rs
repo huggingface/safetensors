@@ -380,7 +380,7 @@ mod tests {
         let out_buffer: Vec<u8> = parsed
             .tensor("attn.0")
             .unwrap()
-            .i((.., ..1))
+            .slice((.., ..1))
             .unwrap()
             .flat_map(|b| b.to_vec())
             .collect();
@@ -395,7 +395,7 @@ mod tests {
         let out_buffer: Vec<u8> = parsed
             .tensor("attn.0")
             .unwrap()
-            .i((.., .., ..1))
+            .slice((.., .., ..1))
             .unwrap()
             .flat_map(|b| b.to_vec())
             .collect();
