@@ -80,7 +80,7 @@ pub enum SafeTensorError {
 
 fn prepare<'hash, 'data>(
     data: &'hash HashMap<String, Tensor<'data>>,
-    data_info: &'hash HashMap<String, String>,
+    data_info: &'hash Option<HashMap<String, String>>,
 ) -> (Metadata, Vec<&'hash Tensor<'data>>, usize) {
     let mut tensors: Vec<&Tensor> = vec![];
     let mut hmetadata = HashMap::new();
@@ -103,7 +103,10 @@ fn prepare<'hash, 'data>(
 }
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
-pub fn serialize(data: &HashMap<String, Tensor>, data_info: &HashMap<String, String>) -> Vec<u8> {
+pub fn serialize(
+    data: &HashMap<String, Tensor>,
+    data_info: &Option<HashMap<String, String>>,
+) -> Vec<u8> {
     let (metadata, tensors, offset) = prepare(data, data_info);
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let expected_size = 8 + metadata_buf.len() + offset;
@@ -122,7 +125,7 @@ pub fn serialize(data: &HashMap<String, Tensor>, data_info: &HashMap<String, Str
 /// memory.
 pub fn serialize_to_file(
     data: &HashMap<String, Tensor>,
-    data_info: &HashMap<String, String>,
+    data_info: &Option<HashMap<String, String>>,
     filename: &str,
 ) -> Result<(), std::io::Error> {
     let (metadata, tensors, _) = prepare(data, data_info);
@@ -210,7 +213,7 @@ impl<'data> SafeTensors<'data> {
     }
 
     /// Returns additional metadata passed along by the user.
-    pub fn get_metadata(&self) -> HashMap<String, String> {
+    pub fn get_metadata(&self) -> Option<HashMap<String, String>> {
         self.metadata.metadata.clone()
     }
 }
@@ -219,16 +222,18 @@ impl<'data> SafeTensors<'data> {
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Metadata {
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "__metadata__")]
-    #[serde(default = "HashMap::new")]
-    metadata: HashMap<String, String>,
+    metadata: Option<HashMap<String, String>>,
     #[serde(flatten)]
     tensors: HashMap<String, TensorInfo>,
 }
 
 impl Metadata {
-    fn new(metadata: HashMap<String, String>, tensors: HashMap<String, TensorInfo>) -> Self {
+    fn new(
+        metadata: Option<HashMap<String, String>>,
+        tensors: HashMap<String, TensorInfo>,
+    ) -> Self {
         Self { metadata, tensors }
     }
 
@@ -238,7 +243,7 @@ impl Metadata {
     }
 
     /// Gives back the metadata
-    pub fn metadata(&self) -> &HashMap<String, String> {
+    pub fn metadata(&self) -> &Option<HashMap<String, String>> {
         &self.metadata
     }
 }
@@ -340,7 +345,6 @@ mod tests {
             .into_iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
-        let data_info: HashMap<String, String> = HashMap::new();
         let attn_0 = Tensor {
             dtype: Dtype::F32,
             shape: vec![1, 2, 3],
@@ -349,7 +353,7 @@ mod tests {
         let metadata: HashMap<String, Tensor> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &data_info);
+        let out = serialize(&metadata, &None);
         let _parsed = SafeTensors::deserialize(&out).unwrap();
     }
 
@@ -406,7 +410,7 @@ mod tests {
 
         let filename = format!("./out_{}.bin", model_id);
 
-        let out = serialize(&metadata, &data_info);
+        let out = serialize(&metadata, &Some(data_info));
 
         std::fs::write(&filename, out).unwrap();
 

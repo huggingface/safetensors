@@ -18,19 +18,11 @@ def jnp2np(jnp_dict: Dict[str, jnp.DeviceArray]) -> Dict[str, np.array]:
 
 def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = jnp2np(tensors)
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "flax"
     return numpy.save(np_tensors, metadata=metadata)
 
 
 def save_file(tensors: Dict[str, jnp.DeviceArray], filename: str, metadata: Optional[Dict[str, str]] = None):
     np_tensors = jnp2np(tensors)
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "flax"
     return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 

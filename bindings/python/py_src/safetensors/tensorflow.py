@@ -18,19 +18,11 @@ def tf2np(tf_dict: Dict[str, tf.DeviceArray]) -> Dict[str, np.array]:
 
 def save(tensors: Dict[str, tf.DeviceArray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = tf2np(tensors)
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "tf"
     return numpy.save(np_tensors, metadata=metadata)
 
 
 def save_file(tensors: Dict[str, tf.DeviceArray], filename: str, metadata: Optional[Dict[str, str]] = None):
     np_tensors = tf2np(tensors)
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "tf"
     return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 

@@ -19,10 +19,6 @@ def pt2np(torch_dict: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = pt2np(tensors)
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "pt"
     return numpy.save(np_tensors, metadata=metadata)
 
 
@@ -59,10 +55,6 @@ def save_file(tensors: Dict[str, torch.Tensor], filename: str, metadata: Optiona
         k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": tobytes(v)}
         for k, v in tensors.items()
     }
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "pt"
     serialize_file(flattened, metadata, filename)
 
 

@@ -8,10 +8,6 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
         k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
         for k, v in tensor_dict.items()
     }
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "np"
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
@@ -61,10 +57,6 @@ def save_file(tensor_dict: Dict[str, np.ndarray], filename: str, metadata: Optio
         k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
         for k, v in tensor_dict.items()
     }
-    if metadata is None:
-        metadata = {}
-    if "format" not in metadata:
-        metadata["format"] = "np"
     serialize_file(flattened, metadata, filename)
 
 
