@@ -51,6 +51,8 @@ class ReadmeTestCase(unittest.TestCase):
         loaded = load_file("./out.bin")
         self.assertTensorEqual(tensors, loaded, np.allclose)
 
+        metadata = 
+
     def test_torch_example(self):
         tensors = {
             "a": torch.zeros((2, 2)),

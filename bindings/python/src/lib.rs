@@ -54,17 +54,22 @@ fn prepare<'a>(tensor_dict: HashMap<String, &'a PyDict>) -> PyResult<HashMap<Str
 fn serialize<'a, 'b>(
     py: Python<'b>,
     tensor_dict: HashMap<String, &'a PyDict>,
+    metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let out = safetensors::serialize(&tensors);
+    let out = safetensors::serialize(&tensors, &metadata);
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
 
 #[pyfunction]
-fn serialize_file<'a>(tensor_dict: HashMap<String, &'a PyDict>, filename: &str) -> PyResult<()> {
+fn serialize_file<'a>(
+    tensor_dict: HashMap<String, &'a PyDict>,
+    metadata: Option<HashMap<String, String>>,
+    filename: &str,
+) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    safetensors::serialize_to_file(&tensors, filename)?;
+    safetensors::serialize_to_file(&tensors, &metadata, filename)?;
     Ok(())
 }
 
@@ -107,6 +112,22 @@ fn deserialize_file(
     deserialized
 }
 
+#[pyfunction]
+fn read_metadata(filename: &str) -> PyResult<Option<HashMap<String, String>>> {
+    let file = File::open(filename)?;
+
+    // SAFETY: Mmap is used to prevent allocating in Rust
+    // before making a copy within Python.
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
+    let safetensor = SafeTensors::deserialize(&mmap).map_err(|e| {
+        exceptions::PyException::new_err(format!("Error while deserializing: {:?}", e))
+    })?;
+    let metadata = safetensor.get_metadata();
+    // Make sure mmap does not leak.
+    drop(mmap);
+    Ok(metadata)
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -114,5 +135,6 @@ fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize_file, m)?)?;
+    m.add_function(wrap_pyfunction!(read_metadata, m)?)?;
     Ok(())
 }
