@@ -3,9 +3,7 @@ from .safetensors_rust import serialize, serialize_file, safe_open, deserialize
 from typing import Dict, Optional
 
 
-def save(
-    tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None
-) -> bytes:
+def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     flattened = {
         k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
         for k, v in tensor_dict.items()

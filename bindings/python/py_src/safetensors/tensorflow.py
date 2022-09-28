@@ -16,9 +16,7 @@ def _tf2np(tf_dict: Dict[str, tf.Tensor]) -> Dict[str, np.array]:
     return tf_dict
 
 
-def save(
-    tensors: Dict[str, tf.Tensor], metadata: Optional[Dict[str, str]] = None
-) -> bytes:
+def save(tensors: Dict[str, tf.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = _tf2np(tensors)
     return numpy.save(np_tensors)
 

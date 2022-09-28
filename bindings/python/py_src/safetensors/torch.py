@@ -5,9 +5,7 @@ from typing import Dict, Optional
 import torch
 
 
-def save(
-    tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None
-) -> bytes:
+def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     flattened = {
         k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": _tobytes(v)}
         for k, v in tensors.items()

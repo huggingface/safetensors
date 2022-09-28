@@ -16,9 +16,7 @@ def _jnp2np(jnp_dict: Dict[str, jnp.DeviceArray]) -> Dict[str, np.array]:
     return jnp_dict
 
 
-def save(
-    tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]] = None
-) -> bytes:
+def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = _jnp2np(tensors)
     return numpy.save(np_tensors)
 
