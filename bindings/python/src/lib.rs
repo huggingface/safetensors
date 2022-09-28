@@ -63,7 +63,11 @@ fn serialize<'a, 'b>(
 }
 
 #[pyfunction]
-fn serialize_file<'a>(tensor_dict: HashMap<String, &'a PyDict>, metadata: HashMap<String, String>, filename: &str) -> PyResult<()> {
+fn serialize_file<'a>(
+    tensor_dict: HashMap<String, &'a PyDict>,
+    metadata: HashMap<String, String>,
+    filename: &str,
+) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
     safetensors::serialize_to_file(&tensors, &metadata, filename)?;
     Ok(())
@@ -109,9 +113,7 @@ fn deserialize_file(
 }
 
 #[pyfunction]
-fn read_metadata(
-    filename: &str,
-) -> PyResult<HashMap<String, String>> {
+fn read_metadata(filename: &str) -> PyResult<HashMap<String, String>> {
     let file = File::open(filename)?;
 
     // SAFETY: Mmap is used to prevent allocating in Rust

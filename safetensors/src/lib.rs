@@ -97,7 +97,7 @@ fn prepare<'hash, 'data>(
         tensors.push(tensor);
     }
 
-    let metadata: Metadata = Metadata(data_info.clone(), hmetadata);
+    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata);
 
     (metadata, tensors, offset)
 }
@@ -173,7 +173,7 @@ impl<'data> SafeTensors<'data> {
     /// structure.
     pub fn tensors(&self) -> Vec<(String, TensorView<'_>)> {
         let mut tensors = vec![];
-        for (name, info) in &self.metadata.1 {
+        for (name, info) in &self.metadata.tensors {
             let tensorview = TensorView {
                 dtype: &info.dtype,
                 shape: &info.shape,
@@ -189,7 +189,7 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'_>, SafeTensorError> {
-        for (name, info) in &self.metadata.1 {
+        for (name, info) in &self.metadata.tensors {
             if name == tensor_name {
                 return Ok(TensorView {
                     dtype: &info.dtype,
@@ -206,19 +206,42 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn names(&self) -> Vec<&'_ String> {
-        self.metadata.1.iter().map(|(name, _)| name).collect()
+        self.metadata.tensors.iter().map(|(name, _)| name).collect()
     }
 
     /// Returns additional metadata passed along by the user.
     pub fn get_metadata(&self) -> HashMap<String, String> {
-        self.metadata.0.clone()
+        self.metadata.metadata.clone()
     }
 }
 
 /// The stuct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Deserialize, Serialize)]
-struct Metadata(HashMap<String, String>, HashMap<String, TensorInfo>);
+pub struct Metadata {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(rename = "__metadata__")]
+    #[serde(default = "HashMap::new")]
+    metadata: HashMap<String, String>,
+    #[serde(flatten)]
+    tensors: HashMap<String, TensorInfo>,
+}
+
+impl Metadata {
+    fn new(metadata: HashMap<String, String>, tensors: HashMap<String, TensorInfo>) -> Self {
+        Self { metadata, tensors }
+    }
+
+    /// Gives back the tensor metadata
+    pub fn tensors(&self) -> &HashMap<String, TensorInfo> {
+        &self.tensors
+    }
+
+    /// Gives back the metadata
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
+    }
+}
 
 /// A view of a Tensor within the file.
 /// Contains references to data within the full byte-buffer
@@ -251,7 +274,7 @@ impl<'data> TensorView<'data> {
 /// Endianness is assumed to be little endian
 /// Ordering is assumed to be 'C'.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct TensorInfo {
+pub struct TensorInfo {
     /// The type of each element of the tensor
     dtype: Dtype,
     /// The shape of the tensor
@@ -362,7 +385,8 @@ mod tests {
         tensors_desc.push(("ln_f.weight".to_string(), vec![768]));
         tensors_desc.push(("ln_f.bias".to_string(), vec![768]));
 
-        let data_info: HashMap<String, String> = HashMap::from([("framework".to_string(), "pt".to_string())]);
+        let data_info: HashMap<String, String> =
+            HashMap::from([("framework".to_string(), "pt".to_string())]);
 
         let n: usize = tensors_desc
             .iter()

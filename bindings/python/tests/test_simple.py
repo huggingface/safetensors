@@ -1,5 +1,5 @@
 import unittest
-from safetensors.numpy import save, load, save_file, load_file
+from safetensors.numpy import save, load, save_file, load_file, read_metadata_in_file
 from safetensors.torch import load_file as load_file_pt, save_file as save_file_pt
 import numpy as np
 from huggingface_hub import hf_hub_download
@@ -14,15 +14,16 @@ class TestCase(unittest.TestCase):
 
         self.assertEqual(
             out,
-            b"""<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00""",
+            b"""[\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"format":"np"},"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00""",
         )
 
         data[1, 1] = 1
         out = save({"test": data})
+        print(out)
 
         self.assertEqual(
             out,
-            b"""<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\00""",
+            b"""[\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"format":"np"},"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00""",
         )
 
     def test_deserialization(self):
@@ -51,6 +52,9 @@ class ReadmeTestCase(unittest.TestCase):
         loaded = load_file("./out.bin")
         self.assertTensorEqual(tensors, loaded, np.allclose)
 
+        metadata = read_metadata_in_file("./out.bin")
+        self.assertDictEqual(metadata, {"format": "np"})
+
     def test_torch_example(self):
         tensors = {
             "a": torch.zeros((2, 2)),
@@ -65,3 +69,6 @@ class ReadmeTestCase(unittest.TestCase):
         # Now loading
         loaded = load_file_pt("./out.bin")
         self.assertTensorEqual(tensors2, loaded, torch.allclose)
+
+        metadata = read_metadata_in_file("./out.bin")
+        self.assertDictEqual(metadata, {"format": "pt"})
