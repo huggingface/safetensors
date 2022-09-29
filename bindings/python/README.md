@@ -55,5 +55,5 @@ Should be enough to install this library locally.
 
 ```
 pip install pytest   # We don't require pytest, but it's a common library used across HF.
-pytest -sv test/
+pytest -sv tests/
 ```
