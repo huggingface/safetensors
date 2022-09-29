@@ -84,3 +84,18 @@ class SliceTestCase(unittest.TestCase):
 
         self.assertTrue(torch.equal(tensor, torch.Tensor([[[1.0], [4.0]]])))
         self.assertTrue(torch.equal(tensor, self.tensor[:, :, 1:2]))
+
+    def test_deserialization_metadata(self):
+        with safe_open(self.local, framework="pt") as f:
+            metadata = f.metadata()
+        self.assertEqual(metadata, None)
+
+        # Save another one *with* metadata
+        tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
+        data = {"test": tensor}
+        local = "./tests/data/out_safe_pt_mmap2.bin"
+        # Need to copy since that call mutates the tensors to numpy
+        save_file(data, local, metadata={"Something": "more"})
+        with safe_open(local, framework="pt") as f:
+            metadata = f.metadata()
+        self.assertEqual(metadata, {"Something": "more"})

@@ -10,7 +10,7 @@ def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = 
         k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": _tobytes(v)}
         for k, v in tensors.items()
     }
-    serialized = serialize(flattened)
+    serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -24,7 +24,7 @@ def save_file(
         k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": _tobytes(v)}
         for k, v in tensors.items()
     }
-    serialize_file(flattened, filename)
+    serialize_file(flattened, filename, metadata=metadata)
 
 
 def load_file(filename: str) -> Dict[str, torch.Tensor]:

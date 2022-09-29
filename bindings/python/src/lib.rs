@@ -77,10 +77,10 @@ fn serialize<'a, 'b>(
 fn serialize_file(
     tensor_dict: HashMap<String, &PyDict>,
     filename: &str,
-    metdata: Option<HashMap<String, String>>,
+    metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    safetensors::tensor::serialize_to_file(&tensors, &metdata, filename)?;
+    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename)?;
     Ok(())
 }
 
@@ -188,6 +188,10 @@ impl safe_open {
             framework,
             mmap: Arc::new(buffer),
         })
+    }
+
+    pub fn metadata(&self) -> Option<HashMap<String, String>> {
+        self.metadata.metadata().clone()
     }
 
     pub fn keys(&self) -> PyResult<Vec<String>> {
