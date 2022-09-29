@@ -42,3 +42,18 @@ save_file(tensors, "./out.bin")
 # Now loading
 loaded = load_file("./out.bin")
 ```
+
+### Installation
+
+```
+pip install setuptools_rust
+pip install -e .
+```
+Should be enough to install this library locally.
+
+### Testing
+
+```
+pip install pytest   # We don't require pytest, but it's a common library used across HF.
+pytest -sv test/
+```
