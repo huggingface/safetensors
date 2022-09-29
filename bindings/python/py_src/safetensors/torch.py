@@ -84,7 +84,7 @@ def _tobytes(tensor: torch.Tensor) -> bytes:
     import ctypes
     import numpy as np
 
-    length = math.prod(tensor.shape)
+    length = np.prod(tensor.shape).item()
     bytes_per_item = _SIZE[tensor.dtype]
 
     total_bytes = length * bytes_per_item
