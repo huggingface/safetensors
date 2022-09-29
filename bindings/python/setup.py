@@ -10,7 +10,7 @@ extras["docs"] = ["sphinx", "sphinx_rtd_theme", "setuptools_rust"]
 
 setup(
     name="safetensors",
-    version="0.0.2.dev0",
+    version="0.2.0",
     description="Fast and Safe Tensor serialization",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
