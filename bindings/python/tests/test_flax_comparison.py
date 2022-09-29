@@ -1,11 +1,16 @@
 import unittest
-from safetensors.flax import save_file, load_file
 from huggingface_hub import hf_hub_download
-from flax.serialization import msgpack_restore, msgpack_serialize
 import numpy as np
-import jax.numpy as jnp
 import datetime
 import os
+import platform
+
+if platform.system() != "Windows":
+    # This platform is not supported, we don't want to crash on import
+    # This test will be skipped anyway.
+    from safetensors.flax import save_file, load_file
+    from flax.serialization import msgpack_restore, msgpack_serialize
+    import jax.numpy as jnp
 
 MODEL_ID = os.getenv("MODEL_ID", "gpt2")
 
@@ -24,6 +29,8 @@ def load(nested_np_dicts):
     return tensors
 
 
+# Jax doesn't not exist on Windows
+@unittest.skipIf(platform.system() == "Windows", "Jax is not available on Windows")
 class SafeTestCase(unittest.TestCase):
     def setUp(self):
         self.filename = hf_hub_download(MODEL_ID, filename="flax_model.msgpack")
@@ -34,38 +41,37 @@ class SafeTestCase(unittest.TestCase):
         save_file(self.data, self.local)
 
     def test_deserialization_safe(self):
+        load_file(self.local)
+
         start = datetime.datetime.now()
         load_file(self.local)
-        print()
-        print("Deserialization (Safe) took ", datetime.datetime.now() - start)
+        safe_time = datetime.datetime.now() - start
 
-    def test_serialization_safe(self):
-        start = datetime.datetime.now()
-        outfilename = "./tests/data/out_safe.bin"
-        save_file(self.data, outfilename)
-        print()
-        print("Serialization (safe) took ", datetime.datetime.now() - start)
-
-
-class FlaxTestCase(unittest.TestCase):
-    def setUp(self):
-        self.filename = hf_hub_download(MODEL_ID, filename="flax_model.msgpack")
         with open(self.filename, "rb") as f:
             data = f.read()
-        self.data = msgpack_restore(data)
 
-    def test_deserialization_flax(self):
         start = datetime.datetime.now()
         with open(self.filename, "rb") as f:
             data = f.read()
         msgpack_restore(data)
-        print()
-        print("Deserialization (flax) took ", datetime.datetime.now() - start)
+        flax_time = datetime.datetime.now() - start
 
-    def test_serialization_flax(self):
+        print()
+        print(f"Deserialization (Safe) took {safe_time}")
+        print(f"Deserialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
+
+    def test_serialization_safe(self):
+        outfilename = "./tests/data/out_safe.bin"
+        save_file(self.data, outfilename)
+        start = datetime.datetime.now()
+        save_file(self.data, outfilename)
+        safe_time = datetime.datetime.now() - start
         start = datetime.datetime.now()
         serialized = msgpack_serialize(self.data)
         with open("./tests/data/out_flax.msgpack", "wb") as f:
             f.write(serialized)
+        flax_time = datetime.datetime.now() - start
         print()
+        print(f"Serialization (safe) took {safe_time}")
         print("Serialization (flax) took ", datetime.datetime.now() - start)
+        print(f"Deserialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
