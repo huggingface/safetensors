@@ -24,6 +24,24 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
 
+    def test_gpu(self):
+        data = {
+            "test": torch.arange(4).view((2, 2)).to('cuda:0'),
+        }
+        local = "./tests/data/out_safe_pt_mmap.bin"
+        save_file(data, local)
+        reloaded = load_file(local)
+        self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
+
+    def test_sparse(self):
+        data = {
+            "test": torch.sparse_coo_tensor(size=(2, 3))
+        }
+        local = "./tests/data/out_safe_pt_sparse.bin"
+        with self.assertRaises(ValueError):
+            save_file(data, local)
+
+
 
 class SpeedTestCase(unittest.TestCase):
     def setUp(self):
@@ -72,6 +90,14 @@ class SliceTestCase(unittest.TestCase):
         self.local = "./tests/data/out_safe_pt_mmap.bin"
         # Need to copy since that call mutates the tensors to numpy
         save_file(self.data.copy(), self.local)
+
+    def test_cannot_serialize_a_non_contiguous_tensor(self):
+        tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
+        x = tensor[:,:, 1]
+        data = {"test": x}
+        self.assertFalse(x.is_contiguous(), )
+        with self.assertRaises(ValueError):
+            save_file(data, "./tests/data/out.bin")
 
     def test_deserialization_slice(self):
         with safe_open(self.local, framework="pt") as f:
