@@ -1,0 +1,49 @@
+repos:
+  - repo: https://github.com/Narsil/pre-commit-rust
+    rev: 0c016cee78144d06d906fccc7715d607a946ca5c
+    hooks:
+      - id: fmt
+        name: "Rust (fmt)"
+        args: ["--manifest-path", "safetensors/Cargo.toml", "--"]
+      - id: clippy
+        name: "Rust (clippy)"
+        args:
+          [
+            "--manifest-path",
+            "safetensors/Cargo.toml",
+            "--all-features",
+            "--all-targets",
+            "--",
+            "-Dwarnings",
+          ]
+  - repo: https://github.com/Narsil/pre-commit-rust
+    rev: 0c016cee78144d06d906fccc7715d607a946ca5c
+    hooks:
+      - id: fmt
+        name: "Python (fmt)"
+        args: ["--manifest-path", "bindings/python/Cargo.toml", "--"]
+      - id: clippy
+        name: "Python (clippy)"
+        args:
+          [
+            "--manifest-path",
+            "bindings/python/Cargo.toml",
+            "--all-features",
+            "--all-targets",
+            "--",
+            "-Dwarnings",
+          ]
+  - repo: https://github.com/ambv/black
+    rev: 21.4b2
+    hooks:
+      - id: black
+        name: "Python (black)"
+        args: ["--line-length", "100", "--target-version", "py35"]
+        types: ["python"]
+  - repo: https://github.com/ambv/black
+    rev: 21.4b2
+    hooks:
+      - id: black
+        name: "Python Pyi (black)"
+        args: ["--line-length", "100", "--target-version", "py35"]
+        types: ["pyi"]
