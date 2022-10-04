@@ -26,7 +26,7 @@ class TorchTestCase(unittest.TestCase):
 
     def test_gpu(self):
         data = {
-            "test": torch.arange(4).view((2, 2)).to('cuda:0'),
+            "test": torch.arange(4).view((2, 2)).to("cuda:0"),
         }
         local = "./tests/data/out_safe_pt_mmap.bin"
         save_file(data, local)
@@ -34,13 +34,10 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
 
     def test_sparse(self):
-        data = {
-            "test": torch.sparse_coo_tensor(size=(2, 3))
-        }
+        data = {"test": torch.sparse_coo_tensor(size=(2, 3))}
         local = "./tests/data/out_safe_pt_sparse.bin"
         with self.assertRaises(ValueError):
             save_file(data, local)
-
 
 
 class SpeedTestCase(unittest.TestCase):
@@ -93,9 +90,11 @@ class SliceTestCase(unittest.TestCase):
 
     def test_cannot_serialize_a_non_contiguous_tensor(self):
         tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
-        x = tensor[:,:, 1]
+        x = tensor[:, :, 1]
         data = {"test": x}
-        self.assertFalse(x.is_contiguous(), )
+        self.assertFalse(
+            x.is_contiguous(),
+        )
         with self.assertRaises(ValueError):
             save_file(data, "./tests/data/out.bin")
 
