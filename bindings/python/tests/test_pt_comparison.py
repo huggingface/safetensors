@@ -24,6 +24,7 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
 
+    @unittest.skipIf(torch.cuda.is_available())
     def test_gpu(self):
         data = {
             "test": torch.arange(4).view((2, 2)).to("cuda:0"),
