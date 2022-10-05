@@ -1,12 +1,12 @@
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import torch
 
 from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
-def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
-    flattened = {
+def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    return {
         k: {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
@@ -14,7 +14,10 @@ def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = 
         }
         for k, v in tensors.items()
     }
-    serialized = serialize(flattened, metadata=metadata)
+
+
+def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
+    serialized = serialize(_flatten(tensors), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -24,15 +27,7 @@ def save_file(
     filename: str,
     metadata: Optional[Dict[str, str]] = None,
 ):
-    flattened = {
-        k: {
-            "dtype": str(v.dtype).split(".")[-1],
-            "shape": v.shape,
-            "data": _tobytes(v, k),
-        }
-        for k, v in tensors.items()
-    }
-    serialize_file(flattened, filename, metadata=metadata)
+    serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
 def load_file(filename: str) -> Dict[str, torch.Tensor]:
