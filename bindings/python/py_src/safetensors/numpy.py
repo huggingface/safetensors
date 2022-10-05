@@ -1,13 +1,12 @@
-import numpy as np
-from .safetensors_rust import serialize, serialize_file, safe_open, deserialize
 from typing import Dict, Optional
+
+import numpy as np
+
+from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
 def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
-    flattened = {
-        k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
-        for k, v in tensor_dict.items()
-    }
+    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
@@ -27,10 +26,7 @@ def load_file(filename: str) -> Dict[str, np.ndarray]:
 
 
 def save_file(tensor_dict: Dict[str, np.ndarray], filename: str):
-    flattened = {
-        k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()}
-        for k, v in tensor_dict.items()
-    }
+    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
     serialize_file(flattened, filename)
 
 

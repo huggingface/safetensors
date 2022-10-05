@@ -62,8 +62,8 @@ jobs:
       - name: Check style
         working-directory: ./bindings/python
         run: |
-          pip install black==20.8b1 click==8.0.4
-          black --check --line-length 100 --target-version py36 py_src/safetensors tests
+          pip install black==22.3 click==8.0.4
+          black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
       - name: Run tests
         working-directory: ./bindings/python

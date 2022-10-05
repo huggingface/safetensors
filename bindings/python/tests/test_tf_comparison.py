@@ -1,11 +1,14 @@
-import unittest
-from safetensors.tensorflow import save_file, load_file
-from huggingface_hub import hf_hub_download
 import datetime
+import os
+import unittest
+
 import h5py
 import numpy as np
-import os
 import tensorflow as tf
+
+from huggingface_hub import hf_hub_download
+from safetensors.tensorflow import load_file, save_file
+
 
 MODEL_ID = os.getenv("MODEL_ID", "gpt2")
 

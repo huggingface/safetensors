@@ -1,16 +1,23 @@
-from .safetensors_rust import serialize_file, serialize, safe_open, deserialize
-import math
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import torch
 
+from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
-def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
-    flattened = {
-        k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": _tobytes(v)}
+
+def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    return {
+        k: {
+            "dtype": str(v.dtype).split(".")[-1],
+            "shape": v.shape,
+            "data": _tobytes(v, k),
+        }
         for k, v in tensors.items()
     }
-    serialized = serialize(flattened, metadata=metadata)
+
+
+def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
+    serialized = serialize(_flatten(tensors), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -20,11 +27,7 @@ def save_file(
     filename: str,
     metadata: Optional[Dict[str, str]] = None,
 ):
-    flattened = {
-        k: {"dtype": str(v.dtype).split(".")[-1], "shape": v.shape, "data": _tobytes(v)}
-        for k, v in tensors.items()
-    }
-    serialize_file(flattened, filename, metadata=metadata)
+    serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
 def load_file(filename: str) -> Dict[str, torch.Tensor]:
@@ -80,8 +83,29 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
         result[k] = arr
 
 
-def _tobytes(tensor: torch.Tensor) -> bytes:
+def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
+
+    try:
+        if not tensor.is_contiguous():
+            raise ValueError(
+                f"You are trying to save a non contiguous tensor: `{name}` which is not allowed. It either means you"
+                " are trying to save tensors which are reference of each other in which case it's recommended to save"
+                " only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to"
+                " pack it before saving."
+            )
+    except RuntimeError:
+        # This occurs with sparse tensors
+        raise ValueError(
+            f"You are trying to save a sparse tensor: `{name}` which this library does not support."
+            " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
+            " make a much larger file than needed."
+        )
+    if tensor.device.type != "cpu":
+        # Moving tensor to cpu before saving
+        tensor = tensor.to("cpu")
+
     import ctypes
+
     import numpy as np
 
     length = np.prod(tensor.shape).item()

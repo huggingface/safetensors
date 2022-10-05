@@ -1,16 +1,19 @@
-import unittest
-from huggingface_hub import hf_hub_download
-import numpy as np
 import datetime
 import os
 import platform
+import unittest
+
+import numpy as np
+
+from huggingface_hub import hf_hub_download
+
 
 if platform.system() != "Windows":
     # This platform is not supported, we don't want to crash on import
     # This test will be skipped anyway.
-    from safetensors.flax import save_file, load_file
-    from flax.serialization import msgpack_restore, msgpack_serialize
     import jax.numpy as jnp
+    from flax.serialization import msgpack_restore, msgpack_serialize
+    from safetensors.flax import load_file, save_file
 
 MODEL_ID = os.getenv("MODEL_ID", "gpt2")
 
