@@ -21,7 +21,7 @@ quality:
 	black --check --preview $(check_dirs)
 	isort --check-only $(check_dirs)
 	flake8 $(check_dirs)
-	doc-builder style src/transformers docs/source --max_len 119 --check_only --path_to_docs docs/source
+	# doc-builder style src/transformers docs/source --max_len 119 --check_only --path_to_docs docs/source
 
 style:
 	black --preview $(check_dirs)
