@@ -93,10 +93,10 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     try:
         if not tensor.is_contiguous():
             raise ValueError(
-                f"""You are trying to save a non contiguous tensor: `{name}` which is not allowed. It either means
-            you are trying to save tensors which are reference of each other in which case it's recommended to save
-            only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to pack it
-            before saving."""
+                f"You are trying to save a non contiguous tensor: `{name}` which is not allowed. It either means "
+                "you are trying to save tensors which are reference of each other in which case it's recommended to save "
+                "only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to pack it "
+                "before saving."
             )
     except RuntimeError:
         # This occurs with sparse tensors
