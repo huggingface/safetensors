@@ -1,7 +1,9 @@
-from safetensors import numpy
-import numpy as np
 from typing import Dict, Optional
+
+import numpy as np
+
 import jax.numpy as jnp
+from safetensors import numpy
 
 
 def _np2jnp(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, jnp.DeviceArray]:

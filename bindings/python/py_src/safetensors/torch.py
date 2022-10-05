@@ -1,8 +1,8 @@
-from .safetensors_rust import serialize_file, serialize, safe_open, deserialize
-import math
 from typing import Dict, Optional
 
 import torch
+
+from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
@@ -109,6 +109,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
         tensor = tensor.to("cpu")
 
     import ctypes
+
     import numpy as np
 
     length = np.prod(tensor.shape).item()

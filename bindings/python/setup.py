@@ -1,8 +1,12 @@
 from setuptools import setup
 from setuptools_rust import Binding, RustExtension
 
+
 extras = {}
 extras["testing"] = [
+    "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
+    "isort>=5.5.4",
+    "flake8>=3.8.3",
     "pytest",
     "numpy",
 ]
@@ -19,9 +23,7 @@ setup(
     author_email="",
     url="https://github.com/huggingface/safetensors",
     license="Apache License 2.0",
-    rust_extensions=[
-        RustExtension("safetensors.safetensors_rust", binding=Binding.PyO3, debug=False)
-    ],
+    rust_extensions=[RustExtension("safetensors.safetensors_rust", binding=Binding.PyO3, debug=False)],
     extras_require=extras,
     classifiers=[
         "Development Status :: 5 - Production/Stable",

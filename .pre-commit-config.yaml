@@ -33,17 +33,19 @@ repos:
             "--",
             "-Dwarnings",
           ]
-  - repo: https://github.com/ambv/black
-    rev: 21.4b2
+  - repo: https://github.com/psf/black
+    rev: 22.3.0
     hooks:
       - id: black
         name: "Python (black)"
-        args: ["--line-length", "100", "--target-version", "py35"]
+        args: ["--line-length", "119", "--target-version", "py35"]
         types: ["python"]
-  - repo: https://github.com/ambv/black
-    rev: 21.4b2
+  - repo: https://gitlab.com/pycqa/flake8
+    rev: 3.8.3
     hooks:
-      - id: black
-        name: "Python Pyi (black)"
-        args: ["--line-length", "100", "--target-version", "py35"]
-        types: ["pyi"]
+      - id: flake8
+        args: ["--config", "bindings/python/setup.cfg"]
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: v5.7.0 # Use the revision sha / tag you want to point at
+    hooks:
+      - id: isort

@@ -1,10 +1,12 @@
-import unittest
-from safetensors.torch import save_file, load_file
-from safetensors.safetensors_rust import safe_open
-from huggingface_hub import hf_hub_download
-import torch
 import datetime
 import os
+import unittest
+
+import torch
+
+from huggingface_hub import hf_hub_download
+from safetensors.safetensors_rust import safe_open
+from safetensors.torch import load_file, save_file
 
 
 MODEL_ID = os.getenv("MODEL_ID", "gpt2")
