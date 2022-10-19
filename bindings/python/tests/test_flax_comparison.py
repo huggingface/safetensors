@@ -40,7 +40,7 @@ class SafeTestCase(unittest.TestCase):
         with open(self.filename, "rb") as f:
             data = f.read()
         self.data = load(msgpack_restore(data))
-        self.local = "./tests/data/out_safe_flax_mmap.bin"
+        self.local = "./tests/data/out_safe_flax_mmap.safetensors"
         save_file(self.data, self.local)
 
     def test_deserialization_safe(self):
@@ -64,7 +64,7 @@ class SafeTestCase(unittest.TestCase):
         print(f"Deserialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
 
     def test_serialization_safe(self):
-        outfilename = "./tests/data/out_safe.bin"
+        outfilename = "./tests/data/out_safe.safetensors"
         save_file(self.data, outfilename)
         start = datetime.datetime.now()
         save_file(self.data, outfilename)

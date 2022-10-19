@@ -19,7 +19,7 @@ class TorchTestCase(unittest.TestCase):
             "test2": torch.zeros((2, 2), dtype=torch.float16),
             "test3": torch.zeros((2, 2), dtype=torch.bool),
         }
-        local = "./tests/data/out_safe_pt_mmap.bin"
+        local = "./tests/data/out_safe_pt_mmap.safetensors"
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
@@ -31,14 +31,14 @@ class TorchTestCase(unittest.TestCase):
         data = {
             "test": torch.arange(4).view((2, 2)).to("cuda:0"),
         }
-        local = "./tests/data/out_safe_pt_mmap.bin"
+        local = "./tests/data/out_safe_pt_mmap.safetensors"
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
 
     def test_sparse(self):
         data = {"test": torch.sparse_coo_tensor(size=(2, 3))}
-        local = "./tests/data/out_safe_pt_sparse.bin"
+        local = "./tests/data/out_safe_pt_sparse.safetensors"
         with self.assertRaises(ValueError):
             save_file(data, local)
 
@@ -47,7 +47,7 @@ class SpeedTestCase(unittest.TestCase):
     def setUp(self):
         self.filename = hf_hub_download(MODEL_ID, filename="pytorch_model.bin")
         self.data = torch.load(self.filename, map_location="cpu")
-        self.local = "./tests/data/out_safe_pt_mmap.bin"
+        self.local = "./tests/data/out_safe_pt_mmap.safetensors"
         # Need to copy since that call mutates the tensors to numpy
         save_file(self.data.copy(), self.local)
 
@@ -69,12 +69,12 @@ class SpeedTestCase(unittest.TestCase):
 
     def test_serialization_safe(self):
         start = datetime.datetime.now()
-        outfilename = "./tests/data/out_safe.bin"
+        outfilename = "./tests/data/out_safe.safetensors"
         save_file(self.data, outfilename)
         safe_time = datetime.datetime.now() - start
 
         start = datetime.datetime.now()
-        with open("./tests/data/out_pt.bin", "wb") as f:
+        with open("./tests/data/out_pt.safetensors", "wb") as f:
             torch.save(self.data, f)
         pt_time = datetime.datetime.now() - start
 
@@ -87,7 +87,7 @@ class SliceTestCase(unittest.TestCase):
     def setUp(self):
         self.tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
         self.data = {"test": self.tensor}
-        self.local = "./tests/data/out_safe_pt_mmap.bin"
+        self.local = "./tests/data/out_safe_pt_mmap.safetensors"
         # Need to copy since that call mutates the tensors to numpy
         save_file(self.data.copy(), self.local)
 
@@ -99,7 +99,7 @@ class SliceTestCase(unittest.TestCase):
             x.is_contiguous(),
         )
         with self.assertRaises(ValueError):
-            save_file(data, "./tests/data/out.bin")
+            save_file(data, "./tests/data/out.safetensors")
 
     def test_deserialization_slice(self):
         with safe_open(self.local, framework="pt") as f:
@@ -121,7 +121,7 @@ class SliceTestCase(unittest.TestCase):
         # Save another one *with* metadata
         tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
         data = {"test": tensor}
-        local = "./tests/data/out_safe_pt_mmap2.bin"
+        local = "./tests/data/out_safe_pt_mmap2.safetensors"
         # Need to copy since that call mutates the tensors to numpy
         save_file(data, local, metadata={"Something": "more"})
         with safe_open(local, framework="pt") as f:

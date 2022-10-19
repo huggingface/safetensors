@@ -46,10 +46,10 @@ class ReadmeTestCase(unittest.TestCase):
     def test_numpy_example(self):
         tensors = {"a": np.zeros((2, 2)), "b": np.zeros((2, 3), dtype=np.uint8)}
 
-        save_file(tensors, "./out.bin")
+        save_file(tensors, "./out.safetensors")
 
         # Now loading
-        loaded = load_file("./out.bin")
+        loaded = load_file("./out.safetensors")
         self.assertTensorEqual(tensors, loaded, np.allclose)
 
     def test_torch_example(self):
@@ -61,8 +61,8 @@ class ReadmeTestCase(unittest.TestCase):
         # test to be correct.
         tensors2 = tensors.copy()
 
-        save_file_pt(tensors, "./out.bin")
+        save_file_pt(tensors, "./out.safetensors")
 
         # Now loading
-        loaded = load_file_pt("./out.bin")
+        loaded = load_file_pt("./out.safetensors")
         self.assertTensorEqual(tensors2, loaded, torch.allclose)

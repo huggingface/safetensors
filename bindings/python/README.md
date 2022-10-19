@@ -18,11 +18,11 @@ tensors = {
    "b": np.zeros((2, 3), dtype=np.uint8)
 }
 
-save_file(tensors, "./out.bin")
+save_file(tensors, "./model.safetensors")
 
 
 # Now loading
-loaded = load_file("./out.bin")
+loaded = load_file("./model.safetensors")
 ```
 
 ### Torch
@@ -36,11 +36,11 @@ tensors = {
    "b": torch.zeros((2, 3), dtype=torch.uint8)
 }
 
-save_file(tensors, "./out.bin")
+save_file(tensors, "./model.safetensors")
 
 
 # Now loading
-loaded = load_file("./out.bin")
+loaded = load_file("./model.safetensors")
 ```
 
 ### Installation

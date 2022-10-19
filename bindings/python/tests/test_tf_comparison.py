@@ -64,7 +64,7 @@ class SafeTestCase(unittest.TestCase):
         print(f"Deserialization (TF) took {tf_time} (Safe is {tf_time/safe_time} faster)")
 
     def test_serialization_safe(self):
-        outfilename = "./tests/data/out_safe.bin"
+        outfilename = "./tests/data/out_safe.safetensors"
         data = self.data.copy()
         save_file(data, outfilename)
 
