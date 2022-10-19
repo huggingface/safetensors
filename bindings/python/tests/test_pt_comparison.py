@@ -45,7 +45,7 @@ class TorchTestCase(unittest.TestCase):
 
 class SpeedTestCase(unittest.TestCase):
     def setUp(self):
-        self.filename = hf_hub_download(MODEL_ID, filename="pytorch_model.safetensors")
+        self.filename = hf_hub_download(MODEL_ID, filename="pytorch_model.bin")
         self.data = torch.load(self.filename, map_location="cpu")
         self.local = "./tests/data/out_safe_pt_mmap.safetensors"
         # Need to copy since that call mutates the tensors to numpy
