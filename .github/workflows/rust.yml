@@ -53,4 +53,4 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         working-directory: ./safetensors
-        run: cargo readme > must_match_readme.md && diff must_match_readme.md README.md
+        run: cargo readme > must_match_readme.md && diff must_match_readme.md README.md && diff must_match_readme.md ../README.md
