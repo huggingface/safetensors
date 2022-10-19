@@ -4,6 +4,7 @@ import json
 import torch
 
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download
+from huggingface_hub.utils._errors import EntryNotFoundError
 from safetensors.torch import save_file
 
 
@@ -18,6 +19,7 @@ def convert_multi(model_id):
         cached_filename = hf_hub_download(repo_id=model_id, filename=filename)
         loaded = torch.load(cached_filename)
         local = filename.replace(".bin", ".safetensors")
+        local = local.replace("pytorch_model", "model")
         save_file(loaded, local, metadata={"format": "pt"})
         local_filenames.append(local)
 
@@ -65,5 +67,5 @@ if __name__ == "__main__":
     model_id = args.model_id
     try:
         convert_multi(model_id)
-    except Exception:
+    except EntryNotFoundError:
         convert_single(model_id)
