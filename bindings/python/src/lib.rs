@@ -127,7 +127,7 @@ fn slice_to_indexer(slice: &PySlice) -> Result<TensorIndexer, PyErr> {
     Ok(TensorIndexer::Narrow(start, stop))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Framework {
     Pytorch,
     Numpy,
@@ -166,6 +166,12 @@ impl safe_open {
     fn new(filename: &str, framework: Framework, device: Option<String>) -> PyResult<Self> {
         let file = File::open(filename)?;
         let device = device.unwrap_or_else(|| "cpu".to_string());
+
+        if device != "cpu" && framework != Framework::Pytorch {
+            return Err(exceptions::PyException::new_err(format!(
+                "Device {device} is not support for framework {framework:?}",
+            )));
+        }
 
         // SAFETY: Mmap is used to prevent allocating in Rust
         // before making a copy within Python.
@@ -340,13 +346,15 @@ fn create_tensor(
                 let module = PyModule::import(py, module_name)?;
                 let frombuffer = module.getattr("frombuffer")?;
                 let dtype: PyObject = get_pydtype(module, dtype)?;
-                let device: PyObject = device.into_py(py);
                 let kwargs = [("buffer", array), ("dtype", dtype)].into_py_dict(py);
                 let tensor = frombuffer.call((), Some(kwargs))?;
                 let shape = shape.to_vec();
                 let shape: PyObject = shape.into_py(py);
-                let tensor: &PyAny = tensor.getattr("reshape")?.call1((shape,))?;
-                let tensor: &PyAny = tensor.getattr("to")?.call1((device,))?;
+                let mut tensor: &PyAny = tensor.getattr("reshape")?.call1((shape,))?;
+                if device != "cpu" {
+                    let device: PyObject = device.into_py(py);
+                    tensor = tensor.getattr("to")?.call1((device,))?;
+                }
                 let tensor: PyObject = tensor.into_py(py);
                 Ok(tensor)
             })

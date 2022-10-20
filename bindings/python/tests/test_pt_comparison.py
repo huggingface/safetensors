@@ -46,10 +46,11 @@ class TorchTestCase(unittest.TestCase):
 class SpeedTestCase(unittest.TestCase):
     def setUp(self):
         self.filename = hf_hub_download(MODEL_ID, filename="pytorch_model.bin")
-        # self.data = torch.load(self.filename, map_location="cpu")
         self.local = "./tests/data/out_safe_pt_mmap.safetensors"
-        # Need to copy since that call mutates the tensors to numpy
-        # save_file(self.data.copy(), self.local)
+        if not os.path.exists(self.local):
+            data = torch.load(self.filename, map_location="cpu")
+            # Need to copy since that call mutates the tensors to numpy
+            save_file(data.copy(), self.local)
 
     def test_deserialization_safe(self):
         start = datetime.datetime.now()
@@ -93,9 +94,10 @@ class SpeedTestCase(unittest.TestCase):
             self.assertEqual(v.device, torch.device("cuda:0"))
 
     def test_serialization_safe(self):
+        data = torch.load(self.filename, map_location="cpu")
         start = datetime.datetime.now()
         outfilename = "./tests/data/out_safe.safetensors"
-        save_file(self.data, outfilename)
+        save_file(data, outfilename)
         safe_time = datetime.datetime.now() - start
 
         start = datetime.datetime.now()
