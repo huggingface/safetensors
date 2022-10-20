@@ -3,3 +3,6 @@ Cargo.lock
 *.bin
 *.h5
 *.msgpack
+*.pt
+*.safetensors
+*.npz
