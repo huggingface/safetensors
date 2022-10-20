@@ -1,6 +1,6 @@
+import mmap
 from typing import Any, Dict, Optional
 
-import mmap
 import torch
 
 from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
@@ -38,7 +38,11 @@ def load_file(filename: str) -> Dict[str, torch.Tensor]:
             with mmap.mmap(file_obj.fileno(), length=0, access=mmap.ACCESS_READ) as mmap_obj:
                 for k in f.keys():
                     tensor_info = f.get_tensor_info(k)
-                    data_offsets, shape, dtype_str = tensor_info['data_offsets'], tensor_info['shape'], tensor_info['dtype']
+                    data_offsets, shape, dtype_str = (
+                        tensor_info["data_offsets"],
+                        tensor_info["shape"],
+                        tensor_info["dtype"],
+                    )
                     idx_start, idx_end = data_offsets
                     dtype = _TYPES[dtype_str]
                     mmap_slice = mmap_obj[idx_start:idx_end]
