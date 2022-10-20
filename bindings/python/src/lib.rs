@@ -68,7 +68,9 @@ fn serialize<'a, 'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let out = safetensors::tensor::serialize(&tensors, &metadata);
+    let out = safetensors::tensor::serialize(&tensors, &metadata).map_err(|e| {
+        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
+    })?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
@@ -80,7 +82,9 @@ fn serialize_file(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename)?;
+    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename).map_err(|e| {
+        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
+    })?;
     Ok(())
 }
 
@@ -169,15 +173,8 @@ impl safe_open {
         // before making a copy within Python.
         let buffer = unsafe { MmapOptions::new().map(&file)? };
 
-        let arr: [u8; 8] = [
-            buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
-        ];
-        let n = u64::from_le_bytes(arr) as usize;
-        let string = std::str::from_utf8(&buffer[8..8 + n]).map_err(|e| {
+        let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
             exceptions::PyException::new_err(format!("Error while deserializing header: {:?}", e))
-        })?;
-        let metadata: Metadata = serde_json::from_str(string).map_err(|e| {
-            exceptions::PyException::new_err(format!("Error while deserializing metadata: {:?}", e))
         })?;
 
         let offset = n + 8;

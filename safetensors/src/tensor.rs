@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
+const MAX_HEADER_SIZE: usize = 100_000_000;
+
 /// Possible errors that could occur while reading
 /// A Safetensor file.
 #[derive(Debug)]
@@ -13,16 +15,28 @@ pub enum SafeTensorError {
     InvalidHeader,
     /// The header does contain a valid string, but it is not valid JSON.
     InvalidHeaderDeserialization,
+    /// The header is large than 100Mo which is considered too large (Might evolve in the future).
+    HeaderTooLarge,
     /// The tensor name was not found in the archive
     TensorNotFound,
     /// Invalid information between shape, dtype and the proposed offsets in the file
     TensorInvalidInfo,
+    /// The offsets declared for tensor with name `String` in the header are invalid
+    InvalidOffset(String),
+    /// IoError
+    IoError(std::io::Error),
+}
+
+impl From<std::io::Error> for SafeTensorError {
+    fn from(error: std::io::Error) -> SafeTensorError {
+        SafeTensorError::IoError(error)
+    }
 }
 
 fn prepare<'hash, 'data>(
     data: &'hash HashMap<String, TensorView<'data>>,
     data_info: &'hash Option<HashMap<String, String>>,
-) -> (Metadata, Vec<&'hash TensorView<'data>>, usize) {
+) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
     let mut tensors: Vec<&TensorView> = vec![];
     let mut hmetadata = HashMap::new();
     let mut offset = 0;
@@ -38,17 +52,17 @@ fn prepare<'hash, 'data>(
         tensors.push(tensor);
     }
 
-    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata);
+    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
 
-    (metadata, tensors, offset)
+    Ok((metadata, tensors, offset))
 }
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
 pub fn serialize(
     data: &HashMap<String, TensorView>,
     data_info: &Option<HashMap<String, String>>,
-) -> Vec<u8> {
-    let (metadata, tensors, offset) = prepare(data, data_info);
+) -> Result<Vec<u8>, SafeTensorError> {
+    let (metadata, tensors, offset) = prepare(data, data_info)?;
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let expected_size = 8 + metadata_buf.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
@@ -58,7 +72,7 @@ pub fn serialize(
     for tensor in tensors {
         buffer.extend(tensor.data);
     }
-    buffer
+    Ok(buffer)
 }
 
 /// Serialize to a regular file the dictionnary of tensors.
@@ -68,8 +82,8 @@ pub fn serialize_to_file(
     data: &HashMap<String, TensorView>,
     data_info: &Option<HashMap<String, String>>,
     filename: &str,
-) -> Result<(), std::io::Error> {
-    let (metadata, tensors, _) = prepare(data, data_info);
+) -> Result<(), SafeTensorError> {
+    let (metadata, tensors, _) = prepare(data, data_info)?;
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let n: u64 = metadata_buf.len() as u64;
     let mut f = BufWriter::new(File::create(filename)?);
@@ -91,19 +105,36 @@ pub struct SafeTensors<'data> {
 
 impl<'data> SafeTensors<'data> {
     /// Given a byte-buffer representing the whole safetensor file
-    /// parses it and returns the Deserialized form (No Tensor allocation).
-    pub fn deserialize<'in_data>(buffer: &'in_data [u8]) -> Result<Self, SafeTensorError>
+    /// parses the header, and returns the size of the header + the parsed data.
+    pub fn read_metadata<'in_data>(
+        buffer: &'in_data [u8],
+    ) -> Result<(usize, Metadata), SafeTensorError>
     where
         'in_data: 'data,
     {
         let arr: [u8; 8] = [
             buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
         ];
-        let n = u64::from_le_bytes(arr) as usize;
+        let n: usize = u64::from_le_bytes(arr)
+            .try_into()
+            .map_err(|_| SafeTensorError::HeaderTooLarge)?;
+        if n > MAX_HEADER_SIZE {
+            return Err(SafeTensorError::HeaderTooLarge);
+        }
         let string =
             std::str::from_utf8(&buffer[8..8 + n]).map_err(|_| SafeTensorError::InvalidHeader)?;
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
+        metadata.validate()?;
+        Ok((n, metadata))
+    }
+    /// Given a byte-buffer representing the whole safetensor file
+    /// parses it and returns the Deserialized form (No Tensor allocation).
+    pub fn deserialize<'in_data>(buffer: &'in_data [u8]) -> Result<Self, SafeTensorError>
+    where
+        'in_data: 'data,
+    {
+        let (n, metadata) = SafeTensors::read_metadata(buffer)?;
         let data = &buffer[n + 8..];
         Ok(Self { metadata, data })
     }
@@ -162,8 +193,26 @@ impl Metadata {
     fn new(
         metadata: Option<HashMap<String, String>>,
         tensors: HashMap<String, TensorInfo>,
-    ) -> Self {
-        Self { metadata, tensors }
+    ) -> Result<Self, SafeTensorError> {
+        let metadata = Self { metadata, tensors };
+        metadata.validate()?;
+        Ok(metadata)
+    }
+
+    fn validate(&self) -> Result<(), SafeTensorError> {
+        let mut offsets: Vec<_> = self.tensors.iter().collect();
+
+        offsets.sort_by(|a, b| a.1.data_offsets.cmp(&b.1.data_offsets));
+        let mut start = 0;
+        for (tensor_name, info) in offsets {
+            let (s, e) = info.data_offsets;
+            if s != start || e < s {
+                return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
+            }
+            start = e;
+        }
+
+        Ok(())
     }
 
     /// Gives back the tensor metadata
@@ -324,7 +373,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None);
+        let out = serialize(&metadata, &None).unwrap();
         let _parsed = SafeTensors::deserialize(&out).unwrap();
     }
 
@@ -342,7 +391,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None);
+        let out = serialize(&metadata, &None).unwrap();
         let parsed = SafeTensors::deserialize(&out).unwrap();
 
         let out_buffer: Vec<u8> = parsed
@@ -428,7 +477,7 @@ mod tests {
 
         let filename = format!("./out_{}.bin", model_id);
 
-        let out = serialize(&metadata, &None);
+        let out = serialize(&metadata, &None).unwrap();
 
         std::fs::write(&filename, out).unwrap();
 
@@ -449,5 +498,59 @@ mod tests {
         assert_eq!(tensor.get_dtype(), Dtype::I32);
         // 16 bytes
         assert_eq!(tensor.get_data(), b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+    }
+
+    #[test]
+    fn test_json_attack() {
+        let mut tensors = HashMap::new();
+        let dtype = Dtype::F32;
+        let shape = vec![2, 2];
+        let data_offsets = (0, 16);
+        for i in 0..10 {
+            tensors.insert(
+                format!("weight_{i}"),
+                TensorInfo {
+                    dtype,
+                    shape: shape.clone(),
+                    data_offsets,
+                },
+            );
+        }
+
+        let metadata = Metadata {
+            metadata: None,
+            tensors,
+        };
+        let serialized = serde_json::to_string(&metadata).unwrap();
+        let serialized = serialized.as_bytes();
+
+        let n = serialized.len();
+
+        let filename = "out.safetensors";
+        let mut f = BufWriter::new(File::create(filename).unwrap());
+        f.write_all(n.to_le_bytes().as_ref()).unwrap();
+        f.write_all(serialized).unwrap();
+        f.write_all(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0").unwrap();
+        f.flush().unwrap();
+
+        let reloaded = std::fs::read(filename).unwrap();
+        match SafeTensors::deserialize(&reloaded) {
+            Err(SafeTensorError::InvalidOffset(_)) => {
+                // Yes we have the correct error, name of the tensor is random though
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_header_too_large() {
+        let serialized = b"<\x00\x00\x00\x00\xff\xff\xff{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::HeaderTooLarge) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
     }
 }
