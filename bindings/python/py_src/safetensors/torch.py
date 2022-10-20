@@ -34,8 +34,8 @@ def save_file(
 def load_file(filename: str) -> Dict[str, torch.Tensor]:
     result = {}
     with safe_open(filename, framework="pt") as f:
-        with open(filename, mode="r", encoding="utf8") as file_obj:
-            with mmap.mmap(file_obj.fileno(), length=0, access=mmap.ACCESS_READ) as mmap_obj:
+        with open(filename, mode="r+", encoding="utf8") as file_obj:
+            with mmap.mmap(file_obj.fileno(), length=0, access=mmap.ACCESS_WRITE) as mmap_obj:
                 for k in f.keys():
                     tensor_info = f.get_tensor_info(k)
                     data_offsets, shape, dtype_str = (
