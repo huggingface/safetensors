@@ -68,7 +68,9 @@ fn serialize<'a, 'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let out = safetensors::tensor::serialize(&tensors, &metadata);
+    let out = safetensors::tensor::serialize(&tensors, &metadata).map_err(|e| {
+        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
+    })?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
@@ -80,7 +82,9 @@ fn serialize_file(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename)?;
+    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename).map_err(|e| {
+        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
+    })?;
     Ok(())
 }
 

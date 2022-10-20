@@ -23,12 +23,20 @@ pub enum SafeTensorError {
     TensorInvalidInfo,
     /// The offsets declared for tensor with name `String` in the header are invalid
     InvalidOffset(String),
+    /// IoError
+    IoError(std::io::Error),
+}
+
+impl From<std::io::Error> for SafeTensorError {
+    fn from(error: std::io::Error) -> SafeTensorError {
+        SafeTensorError::IoError(error)
+    }
 }
 
 fn prepare<'hash, 'data>(
     data: &'hash HashMap<String, TensorView<'data>>,
     data_info: &'hash Option<HashMap<String, String>>,
-) -> (Metadata, Vec<&'hash TensorView<'data>>, usize) {
+) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
     let mut tensors: Vec<&TensorView> = vec![];
     let mut hmetadata = HashMap::new();
     let mut offset = 0;
@@ -44,17 +52,17 @@ fn prepare<'hash, 'data>(
         tensors.push(tensor);
     }
 
-    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata);
+    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
 
-    (metadata, tensors, offset)
+    Ok((metadata, tensors, offset))
 }
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
 pub fn serialize(
     data: &HashMap<String, TensorView>,
     data_info: &Option<HashMap<String, String>>,
-) -> Vec<u8> {
-    let (metadata, tensors, offset) = prepare(data, data_info);
+) -> Result<Vec<u8>, SafeTensorError> {
+    let (metadata, tensors, offset) = prepare(data, data_info)?;
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let expected_size = 8 + metadata_buf.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
@@ -64,7 +72,7 @@ pub fn serialize(
     for tensor in tensors {
         buffer.extend(tensor.data);
     }
-    buffer
+    Ok(buffer)
 }
 
 /// Serialize to a regular file the dictionnary of tensors.
@@ -74,8 +82,8 @@ pub fn serialize_to_file(
     data: &HashMap<String, TensorView>,
     data_info: &Option<HashMap<String, String>>,
     filename: &str,
-) -> Result<(), std::io::Error> {
-    let (metadata, tensors, _) = prepare(data, data_info);
+) -> Result<(), SafeTensorError> {
+    let (metadata, tensors, _) = prepare(data, data_info)?;
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
     let n: u64 = metadata_buf.len() as u64;
     let mut f = BufWriter::new(File::create(filename)?);
@@ -185,8 +193,10 @@ impl Metadata {
     fn new(
         metadata: Option<HashMap<String, String>>,
         tensors: HashMap<String, TensorInfo>,
-    ) -> Self {
-        Self { metadata, tensors }
+    ) -> Result<Self, SafeTensorError> {
+        let metadata = Self { metadata, tensors };
+        metadata.validate()?;
+        Ok(metadata)
     }
 
     fn validate(&self) -> Result<(), SafeTensorError> {
@@ -363,7 +373,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None);
+        let out = serialize(&metadata, &None).unwrap();
         let _parsed = SafeTensors::deserialize(&out).unwrap();
     }
 
@@ -381,7 +391,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None);
+        let out = serialize(&metadata, &None).unwrap();
         let parsed = SafeTensors::deserialize(&out).unwrap();
 
         let out_buffer: Vec<u8> = parsed
@@ -467,7 +477,7 @@ mod tests {
 
         let filename = format!("./out_{}.bin", model_id);
 
-        let out = serialize(&metadata, &None);
+        let out = serialize(&metadata, &None).unwrap();
 
         std::fs::write(&filename, out).unwrap();
 
@@ -507,7 +517,10 @@ mod tests {
             );
         }
 
-        let metadata = Metadata::new(None, tensors);
+        let metadata = Metadata {
+            metadata: None,
+            tensors,
+        };
         let serialized = serde_json::to_string(&metadata).unwrap();
         let serialized = serialized.as_bytes();
 
