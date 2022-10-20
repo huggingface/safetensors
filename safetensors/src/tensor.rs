@@ -293,6 +293,26 @@ impl Dtype {
     }
 }
 
+impl std::fmt::Display for Dtype {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Dtype::BOOL => write!(f, "BOOL"),
+            Dtype::U8 => write!(f, "U8"),
+            Dtype::I8 => write!(f, "I8"),
+            Dtype::I16 => write!(f, "I16"),
+            Dtype::U16 => write!(f, "U16"),
+            Dtype::I32 => write!(f, "I32"),
+            Dtype::U32 => write!(f, "U32"),
+            Dtype::I64 => write!(f, "I64"),
+            Dtype::U64 => write!(f, "U64"),
+            Dtype::F16 => write!(f, "F16"),
+            Dtype::BF16 => write!(f, "BF16"),
+            Dtype::F32 => write!(f, "F32"),
+            Dtype::F64 => write!(f, "F64"),
+        }
+    }
+}
+
 // /// A struct representing a Tensor, the byte-buffer is not owned
 // /// but dtype a shape are.
 // pub struct Tensor<'data> {

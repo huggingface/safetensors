@@ -218,6 +218,34 @@ impl safe_open {
         }
     }
 
+    pub fn get_tensor_info(&self, py: Python, name: &str) -> PyResult<PyObject> {
+        if let Some(info) = self.metadata.tensors().get(name) {
+            let shape = info.shape.clone();
+            let dtype = info.dtype.to_string();
+            let data_offsets = vec![
+                info.data_offsets.0 + self.offset,
+                info.data_offsets.1 + self.offset,
+            ];
+            let py_data_offsets: PyObject = PyList::new(py, data_offsets).into();
+            let py_shape: PyObject = PyList::new(py, shape).into();
+            let py_dtype: PyObject = dtype.to_object(py);
+
+            let dict: PyObject = [
+                ("data_offsets", py_data_offsets),
+                ("shape", py_shape),
+                ("dtype", py_dtype),
+            ]
+            .into_py_dict(py)
+            .into();
+
+            Ok(dict)
+        } else {
+            Err(exceptions::PyException::new_err(format!(
+                "File does not contain tensor {name}",
+            )))
+        }
+    }
+
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
         if let Some(info) = self.metadata.tensors().get(name) {
             Ok(PySafeSlice {
