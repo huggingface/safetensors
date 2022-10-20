@@ -156,14 +156,16 @@ struct safe_open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
+    device: String,
     mmap: Arc<Mmap>,
 }
 
 #[pymethods]
 impl safe_open {
     #[new]
-    fn new(filename: &str, framework: Framework) -> PyResult<Self> {
+    fn new(filename: &str, framework: Framework, device: Option<String>) -> PyResult<Self> {
         let file = File::open(filename)?;
+        let device = device.unwrap_or_else(|| "cpu".to_string());
 
         // SAFETY: Mmap is used to prevent allocating in Rust
         // before making a copy within Python.
@@ -186,6 +188,7 @@ impl safe_open {
             metadata,
             offset,
             framework,
+            device,
             mmap: Arc::new(buffer),
         })
     }
@@ -200,7 +203,7 @@ impl safe_open {
         Ok(keys)
     }
 
-    pub fn get_tensor(&self, py: Python, name: &str) -> PyResult<PyObject> {
+    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
         if let Some(info) = self.metadata.tensors().get(name) {
             let data =
                 &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
@@ -208,9 +211,16 @@ impl safe_open {
             let tensor = TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
                 exceptions::PyException::new_err(format!("Error when creating TensorView {:?}", e))
             })?;
-            let array: PyObject = PyByteArray::new(py, tensor.get_data()).into_py(py);
+            let array: PyObject =
+                Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
 
-            create_tensor(py, &self.framework, info.dtype, &info.shape, array)
+            create_tensor(
+                &self.framework,
+                info.dtype,
+                &info.shape,
+                array,
+                &self.device,
+            )
         } else {
             Err(exceptions::PyException::new_err(format!(
                 "File does not contain tensor {name}",
@@ -224,6 +234,7 @@ impl safe_open {
                 info: info.clone(),
                 framework: self.framework.clone(),
                 offset: self.offset,
+                device: self.device.clone(),
                 mmap: self.mmap.clone(),
             })
         } else {
@@ -245,6 +256,7 @@ struct PySafeSlice {
     info: TensorInfo,
     framework: Framework,
     offset: usize,
+    device: String,
     mmap: Arc<Mmap>,
 }
 
@@ -262,7 +274,7 @@ impl PySafeSlice {
         let shape: PyObject = shape.into_py(py);
         Ok(shape)
     }
-    pub fn __getitem__(&self, py: Python, slices: Slice) -> PyResult<PyObject> {
+    pub fn __getitem__(&self, slices: Slice) -> PyResult<PyObject> {
         let slices: Vec<&PySlice> = match slices {
             Slice::Slice(slice) => vec![slice],
             Slice::Slices(slices) => slices,
@@ -288,25 +300,34 @@ impl PySafeSlice {
 
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
-        let array: PyObject = PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
-            for slice in iterator {
-                let len = slice.len();
-                bytes[offset..offset + slice.len()].copy_from_slice(slice);
-                offset += len;
-            }
-            Ok(())
-        })?
-        .into_py(py);
-        create_tensor(py, &self.framework, self.info.dtype, &newshape, array)
+        let array: PyObject = Python::with_gil(|py| {
+            PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                for slice in iterator {
+                    let len = slice.len();
+                    bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                    offset += len;
+                }
+                Ok(())
+            })
+            .unwrap()
+            .into_py(py)
+        });
+        create_tensor(
+            &self.framework,
+            self.info.dtype,
+            &newshape,
+            array,
+            &self.device,
+        )
     }
 }
 
 fn create_tensor(
-    py: Python,
     framework: &Framework,
     dtype: Dtype,
     shape: &[usize],
     array: PyObject,
+    device: &str,
 ) -> PyResult<PyObject> {
     match framework {
         Framework::Pytorch | Framework::Numpy => {
@@ -315,15 +336,20 @@ fn create_tensor(
                 Framework::Pytorch => "torch",
                 _ => unreachable!(),
             };
-            let module = PyModule::import(py, module_name)?;
-            let frombuffer = module.getattr("frombuffer")?;
-            let dtype: PyObject = get_pydtype(module, dtype)?;
-            let kwargs = [("buffer", array), ("dtype", dtype)].into_py_dict(py);
-            let tensor = frombuffer.call((), Some(kwargs))?;
-            let shape = shape.to_vec();
-            let shape: PyObject = shape.into_py(py);
-            let tensor: PyObject = tensor.getattr("reshape")?.call1((shape,))?.into();
-            Ok(tensor)
+            Python::with_gil(|py| {
+                let module = PyModule::import(py, module_name)?;
+                let frombuffer = module.getattr("frombuffer")?;
+                let dtype: PyObject = get_pydtype(module, dtype)?;
+                let device: PyObject = device.into_py(py);
+                let kwargs = [("buffer", array), ("dtype", dtype)].into_py_dict(py);
+                let tensor = frombuffer.call((), Some(kwargs))?;
+                let shape = shape.to_vec();
+                let shape: PyObject = shape.into_py(py);
+                let tensor: &PyAny = tensor.getattr("reshape")?.call1((shape,))?;
+                let tensor: &PyAny = tensor.getattr("to")?.call1((device,))?;
+                let tensor: PyObject = tensor.into_py(py);
+                Ok(tensor)
+            })
         }
         framework => todo!("{framework:?}"),
     }

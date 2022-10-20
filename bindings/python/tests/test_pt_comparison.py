@@ -46,10 +46,10 @@ class TorchTestCase(unittest.TestCase):
 class SpeedTestCase(unittest.TestCase):
     def setUp(self):
         self.filename = hf_hub_download(MODEL_ID, filename="pytorch_model.bin")
-        self.data = torch.load(self.filename, map_location="cpu")
+        # self.data = torch.load(self.filename, map_location="cpu")
         self.local = "./tests/data/out_safe_pt_mmap.safetensors"
         # Need to copy since that call mutates the tensors to numpy
-        save_file(self.data.copy(), self.local)
+        # save_file(self.data.copy(), self.local)
 
     def test_deserialization_safe(self):
         start = datetime.datetime.now()
@@ -57,15 +57,40 @@ class SpeedTestCase(unittest.TestCase):
         load_file(self.local)
         # Second time we should be in disk cache
         start = datetime.datetime.now()
-        load_file(self.local)
+        weights = load_file(self.local)
         safe_time = datetime.datetime.now() - start
         torch.load(self.filename)
         start = datetime.datetime.now()
-        torch.load(self.filename)
+        tweights = torch.load(self.filename)
         pt_time = datetime.datetime.now() - start
         print()
         print(f"Deserialization (Safe) took {safe_time}")
         print(f"Deserialization (PT) took {pt_time} (Safe is {pt_time/safe_time} faster)")
+        for k, v in weights.items():
+            tv = tweights[k]
+            self.assertTrue(torch.allclose(v, tv))
+            self.assertEqual(v.device, torch.device("cpu"))
+
+    def test_deserialization_safe_gpu(self):
+        # First time to hit disk
+        load_file(self.local, device="cuda:0")
+        # Second time we should be in disk cache
+        start = datetime.datetime.now()
+        weights = load_file(self.local, device="cuda:0")
+        safe_time = datetime.datetime.now() - start
+
+        # First time to hit disk
+        torch.load(self.filename, map_location="cuda:0")
+        start = datetime.datetime.now()
+        tweights = torch.load(self.filename, map_location="cuda:0")
+        pt_time = datetime.datetime.now() - start
+        print()
+        print(f"Deserialization (Safe - GPU) took {safe_time}")
+        print(f"Deserialization (PT - GPU) took {pt_time} (Safe is {pt_time/safe_time} faster)")
+        for k, v in weights.items():
+            tv = tweights[k]
+            self.assertTrue(torch.allclose(v, tv))
+            self.assertEqual(v.device, torch.device("cuda:0"))
 
     def test_serialization_safe(self):
         start = datetime.datetime.now()
