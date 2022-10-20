@@ -43,11 +43,11 @@ save_file(tensors, "./model.safetensors")
 loaded = load_file("./model.safetensors")
 ```
 
-### Installation
+### Developing
 
 ```
 pip install setuptools_rust
-pip install -e .
+python setup.py develop
 ```
 Should be enough to install this library locally.
 
