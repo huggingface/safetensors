@@ -102,7 +102,7 @@ class SpeedTestCase(unittest.TestCase):
 
         start = datetime.datetime.now()
         with open("./tests/data/out_pt.safetensors", "wb") as f:
-            torch.save(self.data, f)
+            torch.save(data, f)
         pt_time = datetime.datetime.now() - start
 
         print()
