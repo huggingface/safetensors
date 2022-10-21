@@ -72,6 +72,7 @@ class SpeedTestCase(unittest.TestCase):
             self.assertTrue(torch.allclose(v, tv))
             self.assertEqual(v.device, torch.device("cpu"))
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_deserialization_safe_gpu(self):
         # First time to hit disk
         load_file(self.local, device="cuda:0")
