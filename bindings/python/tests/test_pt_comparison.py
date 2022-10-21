@@ -19,7 +19,7 @@ class TorchTestCase(unittest.TestCase):
             "test2": torch.zeros((2, 2), dtype=torch.float16),
             "test3": torch.zeros((2, 2), dtype=torch.bool),
         }
-        local = "./tests/data/out_safe_pt_mmap.safetensors"
+        local = "./tests/data/out_safe_pt_mmap_small.safetensors"
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
@@ -31,7 +31,7 @@ class TorchTestCase(unittest.TestCase):
         data = {
             "test": torch.arange(4).view((2, 2)).to("cuda:0"),
         }
-        local = "./tests/data/out_safe_pt_mmap.safetensors"
+        local = "./tests/data/out_safe_pt_mmap_small.safetensors"
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
