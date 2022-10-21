@@ -30,9 +30,9 @@ def save_file(
     serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
-def load_file(filename: str) -> Dict[str, torch.Tensor]:
+def load_file(filename: str, device="cpu") -> Dict[str, torch.Tensor]:
     result = {}
-    with safe_open(filename, framework="pt") as f:
+    with safe_open(filename, framework="pt", device=device) as f:
         for k in f.keys():
             result[k] = f.get_tensor(k)
     return result

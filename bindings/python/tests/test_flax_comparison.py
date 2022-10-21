@@ -76,5 +76,4 @@ class SafeTestCase(unittest.TestCase):
         flax_time = datetime.datetime.now() - start
         print()
         print(f"Serialization (safe) took {safe_time}")
-        print("Serialization (flax) took ", datetime.datetime.now() - start)
-        print(f"Deserialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
+        print(f"Serialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
