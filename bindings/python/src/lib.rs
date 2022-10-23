@@ -2,6 +2,7 @@
 //! Dummy doc
 use memmap::{Mmap, MmapOptions};
 use pyo3::exceptions;
+use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PySlice;
@@ -14,6 +15,9 @@ use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
+
+static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
     let mut tensors = BTreeMap::new();
@@ -233,6 +237,21 @@ impl safe_open {
 
         let offset = n + 8;
 
+        Python::with_gil(|py| -> PyResult<()> {
+            match framework {
+                Framework::Pytorch => {
+                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    TORCH_MODULE.get_or_init(py, || module.into())
+                }
+                _ => {
+                    let module = PyModule::import(py, intern!(py, "numpy"))?;
+                    NUMPY_MODULE.get_or_init(py, || module.into())
+                }
+            };
+
+            Ok(())
+        })?;
+
         Ok(Self {
             metadata,
             offset,
@@ -259,15 +278,17 @@ impl safe_open {
 
         let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-        let array: PyObject = Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
+        Python::with_gil(|py| -> PyResult<PyObject> {
+            let array: PyObject = PyByteArray::new(py, data).into_py(py);
 
-        create_tensor(
-            &self.framework,
-            info.dtype,
-            &info.shape,
-            array,
-            &self.device,
-        )
+            create_tensor(
+                &self.framework,
+                info.dtype,
+                &info.shape,
+                array,
+                &self.device,
+            )
+        })
     }
 
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
@@ -342,8 +363,8 @@ impl PySafeSlice {
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
 
-        let array: PyObject = Python::with_gil(|py| -> PyResult<PyObject> {
-            Ok(PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+        Python::with_gil(|py| {
+            let array: PyObject = PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
                 for slice in iterator {
                     let len = slice.len();
                     bytes[offset..offset + slice.len()].copy_from_slice(slice);
@@ -351,15 +372,15 @@ impl PySafeSlice {
                 }
                 Ok(())
             })?
-            .into_py(py))
-        })?;
-        create_tensor(
-            &self.framework,
-            self.info.dtype,
-            &newshape,
-            array,
-            &self.device,
-        )
+            .into_py(py);
+            create_tensor(
+                &self.framework,
+                self.info.dtype,
+                &newshape,
+                array,
+                &self.device,
+            )
+        })
     }
 }
 
@@ -372,12 +393,15 @@ fn create_tensor(
 ) -> PyResult<PyObject> {
     match framework {
         Framework::Pytorch | Framework::Numpy => Python::with_gil(|py| -> PyResult<PyObject> {
-            let module_name = match framework {
-                Framework::Numpy => intern!(py, "numpy"),
-                Framework::Pytorch => intern!(py, "torch"),
+            let module: &PyModule = match framework {
+                Framework::Numpy => NUMPY_MODULE.get(py),
+                Framework::Pytorch => TORCH_MODULE.get(py),
                 _ => unreachable!(),
-            };
-            let module = PyModule::import(py, module_name)?;
+            }
+            .ok_or_else(|| {
+                exceptions::PyException::new_err(format!("Could not find module {framework:?}",))
+            })?
+            .as_ref(py);
             let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
             let dtype: PyObject = get_pydtype(module, dtype)?;
             let kwargs = [
