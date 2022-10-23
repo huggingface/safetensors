@@ -242,12 +242,12 @@ impl safe_open {
                             })?;
                         }
                     } else {
-                        unsafe {
-                            let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+                        let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+                        let slice = unsafe {
                             let data_ptr = &mut *(data_ptr as *mut u8);
-                            let slice = std::slice::from_raw_parts_mut(data_ptr, data.len());
-                            slice.copy_from_slice(&data);
-                        }
+                            std::slice::from_raw_parts_mut(data_ptr, data.len())
+                        };
+                        slice.copy_from_slice(data);
                     }
                     let tensor: PyObject = tensor.into_py(py);
                     Ok(tensor)
@@ -302,7 +302,7 @@ impl safe_open {
                 let module = PyModule::import(py, module_name).unwrap();
                 let device: PyObject = _self.device.clone().into_py(py);
                 let torch_device = module.getattr("cuda").unwrap().getattr("device").unwrap();
-                let lock = torch_device.call1((device.clone(),)).unwrap();
+                let lock = torch_device.call1((device,)).unwrap();
                 lock.call_method0("__enter__").unwrap();
             }
         });
@@ -317,7 +317,7 @@ impl safe_open {
                 let device: PyObject = self.device.clone().into_py(py);
                 let torch_device = module.getattr("cuda").unwrap().getattr("device").unwrap();
                 let none = py.None();
-                let lock = torch_device.call1((device.clone(),)).unwrap();
+                let lock = torch_device.call1((device,)).unwrap();
                 lock.call_method1("__exit__", (&none, &none, &none))
                     .unwrap();
             });
