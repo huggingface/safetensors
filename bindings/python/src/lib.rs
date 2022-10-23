@@ -211,19 +211,56 @@ impl safe_open {
             let data =
                 &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-            let tensor = TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
-                exceptions::PyException::new_err(format!("Error when creating TensorView {:?}", e))
-            })?;
-            let array: PyObject =
-                Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
+            if self.device != "cpu" && self.framework == Framework::Pytorch {
+                Python::with_gil(|py| {
+                    let module_name = "torch";
+                    let dtype = info.dtype;
+                    let shape = info.shape.to_vec();
+                    let device: PyObject = self.device.clone().into_py(py);
+                    let module = PyModule::import(py, module_name)?;
+                    let empty = module.getattr("empty")?;
+                    let dtype: PyObject = get_pydtype(module, dtype)?;
+                    let shape: PyObject = shape.into_py(py);
+                    let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
+                    let tensor = empty.call((shape,), Some(kwargs))?;
 
-            create_tensor(
-                &self.framework,
-                info.dtype,
-                &info.shape,
-                array,
-                &self.device,
-            )
+                    let data_ptr_fn = tensor.getattr("data_ptr")?;
+                    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+                    use rustacuda::memory::{CopyDestination, DeviceBuffer, DevicePointer};
+                    unsafe {
+                        let data_ptr = DevicePointer::wrap(&mut *(data_ptr as *mut u8));
+
+                        let mut buffer = DeviceBuffer::from_raw_parts(data_ptr, data.len());
+                        buffer.copy_from(data).map_err(|e| {
+                            exceptions::PyException::new_err(format!(
+                                "Error when Copying to cuda {:?}",
+                                e
+                            ))
+                        })?;
+                        std::mem::forget(buffer);
+                    }
+                    let tensor: PyObject = tensor.into_py(py);
+                    Ok(tensor)
+                })
+            } else {
+                let tensor =
+                    TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
+                        exceptions::PyException::new_err(format!(
+                            "Error when creating TensorView {:?}",
+                            e
+                        ))
+                    })?;
+                let array: PyObject =
+                    Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
+
+                create_tensor(
+                    &self.framework,
+                    info.dtype,
+                    &info.shape,
+                    array,
+                    &self.device,
+                )
+            }
         } else {
             Err(exceptions::PyException::new_err(format!(
                 "File does not contain tensor {name}",
@@ -350,7 +387,9 @@ fn create_tensor(
                 let mut tensor: &PyAny = tensor.getattr("reshape")?.call1((shape,))?;
                 if device != "cpu" {
                     let device: PyObject = device.into_py(py);
-                    tensor = tensor.getattr("to")?.call1((device,))?;
+                    let kwargs = PyDict::new(py);
+                    kwargs.set_item("non_blocking", true)?;
+                    tensor = tensor.getattr("to")?.call((device,), Some(kwargs))?;
                 }
                 let tensor: PyObject = tensor.into_py(py);
                 Ok(tensor)
