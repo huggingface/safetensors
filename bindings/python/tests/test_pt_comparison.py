@@ -95,7 +95,7 @@ class SpeedTestCase(unittest.TestCase):
             self.assertEqual(v.device, torch.device("cuda:0"))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
-    def test_deserialization_safe_gpu2(self):
+    def test_deserialization_safe_gpu_slice(self):
         # First time to hit disk
         load_file(self.local, device="cuda:0")
         # Second time we should be in disk cache
@@ -121,6 +121,29 @@ class SpeedTestCase(unittest.TestCase):
             self.assertTrue(torch.allclose(v, tv))
             self.assertEqual(v.device, torch.device("cuda:0"))
 
+    @unittest.skipIf(torch.cuda.device_count() < 2, "Only 1 device available")
+    def test_deserialization_safe_device_1(self):
+        # First time to hit disk
+        load_file(self.local, device="cuda:1")
+        # Second time we should be in disk cache
+        start = datetime.datetime.now()
+
+        weights = load_file(self.local, device="cuda:1")
+        safe_time = datetime.datetime.now() - start
+
+        # First time to hit disk
+        torch.load(self.filename, map_location="cuda:1")
+        start = datetime.datetime.now()
+        tweights = torch.load(self.filename, map_location="cuda:1")
+        pt_time = datetime.datetime.now() - start
+        print()
+        print(f"Deserialization (Safe - GPU) took {safe_time}")
+        print(f"Deserialization (PT - GPU) took {pt_time} (Safe is {pt_time/safe_time} faster)")
+        for k, v in weights.items():
+            tv = tweights[k]
+            self.assertTrue(torch.allclose(v, tv))
+            self.assertEqual(v.device, torch.device("cuda:1"))
+
     def test_serialization_safe(self):
         data = torch.load(self.filename, map_location="cpu")
         start = datetime.datetime.now()
@@ -142,7 +165,7 @@ class SliceTestCase(unittest.TestCase):
     def setUp(self):
         self.tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
         self.data = {"test": self.tensor}
-        self.local = "./tests/data/out_safe_pt_mmap.safetensors"
+        self.local = "./tests/data/out_safe_pt_mmap_slice.safetensors"
         # Need to copy since that call mutates the tensors to numpy
         save_file(self.data.copy(), self.local)
 

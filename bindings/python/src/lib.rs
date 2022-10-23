@@ -211,7 +211,7 @@ impl safe_open {
             let data =
                 &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-            if self.device != "cpu" && self.framework == Framework::Pytorch {
+            if self.framework == Framework::Pytorch {
                 Python::with_gil(|py| {
                     let module_name = "torch";
                     let dtype = info.dtype;
@@ -221,41 +221,33 @@ impl safe_open {
                     let empty = module.getattr("empty")?;
                     let dtype: PyObject = get_pydtype(module, dtype)?;
                     let shape: PyObject = shape.into_py(py);
+
                     let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
                     let tensor = empty.call((shape,), Some(kwargs))?;
 
                     let data_ptr_fn = tensor.getattr("data_ptr")?;
-                    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-                    unsafe {
-                        #[derive(Debug)]
-                        pub struct CudaError(String);
-
-                        pub fn check_cuda(err: cuda_sys::CUresult) -> Result<(), CudaError> {
-                            if err == cuda_sys::cudaError_enum_CUDA_SUCCESS {
-                                Ok(())
-                            } else {
-                                unsafe {
-                                    let mut str_ptr = std::ptr::null();
-
-                                    cuda_sys::cuGetErrorString(err, &mut str_ptr);
-                                    let string = std::ffi::CStr::from_ptr(str_ptr)
-                                        .to_str()
-                                        .unwrap()
-                                        .to_string();
-                                    // panic!("{string:?}");
-                                    // println!("Here {string:?} {:?}", string.as_ptr());
-                                    // // println!("Here {ptr:?} ",);
-                                    let err = CudaError(string);
-                                    Err(err)
-                                }
-                            }
+                    if self.device.starts_with("cuda") {
+                        let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+                        unsafe {
+                            check_cuda(cuda_sys::cuMemcpyHtoD_v2(
+                                data_ptr as u64,
+                                data.as_ptr() as *const std::ffi::c_void,
+                                data.len(),
+                            ))
+                            .map_err(|e| {
+                                exceptions::PyException::new_err(format!(
+                                    "Error setting memory with cuda {:?}",
+                                    e
+                                ))
+                            })?;
                         }
-                        check_cuda(cuda_sys::cuMemcpyHtoD_v2(
-                            data_ptr as u64,
-                            data.as_ptr() as *const std::ffi::c_void,
-                            data.len(),
-                        ))
-                        .unwrap();
+                    } else {
+                        unsafe {
+                            let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+                            let data_ptr = &mut *(data_ptr as *mut u8);
+                            let slice = std::slice::from_raw_parts_mut(data_ptr, data.len());
+                            slice.copy_from_slice(&data);
+                        }
                     }
                     let tensor: PyObject = tensor.into_py(py);
                     Ok(tensor)
@@ -303,10 +295,34 @@ impl safe_open {
     }
 
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
+        Python::with_gil(|py| {
+            let _self: &safe_open = &slf.borrow(py);
+            if _self.device.starts_with("cuda") && _self.framework == Framework::Pytorch {
+                let module_name = "torch";
+                let module = PyModule::import(py, module_name).unwrap();
+                let device: PyObject = _self.device.clone().into_py(py);
+                let torch_device = module.getattr("cuda").unwrap().getattr("device").unwrap();
+                let lock = torch_device.call1((device.clone(),)).unwrap();
+                lock.call_method0("__enter__").unwrap();
+            }
+        });
         slf
     }
 
-    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {}
+    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
+        if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
+            Python::with_gil(|py| {
+                let module_name = "torch";
+                let module = PyModule::import(py, module_name).unwrap();
+                let device: PyObject = self.device.clone().into_py(py);
+                let torch_device = module.getattr("cuda").unwrap().getattr("device").unwrap();
+                let none = py.None();
+                let lock = torch_device.call1((device.clone(),)).unwrap();
+                lock.call_method1("__exit__", (&none, &none, &none))
+                    .unwrap();
+            });
+        }
+    }
 }
 
 #[pyclass]
@@ -359,7 +375,7 @@ impl PySafeSlice {
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
 
-        if self.device != "cpu" && self.framework == Framework::Pytorch {
+        if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
             Python::with_gil(|py| {
                 let module_name = "torch";
                 let dtype = self.info.dtype;
@@ -377,35 +393,17 @@ impl PySafeSlice {
                 for slice in iterator {
                     let len = slice.len();
                     unsafe {
-                        #[derive(Debug)]
-                        pub struct CudaError(String);
-
-                        pub fn check_cuda(err: cuda_sys::CUresult) -> Result<(), CudaError> {
-                            if err == cuda_sys::cudaError_enum_CUDA_SUCCESS {
-                                Ok(())
-                            } else {
-                                unsafe {
-                                    let mut str_ptr = std::ptr::null();
-
-                                    cuda_sys::cuGetErrorString(err, &mut str_ptr);
-                                    let string = std::ffi::CStr::from_ptr(str_ptr)
-                                        .to_str()
-                                        .unwrap()
-                                        .to_string();
-                                    // panic!("{string:?}");
-                                    // println!("Here {string:?} {:?}", string.as_ptr());
-                                    // // println!("Here {ptr:?} ",);
-                                    let err = CudaError(string);
-                                    Err(err)
-                                }
-                            }
-                        }
                         check_cuda(cuda_sys::cuMemcpyHtoD_v2(
                             (data_ptr + offset) as u64,
                             slice.as_ptr() as *const std::ffi::c_void,
                             len,
                         ))
-                        .unwrap();
+                        .map_err(|e| {
+                            exceptions::PyException::new_err(format!(
+                                "Error setting memory with cuda {:?}",
+                                e
+                            ))
+                        })?;
                     }
                     offset += len;
                 }
@@ -491,6 +489,31 @@ fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
         dtype => todo!("Dtype {dtype:?}"),
     };
     Ok(dtype)
+}
+/// TODO
+#[derive(Debug)]
+pub struct CudaError(String);
+
+/// TODO
+pub fn check_cuda(err: cuda_sys::CUresult) -> Result<(), CudaError> {
+    if err == cuda_sys::cudaError_enum_CUDA_SUCCESS {
+        Ok(())
+    } else {
+        unsafe {
+            let mut str_ptr = std::ptr::null();
+
+            cuda_sys::cuGetErrorString(err, &mut str_ptr);
+            let string = std::ffi::CStr::from_ptr(str_ptr)
+                .to_str()
+                .unwrap()
+                .to_string();
+            // panic!("{string:?}");
+            // println!("Here {string:?} {:?}", string.as_ptr());
+            // // println!("Here {ptr:?} ",);
+            let err = CudaError(string);
+            Err(err)
+        }
+    }
 }
 
 /// A Python module implemented in Rust.
