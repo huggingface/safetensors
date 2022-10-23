@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
+use libloading::{Library, Symbol};
 use memmap::{Mmap, MmapOptions};
 use pyo3::exceptions;
 use pyo3::once_cell::GILOnceCell;
@@ -16,8 +17,11 @@ use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
+type MemcpyFn =
+    unsafe extern "C" fn(device_ptr: u64, src_ptr: *const std::ffi::c_void, src_len: usize) -> u32;
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static CUDART: GILOnceCell<Option<Library>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
     let mut tensors = BTreeMap::new();
@@ -214,6 +218,188 @@ struct safe_open {
     mmap: Arc<Mmap>,
 }
 
+fn create_empty_tensor_pt<'a>(
+    module: &'a PyModule,
+    shape: &[usize],
+    dtype: Dtype,
+    device: &Device,
+) -> PyResult<&'a PyAny> {
+    let py = module.py();
+    let shape = shape.to_vec();
+    let empty = module.getattr(intern!(py, "empty"))?;
+    let dtype: PyObject = get_pydtype(module, dtype)?;
+    let shape: PyObject = shape.into_py(py);
+    let device: PyObject = device.clone().into_py(py);
+    let kwargs = [
+        (intern!(py, "dtype"), dtype),
+        (intern!(py, "device"), device),
+    ]
+    .into_py_dict(py);
+    let tensor = empty.call((shape,), Some(kwargs))?;
+
+    Ok(tensor)
+}
+
+fn find_cudart(module: &PyModule) -> Option<Library> {
+    let var = std::env::var("SAFETENSORS_FAST_GPU").ok()?;
+    if var != "1" {
+        return None;
+    }
+    // let mut path: std::path::PathBuf = module
+    //     .getattr(intern!(module.py(), "_C"))
+    //     .ok()?
+    //     .getattr(intern!(module.py(), "__file__"))
+    //     .ok()?
+    //     .extract()
+    //     .ok()?;
+    // let buffer = std::fs::read(&path).ok()?;
+    // let elf = goblin::elf::Elf::parse(&buffer).ok()?;
+    // for lib in elf.libraries {
+    //     if lib == "libtorch_python.so" {
+    //         path.pop();
+    //         path.push("lib");
+    //         path.push(lib);
+    //         let buffer = std::fs::read(&path).ok()?;
+    //         let elf = goblin::elf::Elf::parse(&buffer).ok()?;
+    //         for lib in elf.libraries {
+    //             if lib == "libtorch_cuda_cpp.so" {
+    //                 path.pop();
+    //                 path.push(lib);
+    //                 let buffer = std::fs::read(&path).ok()?;
+    //                 let elf = goblin::elf::Elf::parse(&buffer).ok()?;
+    //                 for lib in elf.libraries {
+    //                     if lib.starts_with("libcudart-") {
+    //                         path.pop();
+    //                         path.push(lib);
+
+    //                         let lib = unsafe { Library::new(path).ok()? };
+    //                         return Some(lib);
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    // None
+    let mut path: std::path::PathBuf = module
+        .getattr(intern!(module.py(), "__file__"))
+        .ok()?
+        .extract()
+        .ok()?;
+    path.pop();
+    path.push("lib");
+    for file in path.read_dir().ok()?.flatten() {
+        let path = file.path();
+
+        let filename = path.file_name()?;
+        let filename = filename.to_str()?;
+        if filename.starts_with("libcudart-") {
+            let cudart = file.path();
+            // SAFETY: This is unsafe because the library might run arbitrary code
+            // So it's really important to make sure we are targeting the correct
+            // library.
+            // TODO try to figure out figure library is actually loaded through ELF/DLL
+            // reading, but this is much more involved
+            let lib = unsafe { Library::new(cudart).ok()? };
+            return Some(lib);
+        }
+    }
+    None
+}
+
+fn create_cuda_unsafe_tensor(
+    module: &PyModule,
+    cudart: &Library,
+    info: &TensorInfo,
+    device: &Device,
+    data: &[u8],
+) -> PyResult<PyObject> {
+    let tensor = create_empty_tensor_pt(module, &info.shape, info.dtype, device)?;
+
+    let data_ptr_fn = tensor.getattr("data_ptr")?;
+    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+
+    // SAFETY: This is unsafe for the same reasons as when we load the library
+    let out = unsafe {
+        let cuda_memcpy: Symbol<MemcpyFn> = cudart.get(b"cudaMemcpy").map_err(|e| {
+            exceptions::PyException::new_err(format!("Couldn't find cudaMemcpy {e:?}",))
+        })?;
+        cuda_memcpy(
+            data_ptr as u64,
+            data.as_ptr() as *const std::ffi::c_void,
+            data.len(),
+        )
+    };
+    // SAFETY: Here we have a correct library, we successfully called memcpy,
+    // but somehow the call failed. This is really worrying since Pytorch is
+    // responsible for allocating the memory.
+    if out != 0 {
+        println!(
+            "We tried to set your tensor fast, but there was a cuda error, This could have corrupted your GPU ram, aborting to prevent further errors {out:?}"
+        );
+        std::process::abort()
+    }
+    let tensor: PyObject = tensor.into_py(module.py());
+    Ok(tensor)
+}
+
+fn create_cuda_unsafe_tensor_from_slice(
+    module: &PyModule,
+    cudart: &Library,
+    shape: &[usize],
+    dtype: Dtype,
+    device: &Device,
+    iterator: safetensors::slice::SliceIterator,
+) -> PyResult<PyObject> {
+    let tensor = create_empty_tensor_pt(module, shape, dtype, device)?;
+
+    // let data_ptr_fn = tensor.getattr("data_ptr")?;
+    // let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+    let mut offset = 0;
+    // SAFETY: This is unsafe for the same reasons as when we load the library
+    let cuda_memcpy: Symbol<MemcpyFn> = unsafe {
+        cudart.get(b"cudaMemcpy").map_err(|e| {
+            exceptions::PyException::new_err(format!("Couldn't find cudaMemcpy {e:?}",))
+        })?
+    };
+    // let data_ptr_fn = tensor.getattr("data_ptr")?;
+    // let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+    for slice in iterator {
+        let len = slice.len();
+        let data_ptr_fn = tensor.getattr("data_ptr")?;
+        let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+        let ptr = slice.as_ptr() as *const std::ffi::c_void;
+        let out = unsafe { cuda_memcpy((data_ptr + offset) as u64, ptr, len) };
+
+        // SAFETY: Here we have a correct library, we successfully called memcpy,
+        // but somehow the call failed. This is really worrying since Pytorch is
+        // responsible for allocating the memory.
+        if out != 0 {
+            let string = match get_error_string(module, out) {
+                Ok(string) => string,
+                Err(_) => format!("{}", out),
+            };
+            println!(
+                "We tried to set your tensor fast, but there was a cuda error, This could have corrupted your GPU ram, aborting to prevent further errors {string:?}"
+            );
+            std::process::abort();
+        }
+        offset += len;
+    }
+    let tensor: PyObject = tensor.into_py(module.py());
+    Ok(tensor)
+}
+
+fn get_error_string(module: &PyModule, out: u32) -> PyResult<String> {
+    module
+        .getattr(intern!(module.py(), "cuda"))?
+        .getattr(intern!(module.py(), "CudaError"))?
+        .call1((out.into_py(module.py()),))?
+        .getattr(intern!(module.py(), "__str__"))?
+        .call0()?
+        .extract()
+}
+
 #[pymethods]
 impl safe_open {
     #[new]
@@ -249,6 +435,10 @@ impl safe_open {
                 }
             };
 
+            if let (Device::Cuda(_), Framework::Pytorch) = (&device, &framework) {
+                let module: &PyModule = get_module(py, &TORCH_MODULE)?;
+                CUDART.get_or_init(py, || find_cudart(module));
+            }
             Ok(())
         })?;
 
@@ -279,15 +469,24 @@ impl safe_open {
         let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
         Python::with_gil(|py| -> PyResult<PyObject> {
-            let array: PyObject = PyByteArray::new(py, data).into_py(py);
+            match (&self.device, &self.framework, &CUDART.get(py)) {
+                (Device::Cuda(_), Framework::Pytorch, Some(Some(cudart))) => {
+                    let module = get_module(py, &TORCH_MODULE)?;
+                    create_cuda_unsafe_tensor(module, cudart, info, &self.device, data)
+                }
+                _ => {
+                    let array: PyObject =
+                        Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
 
-            create_tensor(
-                &self.framework,
-                info.dtype,
-                &info.shape,
-                array,
-                &self.device,
-            )
+                    create_tensor(
+                        &self.framework,
+                        info.dtype,
+                        &info.shape,
+                        array,
+                        &self.device,
+                    )
+                }
+            }
         })
     }
 
@@ -308,10 +507,47 @@ impl safe_open {
     }
 
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
+        // SAFETY: This code is extremely important to the GPU fast load.
+        // Cuda uses a context to select the device you are writing on.
+        // PyTorch uses this function to create and use said context.
+        // Without this, we instantiate the empty buffer on the correct GPU
+        // But we fail to override the proper memory location since the context
+        // is removed by python.
+        // Using this sets the Cuda context once and for all for the entirety
+        // of the context manager lifecycle.
+        Python::with_gil(|py| -> PyResult<()> {
+            let _self: &safe_open = &slf.borrow(py);
+            if let (Device::Cuda(_), Framework::Pytorch) = (&_self.device, &_self.framework) {
+                let module = get_module(py, &TORCH_MODULE)?;
+                let device: PyObject = _self.device.clone().into_py(py);
+                let torch_device = module
+                    .getattr(intern!(py, "cuda"))?
+                    .getattr(intern!(py, "device"))?;
+                let lock = torch_device.call1((device,))?;
+                lock.call_method0(intern!(py, "__enter__"))?;
+            }
+            Ok(())
+        })
+        .ok();
         slf
     }
 
-    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {}
+    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
+        if let (Device::Cuda(_), Framework::Pytorch) = (&self.device, &self.framework) {
+            Python::with_gil(|py| -> PyResult<()> {
+                let module = get_module(py, &TORCH_MODULE)?;
+                let device: PyObject = self.device.clone().into_py(py);
+                let torch_device = module
+                    .getattr(intern!(py, "cuda"))?
+                    .getattr(intern!(py, "device"))?;
+                let none = py.None();
+                let lock = torch_device.call1((device,))?;
+                lock.call_method1(intern!(py, "__exit__"), (&none, &none, &none))?;
+                Ok(())
+            })
+            .ok();
+        }
+    }
 }
 
 #[pyclass]
@@ -363,25 +599,52 @@ impl PySafeSlice {
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
 
-        Python::with_gil(|py| {
-            let array: PyObject = PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
-                for slice in iterator {
-                    let len = slice.len();
-                    bytes[offset..offset + slice.len()].copy_from_slice(slice);
-                    offset += len;
+        Python::with_gil(
+            |py| match (&self.device, &self.framework, &CUDART.get(py)) {
+                (Device::Cuda(_), Framework::Pytorch, Some(Some(cudart))) => {
+                    let module = get_module(py, &TORCH_MODULE)?;
+                    create_cuda_unsafe_tensor_from_slice(
+                        module,
+                        cudart,
+                        &newshape,
+                        self.info.dtype,
+                        &self.device,
+                        iterator,
+                    )
                 }
-                Ok(())
-            })?
-            .into_py(py);
-            create_tensor(
-                &self.framework,
-                self.info.dtype,
-                &newshape,
-                array,
-                &self.device,
-            )
-        })
+                _ => {
+                    let array: PyObject =
+                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                            for slice in iterator {
+                                let len = slice.len();
+                                bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                                offset += len;
+                            }
+                            Ok(())
+                        })?
+                        .into_py(py);
+                    create_tensor(
+                        &self.framework,
+                        self.info.dtype,
+                        &newshape,
+                        array,
+                        &self.device,
+                    )
+                }
+            },
+        )
     }
+}
+
+fn get_module<'a>(
+    py: Python<'a>,
+    cell: &'static GILOnceCell<Py<PyModule>>,
+) -> PyResult<&'a PyModule> {
+    let module: &PyModule = cell
+        .get(py)
+        .ok_or_else(|| exceptions::PyException::new_err("Could not find module"))?
+        .as_ref(py);
+    Ok(module)
 }
 
 fn create_tensor(
