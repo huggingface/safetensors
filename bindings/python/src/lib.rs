@@ -226,18 +226,36 @@ impl safe_open {
 
                     let data_ptr_fn = tensor.getattr("data_ptr")?;
                     let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-                    use rustacuda::memory::{CopyDestination, DeviceBuffer, DevicePointer};
                     unsafe {
-                        let data_ptr = DevicePointer::wrap(&mut *(data_ptr as *mut u8));
+                        #[derive(Debug)]
+                        pub struct CudaError(String);
 
-                        let mut buffer = DeviceBuffer::from_raw_parts(data_ptr, data.len());
-                        buffer.copy_from(data).map_err(|e| {
-                            exceptions::PyException::new_err(format!(
-                                "Error when Copying to cuda {:?}",
-                                e
-                            ))
-                        })?;
-                        std::mem::forget(buffer);
+                        pub fn check_cuda(err: cuda_sys::CUresult) -> Result<(), CudaError> {
+                            if err == cuda_sys::cudaError_enum_CUDA_SUCCESS {
+                                Ok(())
+                            } else {
+                                unsafe {
+                                    let mut str_ptr = std::ptr::null();
+
+                                    cuda_sys::cuGetErrorString(err, &mut str_ptr);
+                                    let string = std::ffi::CStr::from_ptr(str_ptr)
+                                        .to_str()
+                                        .unwrap()
+                                        .to_string();
+                                    // panic!("{string:?}");
+                                    // println!("Here {string:?} {:?}", string.as_ptr());
+                                    // // println!("Here {ptr:?} ",);
+                                    let err = CudaError(string);
+                                    Err(err)
+                                }
+                            }
+                        }
+                        check_cuda(cuda_sys::cuMemcpyHtoD_v2(
+                            data_ptr as u64,
+                            data.as_ptr() as *const std::ffi::c_void,
+                            data.len(),
+                        ))
+                        .unwrap();
                     }
                     let tensor: PyObject = tensor.into_py(py);
                     Ok(tensor)
