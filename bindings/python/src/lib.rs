@@ -211,7 +211,7 @@ impl safe_open {
             let data =
                 &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-            if self.framework == Framework::Pytorch {
+            if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
                 Python::with_gil(|py| {
                     let module_name = "torch";
                     let dtype = info.dtype;
@@ -226,28 +226,19 @@ impl safe_open {
                     let tensor = empty.call((shape,), Some(kwargs))?;
 
                     let data_ptr_fn = tensor.getattr("data_ptr")?;
-                    if self.device.starts_with("cuda") {
-                        let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-                        unsafe {
-                            check_cuda(cuda_sys::cuMemcpyHtoD_v2(
-                                data_ptr as u64,
-                                data.as_ptr() as *const std::ffi::c_void,
-                                data.len(),
+                    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+                    unsafe {
+                        check_cuda(cuda_sys::cuMemcpyHtoD_v2(
+                            data_ptr as u64,
+                            data.as_ptr() as *const std::ffi::c_void,
+                            data.len(),
+                        ))
+                        .map_err(|e| {
+                            exceptions::PyException::new_err(format!(
+                                "Error setting memory with cuda {:?}",
+                                e
                             ))
-                            .map_err(|e| {
-                                exceptions::PyException::new_err(format!(
-                                    "Error setting memory with cuda {:?}",
-                                    e
-                                ))
-                            })?;
-                        }
-                    } else {
-                        let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-                        let slice = unsafe {
-                            let data_ptr = &mut *(data_ptr as *mut u8);
-                            std::slice::from_raw_parts_mut(data_ptr, data.len())
-                        };
-                        slice.copy_from_slice(data);
+                        })?;
                     }
                     let tensor: PyObject = tensor.into_py(py);
                     Ok(tensor)
