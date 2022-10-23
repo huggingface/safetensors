@@ -358,25 +358,81 @@ impl PySafeSlice {
 
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
-        let array: PyObject = Python::with_gil(|py| {
-            PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+
+        if self.device != "cpu" && self.framework == Framework::Pytorch {
+            Python::with_gil(|py| {
+                let module_name = "torch";
+                let dtype = self.info.dtype;
+                let shape = newshape;
+                let device: PyObject = self.device.clone().into_py(py);
+                let module = PyModule::import(py, module_name)?;
+                let empty = module.getattr("empty")?;
+                let dtype: PyObject = get_pydtype(module, dtype)?;
+                let shape: PyObject = shape.into_py(py);
+                let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
+                let tensor = empty.call((shape,), Some(kwargs))?;
+
+                let data_ptr_fn = tensor.getattr("data_ptr")?;
+                let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
                 for slice in iterator {
                     let len = slice.len();
-                    bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                    unsafe {
+                        #[derive(Debug)]
+                        pub struct CudaError(String);
+
+                        pub fn check_cuda(err: cuda_sys::CUresult) -> Result<(), CudaError> {
+                            if err == cuda_sys::cudaError_enum_CUDA_SUCCESS {
+                                Ok(())
+                            } else {
+                                unsafe {
+                                    let mut str_ptr = std::ptr::null();
+
+                                    cuda_sys::cuGetErrorString(err, &mut str_ptr);
+                                    let string = std::ffi::CStr::from_ptr(str_ptr)
+                                        .to_str()
+                                        .unwrap()
+                                        .to_string();
+                                    // panic!("{string:?}");
+                                    // println!("Here {string:?} {:?}", string.as_ptr());
+                                    // // println!("Here {ptr:?} ",);
+                                    let err = CudaError(string);
+                                    Err(err)
+                                }
+                            }
+                        }
+                        check_cuda(cuda_sys::cuMemcpyHtoD_v2(
+                            (data_ptr + offset) as u64,
+                            slice.as_ptr() as *const std::ffi::c_void,
+                            len,
+                        ))
+                        .unwrap();
+                    }
                     offset += len;
                 }
-                Ok(())
+                let tensor: PyObject = tensor.into_py(py);
+                Ok(tensor)
             })
-            .unwrap()
-            .into_py(py)
-        });
-        create_tensor(
-            &self.framework,
-            self.info.dtype,
-            &newshape,
-            array,
-            &self.device,
-        )
+        } else {
+            let array: PyObject = Python::with_gil(|py| {
+                PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                    for slice in iterator {
+                        let len = slice.len();
+                        bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                        offset += len;
+                    }
+                    Ok(())
+                })
+                .unwrap()
+                .into_py(py)
+            });
+            create_tensor(
+                &self.framework,
+                self.info.dtype,
+                &newshape,
+                array,
+                &self.device,
+            )
+        }
     }
 }
 
