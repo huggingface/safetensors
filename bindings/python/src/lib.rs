@@ -162,6 +162,133 @@ struct safe_open {
     framework: Framework,
     device: String,
     mmap: Arc<Mmap>,
+    cudart: Option<libloading::Library>,
+}
+
+fn create_empty_tensor_pt<'a>(
+    module: &'a PyModule,
+    shape: &[usize],
+    dtype: Dtype,
+    device: &'_ str,
+) -> PyResult<&'a PyAny> {
+    let py = module.py();
+    let shape = shape.to_vec();
+    let device: PyObject = device.into_py(py);
+    let empty = module.getattr("empty")?;
+    let dtype: PyObject = get_pydtype(module, dtype)?;
+    let shape: PyObject = shape.into_py(py);
+    let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
+    let tensor = empty.call((shape,), Some(kwargs))?;
+    Ok(tensor)
+}
+
+fn find_cudart(module: &PyModule) -> PyResult<libloading::Library> {
+    let mut path: std::path::PathBuf = module
+        .getattr(intern!(module.py(), "__file__"))?
+        .extract()?;
+    path.pop();
+    path.push("lib");
+    for file in path.read_dir()?.flatten() {
+        let path = file.path();
+
+        let filename = path
+            .file_name()
+            .ok_or_else(|| exceptions::PyException::new_err("Couldn't read filename "))?;
+        let filename = filename
+            .to_str()
+            .ok_or_else(|| exceptions::PyException::new_err("Couldn't read filename "))?;
+        if filename.starts_with("libcudart") {
+            unsafe {
+                let cudart = file.path();
+                let lib = libloading::Library::new(cudart).map_err(|e| {
+                    exceptions::PyException::new_err(format!("Couldn't load cuda {e:?}",))
+                })?;
+                return Ok(lib);
+            }
+        }
+    }
+    Err(exceptions::PyException::new_err("Couldn't find cuda"))
+}
+
+fn create_cuda_unsafe_tensor(
+    module: &PyModule,
+    cudart: &libloading::Library,
+    info: &TensorInfo,
+    device: &str,
+    data: &[u8],
+) -> PyResult<PyObject> {
+    let tensor = create_empty_tensor_pt(module, &info.shape, info.dtype, device)?;
+
+    let data_ptr_fn = tensor.getattr("data_ptr")?;
+    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+
+    let out = unsafe {
+        let cuda_memcpy: libloading::Symbol<
+            unsafe extern "C" fn(
+                device_ptr: u64,
+                src_ptr: *const std::ffi::c_void,
+                src_len: usize,
+            ) -> u32,
+        > = cudart.get(b"cudaMemcpy").map_err(|e| {
+            exceptions::PyException::new_err(format!("Couldn't find cudaMemcpy {e:?}",))
+        })?;
+        cuda_memcpy(
+            data_ptr as u64,
+            data.as_ptr() as *const std::ffi::c_void,
+            data.len(),
+        )
+    };
+    if out != 0 {
+        panic!(
+            "We tried to set your tensor fast, but there was a cuda error, This could
+                have corrupted your GPU ram, aborting to prevent further errors"
+        )
+    }
+    let tensor: PyObject = tensor.into_py(module.py());
+    Ok(tensor)
+}
+
+fn create_cuda_unsafe_tensor_from_slice(
+    module: &PyModule,
+    cudart: &libloading::Library,
+    shape: &[usize],
+    dtype: Dtype,
+    device: &str,
+    iterator: safetensors::slice::SliceIterator,
+) -> PyResult<PyObject> {
+    let tensor = create_empty_tensor_pt(module, shape, dtype, device)?;
+
+    let data_ptr_fn = tensor.getattr("data_ptr")?;
+    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+    let mut offset = 0;
+    unsafe {
+        let cuda_memcpy: libloading::Symbol<
+            unsafe extern "C" fn(
+                device_ptr: u64,
+                src_ptr: *const std::ffi::c_void,
+                src_len: usize,
+            ) -> u32,
+        > = cudart.get(b"cudaMemcpy").map_err(|e| {
+            exceptions::PyException::new_err(format!("Couldn't find cudaMemcpy {e:?}",))
+        })?;
+        for slice in iterator {
+            let len = slice.len();
+            let out = cuda_memcpy(
+                (data_ptr + offset) as u64,
+                slice.as_ptr() as *const std::ffi::c_void,
+                len,
+            );
+            if out != 0 {
+                panic!(
+                    "We tried to set your tensor fast, but there was a cuda error, This could
+                have corrupted your GPU ram, aborting to prevent further errors"
+                )
+            }
+            offset += len;
+        }
+    }
+    let tensor: PyObject = tensor.into_py(module.py());
+    Ok(tensor)
 }
 
 #[pymethods]
@@ -187,12 +314,23 @@ impl safe_open {
 
         let offset = n + 8;
 
+        let cudart = if device.starts_with("cuda") && framework == Framework::Pytorch {
+            Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
+                let module_name = "torch";
+                let module = PyModule::import(py, module_name)?;
+                Ok(Some(find_cudart(module)?))
+            })?
+        } else {
+            None
+        };
+
         Ok(Self {
             metadata,
             offset,
             framework,
             device,
             mmap: Arc::new(buffer),
+            cudart,
         })
     }
 
@@ -207,41 +345,17 @@ impl safe_open {
     }
 
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        if let Some(info) = self.metadata.tensors().get(name) {
-            let data =
-                &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+        let info = self.metadata.tensors().get(name).ok_or_else(|| {
+            exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
+        })?;
 
-            if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
-                Python::with_gil(|py| {
-                    let module_name = "torch";
-                    let dtype = info.dtype;
-                    let shape = info.shape.to_vec();
-                    let device: PyObject = self.device.clone().into_py(py);
-                    let module = PyModule::import(py, module_name)?;
-                    let empty = module.getattr("empty")?;
-                    let dtype: PyObject = get_pydtype(module, dtype)?;
-                    let shape: PyObject = shape.into_py(py);
+        let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-                    let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
-                    let tensor = empty.call((shape,), Some(kwargs))?;
-
-                    let data_ptr_fn = tensor.getattr("data_ptr")?;
-                    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-                    unsafe {
-                        check_cuda(cuda_sys::cuMemcpyHtoD_v2(
-                            data_ptr as u64,
-                            data.as_ptr() as *const std::ffi::c_void,
-                            data.len(),
-                        ))
-                        .map_err(|e| {
-                            exceptions::PyException::new_err(format!(
-                                "Error setting memory with cuda {:?}",
-                                e
-                            ))
-                        })?;
-                    }
-                    let tensor: PyObject = tensor.into_py(py);
-                    Ok(tensor)
+        if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
+            if let Some(cudart) = &self.cudart {
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    create_cuda_unsafe_tensor(module, cudart, info, &self.device, data)
                 })
             } else {
                 let tensor =
@@ -263,13 +377,33 @@ impl safe_open {
                 )
             }
         } else {
-            Err(exceptions::PyException::new_err(format!(
-                "File does not contain tensor {name}",
-            )))
+            let tensor = TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
+                exceptions::PyException::new_err(format!("Error when creating TensorView {:?}", e))
+            })?;
+            let array: PyObject =
+                Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
+
+            create_tensor(
+                &self.framework,
+                info.dtype,
+                &info.shape,
+                array,
+                &self.device,
+            )
         }
     }
 
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
+        let cudart = if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
+            Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
+                let module_name = "torch";
+                let module = PyModule::import(py, module_name)?;
+                Ok(Some(find_cudart(module)?))
+            })?
+        } else {
+            None
+        };
+
         if let Some(info) = self.metadata.tensors().get(name) {
             Ok(PySafeSlice {
                 info: info.clone(),
@@ -277,6 +411,7 @@ impl safe_open {
                 offset: self.offset,
                 device: self.device.clone(),
                 mmap: self.mmap.clone(),
+                cudart,
             })
         } else {
             Err(exceptions::PyException::new_err(format!(
@@ -286,32 +421,37 @@ impl safe_open {
     }
 
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
-        Python::with_gil(|py| {
+        Python::with_gil(|py| -> PyResult<()> {
             let _self: &safe_open = &slf.borrow(py);
             if _self.device.starts_with("cuda") && _self.framework == Framework::Pytorch {
-                let module_name = "torch";
-                let module = PyModule::import(py, module_name).unwrap();
-                let device: PyObject = _self.device.clone().into_py(py);
-                let torch_device = module.getattr("cuda").unwrap().getattr("device").unwrap();
-                let lock = torch_device.call1((device,)).unwrap();
-                lock.call_method0("__enter__").unwrap();
+                let module = PyModule::import(py, intern!(py, "torch"))?;
+                let device: PyObject = (&_self.device).into_py(py);
+                let torch_device = module
+                    .getattr(intern!(py, "cuda"))?
+                    .getattr(intern!(py, "device"))?;
+                let lock = torch_device.call1((device,))?;
+                lock.call_method0(intern!(py, "__enter__"))?;
             }
-        });
+            Ok(())
+        })
+        .ok();
         slf
     }
 
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
         if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
-            Python::with_gil(|py| {
-                let module_name = "torch";
-                let module = PyModule::import(py, module_name).unwrap();
-                let device: PyObject = self.device.clone().into_py(py);
-                let torch_device = module.getattr("cuda").unwrap().getattr("device").unwrap();
+            Python::with_gil(|py| -> PyResult<()> {
+                let module = PyModule::import(py, intern!(py, "torch"))?;
+                let device: PyObject = (&self.device).into_py(py);
+                let torch_device = module
+                    .getattr(intern!(py, "cuda"))?
+                    .getattr(intern!(py, "device"))?;
                 let none = py.None();
-                let lock = torch_device.call1((device,)).unwrap();
-                lock.call_method1("__exit__", (&none, &none, &none))
-                    .unwrap();
-            });
+                let lock = torch_device.call1((device,))?;
+                lock.call_method1(intern!(py, "__exit__"), (&none, &none, &none))?;
+                Ok(())
+            })
+            .ok();
         }
     }
 }
@@ -323,6 +463,7 @@ struct PySafeSlice {
     offset: usize,
     device: String,
     mmap: Arc<Mmap>,
+    cudart: Option<libloading::Library>,
 }
 
 #[derive(FromPyObject)]
@@ -339,6 +480,7 @@ impl PySafeSlice {
         let shape: PyObject = shape.into_py(py);
         Ok(shape)
     }
+
     pub fn __getitem__(&self, slices: Slice) -> PyResult<PyObject> {
         let slices: Vec<&PySlice> = match slices {
             Slice::Slice(slice) => vec![slice],
@@ -355,6 +497,7 @@ impl PySafeSlice {
             .into_iter()
             .map(slice_to_indexer)
             .collect::<Result<_, _>>()?;
+
         let iterator = tensor.get_sliced_data(slices.clone()).map_err(|e| {
             exceptions::PyException::new_err(format!(
                 "Error during slicing {slices:?} vs {:?}:  {:?}",
@@ -367,53 +510,50 @@ impl PySafeSlice {
         let length = iterator.remaining_byte_len();
 
         if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
-            Python::with_gil(|py| {
-                let module_name = "torch";
-                let dtype = self.info.dtype;
-                let shape = newshape;
-                let device: PyObject = self.device.clone().into_py(py);
-                let module = PyModule::import(py, module_name)?;
-                let empty = module.getattr("empty")?;
-                let dtype: PyObject = get_pydtype(module, dtype)?;
-                let shape: PyObject = shape.into_py(py);
-                let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
-                let tensor = empty.call((shape,), Some(kwargs))?;
-
-                let data_ptr_fn = tensor.getattr("data_ptr")?;
-                let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-                for slice in iterator {
-                    let len = slice.len();
-                    unsafe {
-                        check_cuda(cuda_sys::cuMemcpyHtoD_v2(
-                            (data_ptr + offset) as u64,
-                            slice.as_ptr() as *const std::ffi::c_void,
-                            len,
-                        ))
-                        .map_err(|e| {
-                            exceptions::PyException::new_err(format!(
-                                "Error setting memory with cuda {:?}",
-                                e
-                            ))
-                        })?;
-                    }
-                    offset += len;
-                }
-                let tensor: PyObject = tensor.into_py(py);
-                Ok(tensor)
-            })
+            if let Some(cudart) = &self.cudart {
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    create_cuda_unsafe_tensor_from_slice(
+                        module,
+                        cudart,
+                        &newshape,
+                        self.info.dtype,
+                        &self.device,
+                        iterator,
+                    )
+                })
+            } else {
+                let array: PyObject = Python::with_gil(|py| -> PyResult<PyObject> {
+                    Ok(PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                        for slice in iterator {
+                            let len = slice.len();
+                            bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                            offset += len;
+                        }
+                        Ok(())
+                    })?
+                    .into_py(py))
+                })?;
+                create_tensor(
+                    &self.framework,
+                    self.info.dtype,
+                    &newshape,
+                    array,
+                    &self.device,
+                )
+            }
         } else {
-            let array: PyObject = Python::with_gil(|py| {
-                PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+            let array: PyObject = Python::with_gil(|py| -> PyResult<PyObject> {
+                Ok(PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
                     for slice in iterator {
                         let len = slice.len();
                         bytes[offset..offset + slice.len()].copy_from_slice(slice);
                         offset += len;
                     }
                     Ok(())
-                })
-                .unwrap()
-                .into_py(py)
-            });
+                })?
+                .into_py(py))
+            })?;
             create_tensor(
                 &self.framework,
                 self.info.dtype,
@@ -433,80 +573,60 @@ fn create_tensor(
     device: &str,
 ) -> PyResult<PyObject> {
     match framework {
-        Framework::Pytorch | Framework::Numpy => {
+        Framework::Pytorch | Framework::Numpy => Python::with_gil(|py| -> PyResult<PyObject> {
             let module_name = match framework {
-                Framework::Numpy => "numpy",
-                Framework::Pytorch => "torch",
+                Framework::Numpy => intern!(py, "numpy"),
+                Framework::Pytorch => intern!(py, "torch"),
                 _ => unreachable!(),
             };
-            Python::with_gil(|py| {
-                let module = PyModule::import(py, module_name)?;
-                let frombuffer = module.getattr("frombuffer")?;
-                let dtype: PyObject = get_pydtype(module, dtype)?;
-                let kwargs = [("buffer", array), ("dtype", dtype)].into_py_dict(py);
-                let tensor = frombuffer.call((), Some(kwargs))?;
-                let shape = shape.to_vec();
-                let shape: PyObject = shape.into_py(py);
-                let mut tensor: &PyAny = tensor.getattr("reshape")?.call1((shape,))?;
-                if device != "cpu" {
-                    let device: PyObject = device.into_py(py);
-                    let kwargs = PyDict::new(py);
-                    kwargs.set_item("non_blocking", true)?;
-                    tensor = tensor.getattr("to")?.call((device,), Some(kwargs))?;
-                }
-                let tensor: PyObject = tensor.into_py(py);
-                Ok(tensor)
-            })
-        }
+            let module = PyModule::import(py, module_name)?;
+            let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
+            let dtype: PyObject = get_pydtype(module, dtype)?;
+            let kwargs = [
+                (intern!(py, "buffer"), array),
+                (intern!(py, "dtype"), dtype),
+            ]
+            .into_py_dict(py);
+            let tensor = frombuffer.call((), Some(kwargs))?;
+            let shape = shape.to_vec();
+            let shape: PyObject = shape.into_py(py);
+            let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+            if device != "cpu" {
+                let device: PyObject = device.into_py(py);
+                let kwargs = PyDict::new(py);
+                kwargs.set_item(intern!(py, "non_blocking"), true)?;
+                tensor = tensor
+                    .getattr(intern!(py, "to"))?
+                    .call((device,), Some(kwargs))?;
+            }
+            let tensor = tensor.into_py(py);
+            Ok(tensor)
+        }),
         framework => todo!("{framework:?}"),
     }
 }
 
 fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
-    let dtype: PyObject = match dtype {
-        Dtype::F64 => module.getattr("float64")?.into(),
-        Dtype::F32 => module.getattr("float32")?.into(),
-        Dtype::BF16 => module.getattr("bfloat16")?.into(),
-        Dtype::F16 => module.getattr("float16")?.into(),
-        Dtype::U64 => module.getattr("uint64")?.into(),
-        Dtype::I64 => module.getattr("int64")?.into(),
-        Dtype::U32 => module.getattr("uint32")?.into(),
-        Dtype::I32 => module.getattr("int32")?.into(),
-        Dtype::U16 => module.getattr("uint16")?.into(),
-        Dtype::I16 => module.getattr("int16")?.into(),
-        Dtype::U8 => module.getattr("uint8")?.into(),
-        Dtype::I8 => module.getattr("int8")?.into(),
-        Dtype::BOOL => module.getattr("bool")?.into(),
-        dtype => todo!("Dtype {dtype:?}"),
-    };
-    Ok(dtype)
+    Python::with_gil(|py| {
+        let dtype: PyObject = match dtype {
+            Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
+            Dtype::F32 => module.getattr(intern!(py, "float32"))?.into(),
+            Dtype::BF16 => module.getattr(intern!(py, "bfloat16"))?.into(),
+            Dtype::F16 => module.getattr(intern!(py, "float16"))?.into(),
+            Dtype::U64 => module.getattr(intern!(py, "uint64"))?.into(),
+            Dtype::I64 => module.getattr(intern!(py, "int64"))?.into(),
+            Dtype::U32 => module.getattr(intern!(py, "uint32"))?.into(),
+            Dtype::I32 => module.getattr(intern!(py, "int32"))?.into(),
+            Dtype::U16 => module.getattr(intern!(py, "uint16"))?.into(),
+            Dtype::I16 => module.getattr(intern!(py, "int16"))?.into(),
+            Dtype::U8 => module.getattr(intern!(py, "uint8"))?.into(),
+            Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
+            Dtype::BOOL => module.getattr(intern!(py, "bool"))?.into(),
+            dtype => todo!("Dtype {dtype:?}"),
+        };
+        Ok(dtype)
+    })
 }
-/// TODO
-#[derive(Debug)]
-pub struct CudaError(String);
-
-/// TODO
-pub fn check_cuda(err: cuda_sys::CUresult) -> Result<(), CudaError> {
-    if err == cuda_sys::cudaError_enum_CUDA_SUCCESS {
-        Ok(())
-    } else {
-        unsafe {
-            let mut str_ptr = std::ptr::null();
-
-            cuda_sys::cuGetErrorString(err, &mut str_ptr);
-            let string = std::ffi::CStr::from_ptr(str_ptr)
-                .to_str()
-                .unwrap()
-                .to_string();
-            // panic!("{string:?}");
-            // println!("Here {string:?} {:?}", string.as_ptr());
-            // // println!("Here {ptr:?} ",);
-            let err = CudaError(string);
-            Err(err)
-        }
-    }
-}
-
 /// A Python module implemented in Rust.
 #[pymodule]
 fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
