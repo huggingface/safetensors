@@ -154,13 +154,55 @@ impl<'source> FromPyObject<'source> for Framework {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Device {
+    Cpu,
+    Cuda(usize),
+    Mps,
+}
+
+impl<'source> FromPyObject<'source> for Device {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let name: String = ob.extract()?;
+        match &name[..] {
+            "cpu" => Ok(Device::Cpu),
+            "cuda" => Ok(Device::Cuda(0)),
+            "mps" => Ok(Device::Mps),
+            name if name.starts_with("cuda:") => {
+                let tokens: Vec<_> = name.split(':').collect();
+                if tokens.len() == 2 {
+                    let device: usize = tokens[1].parse()?;
+                    Ok(Device::Cuda(device))
+                } else {
+                    Err(exceptions::PyException::new_err(format!(
+                        "framework {name} is invalid"
+                    )))
+                }
+            }
+            name => Err(exceptions::PyException::new_err(format!(
+                "framework {name} is invalid"
+            ))),
+        }
+    }
+}
+
+impl IntoPy<PyObject> for Device {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        match self {
+            Device::Cpu => "cpu".into_py(py),
+            Device::Cuda(n) => format!("cuda:{n}").into_py(py),
+            Device::Mps => "mps".into_py(py),
+        }
+    }
+}
+
 #[pyclass]
 #[allow(non_camel_case_types)]
 struct safe_open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
-    device: String,
+    device: Device,
     mmap: Arc<Mmap>,
     cudart: Option<libloading::Library>,
 }
@@ -169,14 +211,14 @@ fn create_empty_tensor_pt<'a>(
     module: &'a PyModule,
     shape: &[usize],
     dtype: Dtype,
-    device: &'_ str,
+    device: &Device,
 ) -> PyResult<&'a PyAny> {
     let py = module.py();
     let shape = shape.to_vec();
-    let device: PyObject = device.into_py(py);
     let empty = module.getattr("empty")?;
     let dtype: PyObject = get_pydtype(module, dtype)?;
     let shape: PyObject = shape.into_py(py);
+    let device: PyObject = device.clone().into_py(py);
     let kwargs = [("dtype", dtype), ("device", device)].into_py_dict(py);
     let tensor = empty.call((shape,), Some(kwargs))?;
     Ok(tensor)
@@ -214,7 +256,7 @@ fn create_cuda_unsafe_tensor(
     module: &PyModule,
     cudart: &libloading::Library,
     info: &TensorInfo,
-    device: &str,
+    device: &Device,
     data: &[u8],
 ) -> PyResult<PyObject> {
     let tensor = create_empty_tensor_pt(module, &info.shape, info.dtype, device)?;
@@ -253,7 +295,7 @@ fn create_cuda_unsafe_tensor_from_slice(
     cudart: &libloading::Library,
     shape: &[usize],
     dtype: Dtype,
-    device: &str,
+    device: &Device,
     iterator: safetensors::slice::SliceIterator,
 ) -> PyResult<PyObject> {
     let tensor = create_empty_tensor_pt(module, shape, dtype, device)?;
@@ -294,13 +336,13 @@ fn create_cuda_unsafe_tensor_from_slice(
 #[pymethods]
 impl safe_open {
     #[new]
-    fn new(filename: &str, framework: Framework, device: Option<String>) -> PyResult<Self> {
+    fn new(filename: &str, framework: Framework, device: Option<Device>) -> PyResult<Self> {
         let file = File::open(filename)?;
-        let device = device.unwrap_or_else(|| "cpu".to_string());
+        let device = device.unwrap_or(Device::Cpu);
 
-        if device != "cpu" && framework != Framework::Pytorch {
+        if device != Device::Cpu && framework != Framework::Pytorch {
             return Err(exceptions::PyException::new_err(format!(
-                "Device {device} is not support for framework {framework:?}",
+                "Device {device:?} is not support for framework {framework:?}",
             )));
         }
 
@@ -314,14 +356,15 @@ impl safe_open {
 
         let offset = n + 8;
 
-        let cudart = if device.starts_with("cuda") && framework == Framework::Pytorch {
-            Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
-                let module_name = "torch";
-                let module = PyModule::import(py, module_name)?;
-                Ok(Some(find_cudart(module)?))
-            })?
-        } else {
-            None
+        let cudart = match (&device, &framework) {
+            (Device::Cuda(_), Framework::Pytorch) => {
+                Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
+                    let module_name = intern!(py, "torch");
+                    let module = PyModule::import(py, module_name)?;
+                    Ok(Some(find_cudart(module)?))
+                })?
+            }
+            _ => None,
         };
 
         Ok(Self {
@@ -351,22 +394,15 @@ impl safe_open {
 
         let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-        if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
-            if let Some(cudart) = &self.cudart {
+        match (&self.device, &self.framework, &self.cudart) {
+            (Device::Cuda(_), Framework::Pytorch, Some(cudart)) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
                     let module = PyModule::import(py, intern!(py, "torch"))?;
                     create_cuda_unsafe_tensor(module, cudart, info, &self.device, data)
                 })
-            } else {
-                let tensor =
-                    TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
-                        exceptions::PyException::new_err(format!(
-                            "Error when creating TensorView {:?}",
-                            e
-                        ))
-                    })?;
-                let array: PyObject =
-                    Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
+            }
+            _ => {
+                let array: PyObject = Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
 
                 create_tensor(
                     &self.framework,
@@ -376,32 +412,19 @@ impl safe_open {
                     &self.device,
                 )
             }
-        } else {
-            let tensor = TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
-                exceptions::PyException::new_err(format!("Error when creating TensorView {:?}", e))
-            })?;
-            let array: PyObject =
-                Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
-
-            create_tensor(
-                &self.framework,
-                info.dtype,
-                &info.shape,
-                array,
-                &self.device,
-            )
         }
     }
 
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
-        let cudart = if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
-            Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
-                let module_name = "torch";
-                let module = PyModule::import(py, module_name)?;
-                Ok(Some(find_cudart(module)?))
-            })?
-        } else {
-            None
+        let cudart = match (&self.device, &self.framework) {
+            (Device::Cuda(_), Framework::Pytorch) => {
+                Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
+                    let module_name = intern!(py, "torch");
+                    let module = PyModule::import(py, module_name)?;
+                    Ok(Some(find_cudart(module)?))
+                })?
+            }
+            _ => None,
         };
 
         if let Some(info) = self.metadata.tensors().get(name) {
@@ -423,9 +446,9 @@ impl safe_open {
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
         Python::with_gil(|py| -> PyResult<()> {
             let _self: &safe_open = &slf.borrow(py);
-            if _self.device.starts_with("cuda") && _self.framework == Framework::Pytorch {
+            if let (Device::Cuda(_), Framework::Pytorch) = (&_self.device, &_self.framework) {
                 let module = PyModule::import(py, intern!(py, "torch"))?;
-                let device: PyObject = (&_self.device).into_py(py);
+                let device: PyObject = _self.device.clone().into_py(py);
                 let torch_device = module
                     .getattr(intern!(py, "cuda"))?
                     .getattr(intern!(py, "device"))?;
@@ -439,10 +462,10 @@ impl safe_open {
     }
 
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
-        if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
+        if let (Device::Cuda(_), Framework::Pytorch) = (&self.device, &self.framework) {
             Python::with_gil(|py| -> PyResult<()> {
                 let module = PyModule::import(py, intern!(py, "torch"))?;
-                let device: PyObject = (&self.device).into_py(py);
+                let device: PyObject = self.device.clone().into_py(py);
                 let torch_device = module
                     .getattr(intern!(py, "cuda"))?
                     .getattr(intern!(py, "device"))?;
@@ -461,7 +484,7 @@ struct PySafeSlice {
     info: TensorInfo,
     framework: Framework,
     offset: usize,
-    device: String,
+    device: Device,
     mmap: Arc<Mmap>,
     cudart: Option<libloading::Library>,
 }
@@ -509,8 +532,8 @@ impl PySafeSlice {
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
 
-        if self.device.starts_with("cuda") && self.framework == Framework::Pytorch {
-            if let Some(cudart) = &self.cudart {
+        match (&self.device, &self.framework, &self.cudart) {
+            (Device::Cuda(_), Framework::Pytorch, Some(cudart)) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
                     let module = PyModule::import(py, intern!(py, "torch"))?;
                     create_cuda_unsafe_tensor_from_slice(
@@ -522,7 +545,8 @@ impl PySafeSlice {
                         iterator,
                     )
                 })
-            } else {
+            }
+            _ => {
                 let array: PyObject = Python::with_gil(|py| -> PyResult<PyObject> {
                     Ok(PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
                         for slice in iterator {
@@ -542,25 +566,6 @@ impl PySafeSlice {
                     &self.device,
                 )
             }
-        } else {
-            let array: PyObject = Python::with_gil(|py| -> PyResult<PyObject> {
-                Ok(PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
-                    for slice in iterator {
-                        let len = slice.len();
-                        bytes[offset..offset + slice.len()].copy_from_slice(slice);
-                        offset += len;
-                    }
-                    Ok(())
-                })?
-                .into_py(py))
-            })?;
-            create_tensor(
-                &self.framework,
-                self.info.dtype,
-                &newshape,
-                array,
-                &self.device,
-            )
         }
     }
 }
@@ -570,7 +575,7 @@ fn create_tensor(
     dtype: Dtype,
     shape: &[usize],
     array: PyObject,
-    device: &str,
+    device: &Device,
 ) -> PyResult<PyObject> {
     match framework {
         Framework::Pytorch | Framework::Numpy => Python::with_gil(|py| -> PyResult<PyObject> {
@@ -591,10 +596,9 @@ fn create_tensor(
             let shape = shape.to_vec();
             let shape: PyObject = shape.into_py(py);
             let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-            if device != "cpu" {
-                let device: PyObject = device.into_py(py);
+            if device != &Device::Cpu {
+                let device: PyObject = device.clone().into_py(py);
                 let kwargs = PyDict::new(py);
-                kwargs.set_item(intern!(py, "non_blocking"), true)?;
                 tensor = tensor
                     .getattr(intern!(py, "to"))?
                     .call((device,), Some(kwargs))?;
