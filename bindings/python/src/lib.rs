@@ -154,26 +154,75 @@ impl<'source> FromPyObject<'source> for Framework {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Device {
+    Cpu,
+    Cuda(usize),
+    Mps,
+}
+
+impl<'source> FromPyObject<'source> for Device {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if let Ok(name) = ob.extract::<String>() {
+            match &name[..] {
+                "cpu" => Ok(Device::Cpu),
+                "cuda" => Ok(Device::Cuda(0)),
+                "mps" => Ok(Device::Mps),
+                name if name.starts_with("cuda:") => {
+                    let tokens: Vec<_> = name.split(':').collect();
+                    if tokens.len() == 2 {
+                        let device: usize = tokens[1].parse()?;
+                        Ok(Device::Cuda(device))
+                    } else {
+                        Err(exceptions::PyException::new_err(format!(
+                            "device {name} is invalid"
+                        )))
+                    }
+                }
+                name => Err(exceptions::PyException::new_err(format!(
+                    "device {name} is invalid"
+                ))),
+            }
+        } else if let Ok(number) = ob.extract::<usize>() {
+            Ok(Device::Cuda(number))
+        } else {
+            Err(exceptions::PyException::new_err(format!(
+                "device {ob} is invalid"
+            )))
+        }
+    }
+}
+
+impl IntoPy<PyObject> for Device {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        match self {
+            Device::Cpu => "cpu".into_py(py),
+            Device::Cuda(n) => format!("cuda:{n}").into_py(py),
+            Device::Mps => "mps".into_py(py),
+        }
+    }
+}
+
 #[pyclass]
 #[allow(non_camel_case_types)]
 struct safe_open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
-    device: String,
+    device: Device,
     mmap: Arc<Mmap>,
 }
 
 #[pymethods]
 impl safe_open {
     #[new]
-    fn new(filename: &str, framework: Framework, device: Option<String>) -> PyResult<Self> {
+    fn new(filename: &str, framework: Framework, device: Option<Device>) -> PyResult<Self> {
         let file = File::open(filename)?;
-        let device = device.unwrap_or_else(|| "cpu".to_string());
+        let device = device.unwrap_or(Device::Cpu);
 
-        if device != "cpu" && framework != Framework::Pytorch {
+        if device != Device::Cpu && framework != Framework::Pytorch {
             return Err(exceptions::PyException::new_err(format!(
-                "Device {device} is not support for framework {framework:?}",
+                "Device {device:?} is not support for framework {framework:?}",
             )));
         }
 
@@ -207,28 +256,21 @@ impl safe_open {
     }
 
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        if let Some(info) = self.metadata.tensors().get(name) {
-            let data =
-                &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+        let info = self.metadata.tensors().get(name).ok_or_else(|| {
+            exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
+        })?;
 
-            let tensor = TensorView::new(info.dtype, info.shape.clone(), data).map_err(|e| {
-                exceptions::PyException::new_err(format!("Error when creating TensorView {:?}", e))
-            })?;
-            let array: PyObject =
-                Python::with_gil(|py| PyByteArray::new(py, tensor.get_data()).into_py(py));
+        let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-            create_tensor(
-                &self.framework,
-                info.dtype,
-                &info.shape,
-                array,
-                &self.device,
-            )
-        } else {
-            Err(exceptions::PyException::new_err(format!(
-                "File does not contain tensor {name}",
-            )))
-        }
+        let array: PyObject = Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
+
+        create_tensor(
+            &self.framework,
+            info.dtype,
+            &info.shape,
+            array,
+            &self.device,
+        )
     }
 
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
@@ -259,7 +301,7 @@ struct PySafeSlice {
     info: TensorInfo,
     framework: Framework,
     offset: usize,
-    device: String,
+    device: Device,
     mmap: Arc<Mmap>,
 }
 
@@ -277,6 +319,7 @@ impl PySafeSlice {
         let shape: PyObject = shape.into_py(py);
         Ok(shape)
     }
+
     pub fn __getitem__(&self, slices: Slice) -> PyResult<PyObject> {
         let slices: Vec<&PySlice> = match slices {
             Slice::Slice(slice) => vec![slice],
@@ -293,6 +336,7 @@ impl PySafeSlice {
             .into_iter()
             .map(slice_to_indexer)
             .collect::<Result<_, _>>()?;
+
         let iterator = tensor.get_sliced_data(slices.clone()).map_err(|e| {
             exceptions::PyException::new_err(format!(
                 "Error during slicing {slices:?} vs {:?}:  {:?}",
@@ -303,18 +347,18 @@ impl PySafeSlice {
 
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
-        let array: PyObject = Python::with_gil(|py| {
-            PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+
+        let array: PyObject = Python::with_gil(|py| -> PyResult<PyObject> {
+            Ok(PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
                 for slice in iterator {
                     let len = slice.len();
                     bytes[offset..offset + slice.len()].copy_from_slice(slice);
                     offset += len;
                 }
                 Ok(())
-            })
-            .unwrap()
-            .into_py(py)
-        });
+            })?
+            .into_py(py))
+        })?;
         create_tensor(
             &self.framework,
             self.info.dtype,
@@ -330,56 +374,62 @@ fn create_tensor(
     dtype: Dtype,
     shape: &[usize],
     array: PyObject,
-    device: &str,
+    device: &Device,
 ) -> PyResult<PyObject> {
     match framework {
-        Framework::Pytorch | Framework::Numpy => {
+        Framework::Pytorch | Framework::Numpy => Python::with_gil(|py| -> PyResult<PyObject> {
             let module_name = match framework {
-                Framework::Numpy => "numpy",
-                Framework::Pytorch => "torch",
+                Framework::Numpy => intern!(py, "numpy"),
+                Framework::Pytorch => intern!(py, "torch"),
                 _ => unreachable!(),
             };
-            Python::with_gil(|py| {
-                let module = PyModule::import(py, module_name)?;
-                let frombuffer = module.getattr("frombuffer")?;
-                let dtype: PyObject = get_pydtype(module, dtype)?;
-                let kwargs = [("buffer", array), ("dtype", dtype)].into_py_dict(py);
-                let tensor = frombuffer.call((), Some(kwargs))?;
-                let shape = shape.to_vec();
-                let shape: PyObject = shape.into_py(py);
-                let mut tensor: &PyAny = tensor.getattr("reshape")?.call1((shape,))?;
-                if device != "cpu" {
-                    let device: PyObject = device.into_py(py);
-                    tensor = tensor.getattr("to")?.call1((device,))?;
-                }
-                let tensor: PyObject = tensor.into_py(py);
-                Ok(tensor)
-            })
-        }
+            let module = PyModule::import(py, module_name)?;
+            let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
+            let dtype: PyObject = get_pydtype(module, dtype)?;
+            let kwargs = [
+                (intern!(py, "buffer"), array),
+                (intern!(py, "dtype"), dtype),
+            ]
+            .into_py_dict(py);
+            let tensor = frombuffer.call((), Some(kwargs))?;
+            let shape = shape.to_vec();
+            let shape: PyObject = shape.into_py(py);
+            let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+            if device != &Device::Cpu {
+                let device: PyObject = device.clone().into_py(py);
+                let kwargs = PyDict::new(py);
+                tensor = tensor
+                    .getattr(intern!(py, "to"))?
+                    .call((device,), Some(kwargs))?;
+            }
+            let tensor = tensor.into_py(py);
+            Ok(tensor)
+        }),
         framework => todo!("{framework:?}"),
     }
 }
 
 fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
-    let dtype: PyObject = match dtype {
-        Dtype::F64 => module.getattr("float64")?.into(),
-        Dtype::F32 => module.getattr("float32")?.into(),
-        Dtype::BF16 => module.getattr("bfloat16")?.into(),
-        Dtype::F16 => module.getattr("float16")?.into(),
-        Dtype::U64 => module.getattr("uint64")?.into(),
-        Dtype::I64 => module.getattr("int64")?.into(),
-        Dtype::U32 => module.getattr("uint32")?.into(),
-        Dtype::I32 => module.getattr("int32")?.into(),
-        Dtype::U16 => module.getattr("uint16")?.into(),
-        Dtype::I16 => module.getattr("int16")?.into(),
-        Dtype::U8 => module.getattr("uint8")?.into(),
-        Dtype::I8 => module.getattr("int8")?.into(),
-        Dtype::BOOL => module.getattr("bool")?.into(),
-        dtype => todo!("Dtype {dtype:?}"),
-    };
-    Ok(dtype)
+    Python::with_gil(|py| {
+        let dtype: PyObject = match dtype {
+            Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
+            Dtype::F32 => module.getattr(intern!(py, "float32"))?.into(),
+            Dtype::BF16 => module.getattr(intern!(py, "bfloat16"))?.into(),
+            Dtype::F16 => module.getattr(intern!(py, "float16"))?.into(),
+            Dtype::U64 => module.getattr(intern!(py, "uint64"))?.into(),
+            Dtype::I64 => module.getattr(intern!(py, "int64"))?.into(),
+            Dtype::U32 => module.getattr(intern!(py, "uint32"))?.into(),
+            Dtype::I32 => module.getattr(intern!(py, "int32"))?.into(),
+            Dtype::U16 => module.getattr(intern!(py, "uint16"))?.into(),
+            Dtype::I16 => module.getattr(intern!(py, "int16"))?.into(),
+            Dtype::U8 => module.getattr(intern!(py, "uint8"))?.into(),
+            Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
+            Dtype::BOOL => module.getattr(intern!(py, "bool"))?.into(),
+            dtype => todo!("Dtype {dtype:?}"),
+        };
+        Ok(dtype)
+    })
 }
-
 /// A Python module implemented in Rust.
 #[pymodule]
 fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
