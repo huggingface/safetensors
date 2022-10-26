@@ -201,7 +201,6 @@ impl Metadata {
 
     fn validate(&self) -> Result<(), SafeTensorError> {
         let mut offsets: Vec<_> = self.tensors.iter().collect();
-
         offsets.sort_by(|a, b| a.1.data_offsets.cmp(&b.1.data_offsets));
         let mut start = 0;
         for (tensor_name, info) in offsets {
@@ -210,6 +209,11 @@ impl Metadata {
                 return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
             }
             start = e;
+            let nelements: usize = info.shape.iter().product();
+            let nbytes = nelements * info.dtype.size();
+            if (e - s) != nbytes {
+                return Err(SafeTensorError::TensorInvalidInfo);
+            }
         }
 
         Ok(())
@@ -238,19 +242,8 @@ pub struct TensorView<'data> {
 
 impl<'data> TensorView<'data> {
     /// Create new tensor view
-    pub fn new(
-        dtype: Dtype,
-        shape: Vec<usize>,
-        data: &'data [u8],
-    ) -> Result<Self, SafeTensorError> {
-        let nelements: usize = shape.iter().product();
-        let nbytes = nelements * dtype.size();
-        if data.len() != nbytes {
-            println!("{:?} != {:?}", data.len(), nbytes);
-            Err(SafeTensorError::TensorInvalidInfo)
-        } else {
-            Ok(Self { dtype, shape, data })
-        }
+    pub fn new(dtype: Dtype, shape: Vec<usize>, data: &'data [u8]) -> Self {
+        Self { dtype, shape, data }
     }
     /// The current tensor dtype
     pub fn get_dtype(&self) -> Dtype {
@@ -369,7 +362,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 2, 3];
-        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, shape, &data);
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
@@ -470,7 +463,7 @@ mod tests {
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
             let buffer = &all_data[offset..offset + n * dtype.size()];
-            let tensor = TensorView::new(dtype, shape, buffer).unwrap();
+            let tensor = TensorView::new(dtype, shape, buffer);
             metadata.insert(name, tensor);
             offset += n;
         }

@@ -49,13 +49,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
                 _ => println!("Ignored unknown kwarg option {}", key),
             };
         }
-
-        let tensor = TensorView::new(dtype, shape, data).map_err(|e| {
-            exceptions::PyException::new_err(format!(
-                "Error while processing tensor {tensor_name:?} {:?}",
-                e
-            ))
-        })?;
+        let tensor = TensorView::new(dtype, shape, data);
         tensors.insert(tensor_name, tensor);
     }
     Ok(tensors)
@@ -328,10 +322,7 @@ impl PySafeSlice {
         let data = &self.mmap
             [self.info.data_offsets.0 + self.offset..self.info.data_offsets.1 + self.offset];
 
-        let tensor =
-            TensorView::new(self.info.dtype, self.info.shape.clone(), data).map_err(|e| {
-                exceptions::PyException::new_err(format!("Error when creating TensorView {:?}", e))
-            })?;
+        let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data);
         let slices: Vec<TensorIndexer> = slices
             .into_iter()
             .map(slice_to_indexer)
