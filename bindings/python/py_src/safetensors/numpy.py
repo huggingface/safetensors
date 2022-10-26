@@ -1,3 +1,4 @@
+from importlib.metadata import metadata
 from typing import Dict, Optional
 
 import numpy as np
@@ -25,9 +26,9 @@ def load_file(filename: str) -> Dict[str, np.ndarray]:
     return result
 
 
-def save_file(tensor_dict: Dict[str, np.ndarray], filename: str):
+def save_file(tensor_dict: Dict[str, np.ndarray], filename: str, metadata: Optional[Dict[str, str]] = None):
     flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
-    serialize_file(flattened, filename)
+    serialize_file(flattened, filename, metadata=metadata)
 
 
 _TYPES = {

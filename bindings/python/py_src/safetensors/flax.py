@@ -20,7 +20,7 @@ def _jnp2np(jnp_dict: Dict[str, jnp.DeviceArray]) -> Dict[str, np.array]:
 
 def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = _jnp2np(tensors)
-    return numpy.save(np_tensors)
+    return numpy.save(np_tensors, metadata=metadata)
 
 
 def save_file(
@@ -29,7 +29,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     np_tensors = _jnp2np(tensors)
-    return numpy.save_file(np_tensors, filename)
+    return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 
 def load(buffer: bytes) -> Dict[str, jnp.DeviceArray]:

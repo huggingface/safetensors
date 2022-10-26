@@ -20,7 +20,7 @@ def _tf2np(tf_dict: Dict[str, tf.Tensor]) -> Dict[str, np.array]:
 
 def save(tensors: Dict[str, tf.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     np_tensors = _tf2np(tensors)
-    return numpy.save(np_tensors)
+    return numpy.save(np_tensors, metadata=metadata)
 
 
 def save_file(
@@ -29,7 +29,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     np_tensors = _tf2np(tensors)
-    return numpy.save_file(np_tensors, filename)
+    return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 
 def load(buffer: bytes) -> Dict[str, tf.Tensor]:
