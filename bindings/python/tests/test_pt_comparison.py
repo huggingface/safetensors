@@ -53,17 +53,36 @@ class SpeedTestCase(unittest.TestCase):
             save_file(data.copy(), self.local)
 
     def test_deserialization_safe(self):
-        start = datetime.datetime.now()
-        # First time to hit disk
-        load_file(self.local)
-        # Second time we should be in disk cache
-        start = datetime.datetime.now()
-        weights = load_file(self.local)
-        safe_time = datetime.datetime.now() - start
+        N = 10
+
+        s = datetime.datetime.now()
         torch.load(self.filename)
-        start = datetime.datetime.now()
-        tweights = torch.load(self.filename)
-        pt_time = datetime.datetime.now() - start
+        print("first", datetime.datetime.now() - s)
+
+        pt_timing = datetime.timedelta(0)
+        for i in range(N):
+            start = datetime.datetime.now()
+            tweights = torch.load(self.filename)
+            pt_time = datetime.datetime.now() - start
+            print("PT", pt_time)
+            pt_timing += pt_time
+        pt_time = pt_timing / N
+
+        # First time to hit disk
+        s = datetime.datetime.now()
+        load_file(self.local)
+        print("first sf", datetime.datetime.now() - s)
+        # Second time we should be in disk cache
+        safe_timing = datetime.timedelta(0)
+        for i in range(N):
+            start = datetime.datetime.now()
+            weights = load_file(self.local)
+            safe_time = datetime.datetime.now() - start
+            if i % 2 == 1:
+                print("SF", safe_time)
+            safe_timing += safe_time
+        safe_time = safe_timing / N
+
         print()
         print(f"Deserialization (Safe) took {safe_time}")
         print(f"Deserialization (PT) took {pt_time} (Safe is {pt_time/safe_time} faster)")
