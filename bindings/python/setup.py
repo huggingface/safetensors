@@ -20,6 +20,7 @@ setup(
     url="https://github.com/huggingface/safetensors",
     license="Apache License 2.0",
     rust_extensions=[RustExtension("safetensors.safetensors_rust", binding=Binding.PyO3, debug=False)],
+    install_require=["importlib_metadata;python_version<'3.8'"],
     extras_require=extras,
     classifiers=[
         "Development Status :: 5 - Production/Stable",

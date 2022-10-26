@@ -1,9 +1,15 @@
-from importlib.metadata import metadata
+import sys
 from typing import Dict, Optional
 
 import numpy as np
 
 from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
+
+# The package importlib_metadata is in a different place, depending on the python version.
+if sys.version_info < (3, 8):
+    from importlib_metadata import metadata
+else:
+    from importlib.metadata import metadata
 
 
 def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
