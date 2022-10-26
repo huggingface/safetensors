@@ -247,6 +247,9 @@ fn find_cudart(module: &PyModule) -> PyResult<libloading::Library> {
             .to_str()
             .ok_or_else(|| exceptions::PyException::new_err("Couldn't read filename "))?;
         if filename.starts_with("libcudart") {
+            // SAFETY: This is unsafe because the library might run arbitrary code
+            // So it's really important to make sure we are targeting the correct
+            // library.
             unsafe {
                 let cudart = file.path();
                 let lib = libloading::Library::new(cudart).map_err(|e| {
@@ -271,6 +274,7 @@ fn create_cuda_unsafe_tensor(
     let data_ptr_fn = tensor.getattr("data_ptr")?;
     let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
 
+    // SAFETY: This is unsafe for the same reasons as when we load the library
     let out = unsafe {
         let cuda_memcpy: libloading::Symbol<
             unsafe extern "C" fn(
@@ -287,6 +291,9 @@ fn create_cuda_unsafe_tensor(
             data.len(),
         )
     };
+    // SAFETY: Here we have a correct library, we successfully called memcpy,
+    // but somehow the call failed. This is really worrying since Pytorch is
+    // responsible for allocating the memory.
     if out != 0 {
         panic!(
             "We tried to set your tensor fast, but there was a cuda error, This could
@@ -310,6 +317,7 @@ fn create_cuda_unsafe_tensor_from_slice(
     let data_ptr_fn = tensor.getattr("data_ptr")?;
     let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
     let mut offset = 0;
+    // SAFETY: This is unsafe for the same reasons as when we load the library
     unsafe {
         let cuda_memcpy: libloading::Symbol<
             unsafe extern "C" fn(
@@ -327,6 +335,9 @@ fn create_cuda_unsafe_tensor_from_slice(
                 slice.as_ptr() as *const std::ffi::c_void,
                 len,
             );
+            // SAFETY: Here we have a correct library, we successfully called memcpy,
+            // but somehow the call failed. This is really worrying since Pytorch is
+            // responsible for allocating the memory.
             if out != 0 {
                 panic!(
                     "We tried to set your tensor fast, but there was a cuda error, This could
@@ -451,10 +462,47 @@ impl safe_open {
     }
 
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
+        // SAFETY: This code is extremely important to the GPU fast load.
+        // Cuda uses a context to select the device you are writing on.
+        // PyTorch uses this function to create and use said context.
+        // Without this, we instantiate the empty buffer on the correct GPU
+        // But we fail to override the proper memory location since the context
+        // is removed by python.
+        // Using this sets the Cuda context once and for all for the entirety
+        // of the context manager lifecycle.
+        Python::with_gil(|py| -> PyResult<()> {
+            let _self: &safe_open = &slf.borrow(py);
+            if let (Device::Cuda(_), Framework::Pytorch) = (&_self.device, &_self.framework) {
+                let module = PyModule::import(py, intern!(py, "torch"))?;
+                let device: PyObject = _self.device.clone().into_py(py);
+                let torch_device = module
+                    .getattr(intern!(py, "cuda"))?
+                    .getattr(intern!(py, "device"))?;
+                let lock = torch_device.call1((device,))?;
+                lock.call_method0(intern!(py, "__enter__"))?;
+            }
+            Ok(())
+        })
+        .ok();
         slf
     }
 
-    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {}
+    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
+        if let (Device::Cuda(_), Framework::Pytorch) = (&self.device, &self.framework) {
+            Python::with_gil(|py| -> PyResult<()> {
+                let module = PyModule::import(py, intern!(py, "torch"))?;
+                let device: PyObject = self.device.clone().into_py(py);
+                let torch_device = module
+                    .getattr(intern!(py, "cuda"))?
+                    .getattr(intern!(py, "device"))?;
+                let none = py.None();
+                let lock = torch_device.call1((device,))?;
+                lock.call_method1(intern!(py, "__exit__"), (&none, &none, &none))?;
+                Ok(())
+            })
+            .ok();
+        }
+    }
 }
 
 #[pyclass]
