@@ -53,18 +53,8 @@ class SpeedTestCase(unittest.TestCase):
             save_file(data.copy(), self.local)
 
     def test_deserialization_safe(self):
-        W = 10
-        N = 50
-
-        for i in range(W):
-            load_file(self.local)
-        safe_timing = datetime.timedelta(0)
-        for i in range(N):
-            start = datetime.datetime.now()
-            weights = load_file(self.local)
-            safe_time = datetime.datetime.now() - start
-            safe_timing += safe_time
-        safe_time = safe_timing / N
+        W = 1
+        N = 1
 
         for i in range(W):
             torch.load(self.filename)
@@ -75,6 +65,16 @@ class SpeedTestCase(unittest.TestCase):
             pt_time = datetime.datetime.now() - start
             pt_timing += pt_time
         pt_time = pt_timing / N
+
+        for i in range(W):
+            load_file(self.local)
+        safe_timing = datetime.timedelta(0)
+        for i in range(N):
+            start = datetime.datetime.now()
+            weights = load_file(self.local)
+            safe_time = datetime.datetime.now() - start
+            safe_timing += safe_time
+        safe_time = safe_timing / N
 
         print()
         print(f"Deserialization (Safe) took {safe_time}")
