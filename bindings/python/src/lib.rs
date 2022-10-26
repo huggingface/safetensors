@@ -175,12 +175,12 @@ impl<'source> FromPyObject<'source> for Device {
                     Ok(Device::Cuda(device))
                 } else {
                     Err(exceptions::PyException::new_err(format!(
-                        "framework {name} is invalid"
+                        "device {name} is invalid"
                     )))
                 }
             }
             name => Err(exceptions::PyException::new_err(format!(
-                "framework {name} is invalid"
+                "device {name} is invalid"
             ))),
         }
     }
@@ -283,39 +283,10 @@ impl safe_open {
     }
 
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
-        Python::with_gil(|py| -> PyResult<()> {
-            let _self: &safe_open = &slf.borrow(py);
-            if let (Device::Cuda(_), Framework::Pytorch) = (&_self.device, &_self.framework) {
-                let module = PyModule::import(py, intern!(py, "torch"))?;
-                let device: PyObject = _self.device.clone().into_py(py);
-                let torch_device = module
-                    .getattr(intern!(py, "cuda"))?
-                    .getattr(intern!(py, "device"))?;
-                let lock = torch_device.call1((device,))?;
-                lock.call_method0(intern!(py, "__enter__"))?;
-            }
-            Ok(())
-        })
-        .ok();
         slf
     }
 
-    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
-        if let (Device::Cuda(_), Framework::Pytorch) = (&self.device, &self.framework) {
-            Python::with_gil(|py| -> PyResult<()> {
-                let module = PyModule::import(py, intern!(py, "torch"))?;
-                let device: PyObject = self.device.clone().into_py(py);
-                let torch_device = module
-                    .getattr(intern!(py, "cuda"))?
-                    .getattr(intern!(py, "device"))?;
-                let none = py.None();
-                let lock = torch_device.call1((device,))?;
-                lock.call_method1(intern!(py, "__exit__"), (&none, &none, &none))?;
-                Ok(())
-            })
-            .ok();
-        }
-    }
+    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {}
 }
 
 #[pyclass]
