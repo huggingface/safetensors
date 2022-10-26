@@ -1,0 +1,7 @@
+black==22.3  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
+isort>=5.5.4
+flake8>=3.8.3
+pytest
+numpy
+setuptools_rust
+huggingface_hub
