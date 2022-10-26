@@ -4,7 +4,7 @@
 
 Simple checklist on how to make releases for `safetensors`.
 
-- Freeze `master` branch.
+- Freeze `main` branch.
 - Run all tests (Check CI has properly run)
 - If any significant work, check benchmarks:
   - `cd safetensors && cargo bench` (needs to be run on latest release tag to measure difference if it's your first time)

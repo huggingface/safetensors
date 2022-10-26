@@ -2,19 +2,15 @@ from setuptools import setup
 from setuptools_rust import Binding, RustExtension
 
 
+with open("requirements-dev.txt", "r") as f:
+    testing = f.read().splitlines()
+
 extras = {}
-extras["testing"] = [
-    "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
-    "isort>=5.5.4",
-    "flake8>=3.8.3",
-    "pytest",
-    "numpy",
-]
-extras["docs"] = ["sphinx", "sphinx_rtd_theme", "setuptools_rust"]
+extras["testing"] = testing
 
 setup(
     name="safetensors",
-    version="0.2.1.dev0",
+    version="0.2.2",
     description="Fast and Safe Tensor serialization",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
