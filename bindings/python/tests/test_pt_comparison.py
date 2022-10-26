@@ -87,6 +87,7 @@ class SpeedTestCase(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_deserialization_safe_gpu(self):
         # First time to hit disk
+        load_file(self.local, device=0)
         load_file(self.local, device="cuda:0")
         # Second time we should be in disk cache
         start = datetime.datetime.now()
@@ -136,6 +137,7 @@ class SpeedTestCase(unittest.TestCase):
     @unittest.skipIf(torch.cuda.device_count() < 2, "Only 1 device available")
     def test_deserialization_safe_device_1(self):
         # First time to hit disk
+        load_file(self.local, device=1)
         load_file(self.local, device="cuda:1")
         # Second time we should be in disk cache
         start = datetime.datetime.now()

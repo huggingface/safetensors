@@ -163,25 +163,32 @@ enum Device {
 
 impl<'source> FromPyObject<'source> for Device {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let name: String = ob.extract()?;
-        match &name[..] {
-            "cpu" => Ok(Device::Cpu),
-            "cuda" => Ok(Device::Cuda(0)),
-            "mps" => Ok(Device::Mps),
-            name if name.starts_with("cuda:") => {
-                let tokens: Vec<_> = name.split(':').collect();
-                if tokens.len() == 2 {
-                    let device: usize = tokens[1].parse()?;
-                    Ok(Device::Cuda(device))
-                } else {
-                    Err(exceptions::PyException::new_err(format!(
-                        "device {name} is invalid"
-                    )))
+        if let Ok(name) = ob.extract::<String>() {
+            match &name[..] {
+                "cpu" => Ok(Device::Cpu),
+                "cuda" => Ok(Device::Cuda(0)),
+                "mps" => Ok(Device::Mps),
+                name if name.starts_with("cuda:") => {
+                    let tokens: Vec<_> = name.split(':').collect();
+                    if tokens.len() == 2 {
+                        let device: usize = tokens[1].parse()?;
+                        Ok(Device::Cuda(device))
+                    } else {
+                        Err(exceptions::PyException::new_err(format!(
+                            "device {name} is invalid"
+                        )))
+                    }
                 }
+                name => Err(exceptions::PyException::new_err(format!(
+                    "device {name} is invalid"
+                ))),
             }
-            name => Err(exceptions::PyException::new_err(format!(
-                "device {name} is invalid"
-            ))),
+        } else if let Ok(number) = ob.extract::<usize>() {
+            Ok(Device::Cuda(number))
+        } else {
+            Err(exceptions::PyException::new_err(format!(
+                "device {ob} is invalid"
+            )))
         }
     }
 }
