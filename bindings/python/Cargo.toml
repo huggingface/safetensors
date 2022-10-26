@@ -12,7 +12,6 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.17.1", features = ["extension-module"] }
 memmap = "0.7"
 serde_json = "1.0"
-libloading = "0.7"
 
 [dependencies.safetensors]
 version = "*"
