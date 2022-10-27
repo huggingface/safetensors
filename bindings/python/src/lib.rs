@@ -2,6 +2,7 @@
 //! Dummy doc
 use memmap::{Mmap, MmapOptions};
 use pyo3::exceptions;
+use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PySlice;
@@ -13,6 +14,9 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::ops::Bound;
 use std::sync::Arc;
+
+static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, TensorView<'_>>> {
     let mut tensors = HashMap::new();
@@ -374,16 +378,26 @@ impl safe_open {
 
         let offset = n + 8;
 
-        let cudart = match (&device, &framework) {
-            (Device::Cuda(_), Framework::Pytorch) => {
-                Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
-                    let module_name = intern!(py, "torch");
-                    let module = PyModule::import(py, module_name)?;
+        let cudart = Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
+            match framework {
+                Framework::Pytorch => {
+                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    TORCH_MODULE.get_or_init(py, || module.into())
+                }
+                _ => {
+                    let module = PyModule::import(py, intern!(py, "numpy"))?;
+                    NUMPY_MODULE.get_or_init(py, || module.into())
+                }
+            };
+
+            match (&device, &framework) {
+                (Device::Cuda(_), Framework::Pytorch) => {
+                    let module: &PyModule = get_module(py, &TORCH_MODULE)?;
                     Ok(Some(find_cudart(module)?))
-                })?
+                }
+                _ => Ok(None),
             }
-            _ => None,
-        };
+        })?;
 
         Ok(Self {
             metadata,
@@ -415,7 +429,7 @@ impl safe_open {
         match (&self.device, &self.framework, &self.cudart) {
             (Device::Cuda(_), Framework::Pytorch, Some(cudart)) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
-                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    let module = get_module(py, &TORCH_MODULE)?;
                     create_cuda_unsafe_tensor(module, cudart, info, &self.device, data)
                 })
             }
@@ -437,8 +451,7 @@ impl safe_open {
         let cudart = match (&self.device, &self.framework) {
             (Device::Cuda(_), Framework::Pytorch) => {
                 Python::with_gil(|py| -> PyResult<Option<libloading::Library>> {
-                    let module_name = intern!(py, "torch");
-                    let module = PyModule::import(py, module_name)?;
+                    let module = get_module(py, &TORCH_MODULE)?;
                     Ok(Some(find_cudart(module)?))
                 })?
             }
@@ -473,7 +486,7 @@ impl safe_open {
         Python::with_gil(|py| -> PyResult<()> {
             let _self: &safe_open = &slf.borrow(py);
             if let (Device::Cuda(_), Framework::Pytorch) = (&_self.device, &_self.framework) {
-                let module = PyModule::import(py, intern!(py, "torch"))?;
+                let module = get_module(py, &TORCH_MODULE)?;
                 let device: PyObject = _self.device.clone().into_py(py);
                 let torch_device = module
                     .getattr(intern!(py, "cuda"))?
@@ -490,7 +503,7 @@ impl safe_open {
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
         if let (Device::Cuda(_), Framework::Pytorch) = (&self.device, &self.framework) {
             Python::with_gil(|py| -> PyResult<()> {
-                let module = PyModule::import(py, intern!(py, "torch"))?;
+                let module = get_module(py, &TORCH_MODULE)?;
                 let device: PyObject = self.device.clone().into_py(py);
                 let torch_device = module
                     .getattr(intern!(py, "cuda"))?
@@ -561,7 +574,7 @@ impl PySafeSlice {
         match (&self.device, &self.framework, &self.cudart) {
             (Device::Cuda(_), Framework::Pytorch, Some(cudart)) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
-                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    let module = get_module(py, &TORCH_MODULE)?;
                     create_cuda_unsafe_tensor_from_slice(
                         module,
                         cudart,
@@ -596,6 +609,17 @@ impl PySafeSlice {
     }
 }
 
+fn get_module<'a>(
+    py: Python<'a>,
+    cell: &'static GILOnceCell<Py<PyModule>>,
+) -> PyResult<&'a PyModule> {
+    let module: &PyModule = cell
+        .get(py)
+        .ok_or_else(|| exceptions::PyException::new_err("Could not find module"))?
+        .as_ref(py);
+    Ok(module)
+}
+
 fn create_tensor(
     framework: &Framework,
     dtype: Dtype,
@@ -605,12 +629,15 @@ fn create_tensor(
 ) -> PyResult<PyObject> {
     match framework {
         Framework::Pytorch | Framework::Numpy => Python::with_gil(|py| -> PyResult<PyObject> {
-            let module_name = match framework {
-                Framework::Numpy => intern!(py, "numpy"),
-                Framework::Pytorch => intern!(py, "torch"),
+            let module: &PyModule = match framework {
+                Framework::Numpy => NUMPY_MODULE.get(py),
+                Framework::Pytorch => TORCH_MODULE.get(py),
                 _ => unreachable!(),
-            };
-            let module = PyModule::import(py, module_name)?;
+            }
+            .ok_or_else(|| {
+                exceptions::PyException::new_err(format!("Could not find module {framework:?}",))
+            })?
+            .as_ref(py);
             let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
             let dtype: PyObject = get_pydtype(module, dtype)?;
             let kwargs = [
