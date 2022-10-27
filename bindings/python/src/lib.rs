@@ -295,15 +295,15 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
 
         let filename = path.file_name()?;
         let filename = filename.to_str()?;
-        if filename.starts_with("libcudart") {
+        if filename.starts_with("libcudart-") {
+            let cudart = file.path();
             // SAFETY: This is unsafe because the library might run arbitrary code
             // So it's really important to make sure we are targeting the correct
             // library.
-            unsafe {
-                let cudart = file.path();
-                let lib = libloading::Library::new(cudart).ok()?;
-                return Some(lib);
-            }
+            // TODO try to figure out figure library is actually loaded through ELF/DLL
+            // reading, but this is much more involved
+            let lib = unsafe { Library::new(cudart).ok()? };
+            return Some(lib);
         }
     }
     None
@@ -336,10 +336,11 @@ fn create_cuda_unsafe_tensor(
     // but somehow the call failed. This is really worrying since Pytorch is
     // responsible for allocating the memory.
     if out != 0 {
-        panic!(
+        println!(
             "We tried to set your tensor fast, but there was a cuda error, This could
                 have corrupted your GPU ram, aborting to prevent further errors"
-        )
+        );
+        std::process::abort()
     }
     let tensor: PyObject = tensor.into_py(module.py());
     Ok(tensor)
@@ -374,10 +375,11 @@ fn create_cuda_unsafe_tensor_from_slice(
             // but somehow the call failed. This is really worrying since Pytorch is
             // responsible for allocating the memory.
             if out != 0 {
-                panic!(
+                println!(
                     "We tried to set your tensor fast, but there was a cuda error, This could
                 have corrupted your GPU ram, aborting to prevent further errors"
-                )
+                );
+                std::process::abort();
             }
             offset += len;
         }
