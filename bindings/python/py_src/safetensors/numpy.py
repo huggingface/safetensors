@@ -1,4 +1,3 @@
-from importlib.metadata import metadata
 from typing import Dict, Optional
 
 import numpy as np
