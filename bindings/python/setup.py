@@ -10,7 +10,7 @@ extras["testing"] = testing
 
 setup(
     name="safetensors",
-    version="0.2.3.dev0",
+    version="0.2.3",
     description="Fast and Safe Tensor serialization",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
