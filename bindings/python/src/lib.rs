@@ -243,38 +243,66 @@ fn create_empty_tensor_pt<'a>(
 }
 
 fn find_cudart(module: &PyModule) -> Option<Library> {
+    let var = std::env::var("SAFETENSORS_FAST_GPU").ok()?;
+    if var != "1" {
+        return None;
+    }
+    // let mut path: std::path::PathBuf = module
+    //     .getattr(intern!(module.py(), "_C"))
+    //     .ok()?
+    //     .getattr(intern!(module.py(), "__file__"))
+    //     .ok()?
+    //     .extract()
+    //     .ok()?;
+    // let buffer = std::fs::read(&path).ok()?;
+    // let elf = goblin::elf::Elf::parse(&buffer).ok()?;
+    // for lib in elf.libraries {
+    //     if lib == "libtorch_python.so" {
+    //         path.pop();
+    //         path.push("lib");
+    //         path.push(lib);
+    //         let buffer = std::fs::read(&path).ok()?;
+    //         let elf = goblin::elf::Elf::parse(&buffer).ok()?;
+    //         for lib in elf.libraries {
+    //             if lib == "libtorch_cuda_cpp.so" {
+    //                 path.pop();
+    //                 path.push(lib);
+    //                 let buffer = std::fs::read(&path).ok()?;
+    //                 let elf = goblin::elf::Elf::parse(&buffer).ok()?;
+    //                 for lib in elf.libraries {
+    //                     if lib.starts_with("libcudart-") {
+    //                         path.pop();
+    //                         path.push(lib);
+
+    //                         let lib = unsafe { Library::new(path).ok()? };
+    //                         return Some(lib);
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    // None
     let mut path: std::path::PathBuf = module
-        .getattr(intern!(module.py(), "_C"))
-        .ok()?
         .getattr(intern!(module.py(), "__file__"))
         .ok()?
         .extract()
         .ok()?;
-    let buffer = std::fs::read(&path).ok()?;
-    let elf = goblin::elf::Elf::parse(&buffer).ok()?;
-    for lib in elf.libraries {
-        if lib == "libtorch_python.so" {
-            path.pop();
-            path.push("lib");
-            path.push(lib);
-            let buffer = std::fs::read(&path).ok()?;
-            let elf = goblin::elf::Elf::parse(&buffer).ok()?;
-            for lib in elf.libraries {
-                if lib == "libtorch_cuda_cpp.so" {
-                    path.pop();
-                    path.push(lib);
-                    let buffer = std::fs::read(&path).ok()?;
-                    let elf = goblin::elf::Elf::parse(&buffer).ok()?;
-                    for lib in elf.libraries {
-                        if lib.starts_with("libcudart-") {
-                            path.pop();
-                            path.push(lib);
+    path.pop();
+    path.push("lib");
+    for file in path.read_dir().ok()?.flatten() {
+        let path = file.path();
 
-                            let lib = unsafe { Library::new(path).ok()? };
-                            return Some(lib);
-                        }
-                    }
-                }
+        let filename = path.file_name()?;
+        let filename = filename.to_str()?;
+        if filename.starts_with("libcudart") {
+            // SAFETY: This is unsafe because the library might run arbitrary code
+            // So it's really important to make sure we are targeting the correct
+            // library.
+            unsafe {
+                let cudart = file.path();
+                let lib = libloading::Library::new(cudart).ok()?;
+                return Some(lib);
             }
         }
     }
