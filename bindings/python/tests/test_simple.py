@@ -33,6 +33,16 @@ class TestCase(unittest.TestCase):
         self.assertEqual(list(out.keys()), ["test"])
         np.testing.assert_array_equal(out["test"], np.zeros((2, 2), dtype=np.int32))
 
+    def test_serialization_order_invariant(self):
+        data = np.zeros((2, 2), dtype=np.int32)
+        out1 = save({"test1": data, "test2": data})
+        out2 = save({"test2": data, "test1": data})
+
+        self.assertEqual(
+            out1,
+            out2
+        )
+
 
 class ReadmeTestCase(unittest.TestCase):
     def assertTensorEqual(self, tensors1, tensors2, equality_fn):
