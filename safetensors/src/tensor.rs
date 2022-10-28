@@ -1,7 +1,7 @@
 //! Module Containing the most important structures
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
@@ -34,11 +34,11 @@ impl From<std::io::Error> for SafeTensorError {
 }
 
 fn prepare<'hash, 'data>(
-    data: &'hash HashMap<String, TensorView<'data>>,
-    data_info: &'hash Option<HashMap<String, String>>,
+    data: &'hash BTreeMap<String, TensorView<'data>>,
+    data_info: &'hash Option<BTreeMap<String, String>>,
 ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
     let mut tensors: Vec<&TensorView> = vec![];
-    let mut hmetadata = HashMap::new();
+    let mut hmetadata = BTreeMap::new();
     let mut offset = 0;
     for (name, tensor) in data {
         let n = tensor.data.len();
@@ -59,8 +59,8 @@ fn prepare<'hash, 'data>(
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
 pub fn serialize(
-    data: &HashMap<String, TensorView>,
-    data_info: &Option<HashMap<String, String>>,
+    data: &BTreeMap<String, TensorView>,
+    data_info: &Option<BTreeMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
     let (metadata, tensors, offset) = prepare(data, data_info)?;
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
@@ -79,8 +79,8 @@ pub fn serialize(
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
 pub fn serialize_to_file(
-    data: &HashMap<String, TensorView>,
-    data_info: &Option<HashMap<String, String>>,
+    data: &BTreeMap<String, TensorView>,
+    data_info: &Option<BTreeMap<String, String>>,
     filename: &str,
 ) -> Result<(), SafeTensorError> {
     let (metadata, tensors, _) = prepare(data, data_info)?;
@@ -184,15 +184,15 @@ impl<'data> SafeTensors<'data> {
 pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "__metadata__")]
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
     #[serde(flatten)]
-    tensors: HashMap<String, TensorInfo>,
+    tensors: BTreeMap<String, TensorInfo>,
 }
 
 impl Metadata {
     fn new(
-        metadata: Option<HashMap<String, String>>,
-        tensors: HashMap<String, TensorInfo>,
+        metadata: Option<BTreeMap<String, String>>,
+        tensors: BTreeMap<String, TensorInfo>,
     ) -> Result<Self, SafeTensorError> {
         let metadata = Self { metadata, tensors };
         metadata.validate()?;
@@ -220,12 +220,12 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
-    pub fn tensors(&self) -> &HashMap<String, TensorInfo> {
+    pub fn tensors(&self) -> &BTreeMap<String, TensorInfo> {
         &self.tensors
     }
 
     /// Gives back the tensor metadata
-    pub fn metadata(&self) -> &Option<HashMap<String, String>> {
+    pub fn metadata(&self) -> &Option<BTreeMap<String, String>> {
         &self.metadata
     }
 }
@@ -363,7 +363,7 @@ mod tests {
             .collect();
         let shape = vec![1, 2, 3];
         let attn_0 = TensorView::new(Dtype::F32, shape, &data);
-        let metadata: HashMap<String, TensorView> =
+        let metadata: BTreeMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
         let out = serialize(&metadata, &None).unwrap();
@@ -381,7 +381,7 @@ mod tests {
             shape: vec![1, 2, 3],
             data: &data,
         };
-        let metadata: HashMap<String, TensorView> =
+        let metadata: BTreeMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
         let out = serialize(&metadata, &None).unwrap();
@@ -458,7 +458,7 @@ mod tests {
             .sum::<usize>()
             * dtype.size(); // 4
         let all_data = vec![0; n];
-        let mut metadata: HashMap<String, TensorView> = HashMap::new();
+        let mut metadata: BTreeMap<String, TensorView> = BTreeMap::new();
         let mut offset = 0;
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_json_attack() {
-        let mut tensors = HashMap::new();
+        let mut tensors = BTreeMap::new();
         let dtype = Dtype::F32;
         let shape = vec![2, 2];
         let data_offsets = (0, 16);
