@@ -12,7 +12,7 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             "shape": v.shape,
             "data": _tobytes(v, k),
         }
-        for k, v in tensors.items()
+        for k, v in sorted(tensors.items(), key=lambda k, v: k)
     }
 
 
