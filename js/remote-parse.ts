@@ -1,5 +1,7 @@
 #! NODE_OPTIONS=--no-warnings npx tsx remote-parse.ts
 
+import { Counter } from "./Counter";
+
 const SINGLE_FILE = "model.safetensors";
 const INDEX_FILE = "model.safetensors.index.json";
 
@@ -104,6 +106,30 @@ function computeNumOfParamsSharded(shardedMap: ShardedMap): number {
 	return n;
 }
 
+function computeNumOfParamsByDtype(header: FileHeader): Counter<Dtype> {
+	const n = new Counter<Dtype>();
+	for (const [k, v] of Object.entries(header)) {
+		if (k === "__metadata__") {
+			continue;
+		}
+		n.incr(
+			(v as TensorInfo).dtype,
+			(v as TensorInfo).shape.reduce((a, b) => a * b)
+		);
+	}
+	return n;
+}
+
+function computeNumOfParamsShardedByDtype(
+	shardedMap: ShardedMap
+): Counter<Dtype> {
+	const n = new Counter<Dtype>();
+	for (const [k, v] of Object.entries(shardedMap)) {
+		n.add(computeNumOfParamsByDtype(v));
+	}
+	return n;
+}
+
 (async () => {
 	const modelIds = (
 		await (
@@ -119,7 +145,7 @@ function computeNumOfParamsSharded(shardedMap: ShardedMap): number {
 		);
 		if (await doesFileExistOnHub(singleUrl)) {
 			c.info("single-file", singleUrl.toString());
-			c.log(computeNumOfParams(await parseSingleFile(singleUrl)));
+			c.log(computeNumOfParamsByDtype(await parseSingleFile(singleUrl)));
 		}
 
 		const indexUrl = new URL(
@@ -127,7 +153,7 @@ function computeNumOfParamsSharded(shardedMap: ShardedMap): number {
 		);
 		if (await doesFileExistOnHub(indexUrl)) {
 			c.info("index-file", indexUrl.toString());
-			c.log(computeNumOfParamsSharded(await parseIndexFile(indexUrl)));
+			c.log(computeNumOfParamsShardedByDtype(await parseIndexFile(indexUrl)));
 		}
 	}
 })();
