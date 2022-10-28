@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "prettier": "^2.7.1"
+  },
+  "devDependencies": {
+    "tsx": "^3.11.0"
+  }
+}

@@ -7,3 +7,4 @@ safetensors/**/Cargo.lock
 *.pdparams
 *.safetensors
 *.npz
+node_modules/
