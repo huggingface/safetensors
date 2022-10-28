@@ -84,7 +84,6 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
 
 
 def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
-
     try:
         if not tensor.is_contiguous():
             raise ValueError(

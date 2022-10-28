@@ -38,10 +38,7 @@ class TestCase(unittest.TestCase):
         out1 = save({"test1": data, "test2": data})
         out2 = save({"test2": data, "test1": data})
 
-        self.assertEqual(
-            out1,
-            out2
-        )
+        self.assertEqual(out1, out2)
 
 
 class ReadmeTestCase(unittest.TestCase):
