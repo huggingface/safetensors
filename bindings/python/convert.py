@@ -8,6 +8,17 @@ from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download
 from safetensors.torch import save_file
 
 
+def check_file_size(sf_filename, pt_filename):
+    sf_size = os.stat(sf_filename).st_size
+    pt_size = os.stat(pt_filename).st_size
+
+    if (sf_size - pt_size) / pt_size > 0.01:
+        raise ValueError(f"""The file size different is more than 1%:
+         - {sf_filename}: {sf_size}
+         - {pt_filename}: {pt_size}
+         """)
+
+
 def rename(pt_filename) -> str:
     local = pt_filename.replace(".bin", ".safetensors")
     local = local.replace("pytorch_model", "model")
@@ -27,6 +38,7 @@ def convert_multi(model_id):
             loaded = torch.load(cached_filename)
             local = rename(filename)
             save_file(loaded, local, metadata={"format": "pt"})
+            check_file_size(local, cached_filename)
             local_filenames.append(local)
 
         index = "model.safetensors.index.json"
@@ -39,15 +51,22 @@ def convert_multi(model_id):
 
         api = HfApi()
         operations = [CommitOperationAdd(path_in_repo=local, path_or_fileobj=local) for local in local_filenames]
+
+        return True
         api.create_commit(
             repo_id=model_id,
             operations=operations,
             commit_message="Adding `safetensors` variant of this model",
             create_pr=True,
         )
+    except ValueError as e:
+        print(f"Error {model_id}: {e}")
     finally:
         for local in local_filenames:
-            os.remove(local)
+            try:
+                os.remove(local)
+            except FileNotFoundError:
+                pass
 
 
 def convert_single(model_id):
@@ -56,8 +75,12 @@ def convert_single(model_id):
         filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
         loaded = torch.load(filename)
         save_file(loaded, local, metadata={"format": "pt"})
+        check_file_size(local, filename)
 
         api = HfApi()
+
+
+        return True
 
         api.upload_file(
             path_or_fileobj=local,
@@ -65,8 +88,26 @@ def convert_single(model_id):
             path_in_repo=local,
             repo_id=model_id,
         )
+    except ValueError as e:
+        print(f"Error {model_id}: {e}")
     finally:
-        os.remove(local)
+        try:
+            os.remove(local)
+        except FileNotFoundError:
+            pass
+
+
+def convert(api, model_id):
+    info = api.model_info(model_id)
+    filenames = set(s.rfilename for s in info.siblings)
+
+    if "model.safetensors" in filenames or "model_index.safetensors.index.json" in filenames:
+        print(f"Model {model_id} is already converted, skipping..")
+        return 1
+    if "pytorch_model.bin" in filenames:
+        convert_single(model_id)
+    else:
+        convert_multi(model_id)
 
 
 if __name__ == "__main__":
@@ -85,9 +126,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     model_id = args.model_id
     api = HfApi()
-    info = api.model_info(model_id)
-    filenames = set(s.rfilename for s in info.siblings)
-    if "pytorch_model.bin" in filenames:
-        convert_single(model_id)
-    else:
-        convert_multi(model_id)
+    convert(api, model_id)

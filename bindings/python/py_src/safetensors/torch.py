@@ -106,7 +106,9 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
 
     import numpy as np
 
-    length = np.prod(tensor.shape).item()
+    # When shape is empty (scalar), np.prod returns a float
+    # we need a int for the following calculations
+    length = int(np.prod(tensor.shape).item())
     bytes_per_item = _SIZE[tensor.dtype]
 
     total_bytes = length * bytes_per_item
@@ -114,6 +116,9 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     ptr = tensor.data_ptr()
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
 
-    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
+    try:
+        data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
+    except Exception:
+        import ipdb;ipdb.set_trace()
 
     return data.tobytes()
