@@ -63,9 +63,7 @@ fn serialize<'a, 'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_btreemap = metadata.map(|data| {
-        BTreeMap::from_iter(data.into_iter())
-    });
+    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
     let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap).map_err(|e| {
         exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
     })?;
@@ -80,12 +78,10 @@ fn serialize_file(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_btreemap = metadata.map(|data| {
-        BTreeMap::from_iter(data.into_iter())
-    });
-    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename).map_err(|e| {
-        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
-    })?;
+    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
+    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename).map_err(
+        |e| exceptions::PyException::new_err(format!("Error while serializing: {:?}", e)),
+    )?;
     Ok(())
 }
 
