@@ -9,13 +9,14 @@ use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
+use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
-fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, TensorView<'_>>> {
-    let mut tensors = HashMap::new();
+fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
+    let mut tensors = BTreeMap::new();
     for (tensor_name, tensor_desc) in tensor_dict {
         let mut shape: Vec<usize> = vec![];
         let mut dtype = Dtype::F32;
@@ -62,7 +63,8 @@ fn serialize<'a, 'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let out = safetensors::tensor::serialize(&tensors, &metadata).map_err(|e| {
+    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
+    let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap).map_err(|e| {
         exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
     })?;
     let pybytes = PyBytes::new(py, &out);
@@ -76,9 +78,10 @@ fn serialize_file(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename).map_err(|e| {
-        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
-    })?;
+    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
+    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename).map_err(
+        |e| exceptions::PyException::new_err(format!("Error while serializing: {:?}", e)),
+    )?;
     Ok(())
 }
 
@@ -239,7 +242,7 @@ impl safe_open {
         })
     }
 
-    pub fn metadata(&self) -> Option<HashMap<String, String>> {
+    pub fn metadata(&self) -> Option<BTreeMap<String, String>> {
         self.metadata.metadata().clone()
     }
 
