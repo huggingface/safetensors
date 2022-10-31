@@ -1,6 +1,6 @@
 """Simple utility tool to convert automatically most downloaded models"""
 from huggingface_hub import HfApi, ModelFilter, ModelSearchArguments
-from convert import convert
+from convert import convert, AlreadyExists
 
 
 if __name__ == "__main__":
@@ -16,9 +16,11 @@ if __name__ == "__main__":
         model_id = model.modelId
         print(f"[{model.downloads}] {model.modelId}")
         try:
-            result = convert(api, model_id)
-            if result is not None:
-                correct += 1
+            convert(api, model_id)
+            correct += 1
+        except AlreadyExists as e:
+            correct += 1
+            print(e)
         except Exception as e:
             errors.add( model_id)
             print(e)

@@ -16,6 +16,10 @@ from transformers.pipelines.base import infer_framework_load_model
 from safetensors.torch import save_file
 
 
+class AlreadyExists(Exception):
+    pass
+
+
 def shared_pointers(tensors):
     ptrs = defaultdict(list)
     for k, v in tensors.items():
@@ -142,8 +146,12 @@ def check_final_model(model_id: str, folder: str):
     torch.testing.assert_close(sf_logits, pt_logits)
     print(f"Model {model_id} is ok !")
 
-def previous_pr(model_id: str, pr_title: str) -> Optional["Discussion"]:
-    for discussion in get_repo_discussions(repo_id=model_id):
+def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discussion"]:
+    try:
+        discussions = api.get_repo_discussions(repo_id=model_id)
+    except Exception:
+        return None
+    for discussion in discussions:
         if discussion.status == "open" and discussion.is_pull_request and discussion.title == pr_title:
             return discussion
 
@@ -159,13 +167,13 @@ def convert(api: "HfApi", model_id: str, force: bool=False) -> Optional["CommitI
         new_pr = None
         try:
             operations = None
-            pr = previous_pr(model_id, pr_title)
+            pr = previous_pr(api, model_id, pr_title)
             if ("model.safetensors" in filenames or "model_index.safetensors.index.json" in filenames) and not force:
-                raise RuntimeError(f"Model {model_id} is already converted, skipping..")
+                raise AlreadyExists(f"Model {model_id} is already converted, skipping..")
             elif pr is not None and not force:
                 url = f"https://huggingface.co/{model_id}/discussions/{pr.num}"
                 new_pr = pr
-                raise RuntimeError(f"Model {model_id} already has an open PR check out {url}")
+                raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
             elif "pytorch_model.bin" in filenames:
                 operations = convert_single(model_id, folder)
             elif "pytorch_model.bin.index.json" in filenames:
