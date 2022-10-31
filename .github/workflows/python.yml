@@ -13,6 +13,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-18.04, macos-latest, windows-latest]
+        # Lowest and highest, no version specified so that 
+        # new releases get automatically tested against
+        torch_version: [torch==1.7.0, torch]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v1
@@ -55,7 +58,7 @@ jobs:
         run: |
           pip install -U pip
           pip install pytest requests setuptools_rust numpy pyarrow datasets
-          pip install torch tensorflow numpy
+          pip install ${{ matrix.torch_version }} tensorflow numpy
           pip install jax jaxlib flax
           python setup.py develop
 
