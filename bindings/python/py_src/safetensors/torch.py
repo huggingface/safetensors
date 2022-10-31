@@ -7,7 +7,7 @@ from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
-    ptrs = defaultdict( set)
+    ptrs = defaultdict(set)
     for k, v in tensors.items():
         ptrs[v.data_ptr()].add(k)
 
@@ -17,9 +17,10 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             failing.append(names)
 
     if failing:
-        raise RuntimeError(f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}""")
-        
-    
+        raise RuntimeError(
+            f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}"""
+        )
+
     return {
         k: {
             "dtype": str(v.dtype).split(".")[-1],
@@ -133,6 +134,8 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     try:
         data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     except Exception:
-        import ipdb;ipdb.set_trace()
+        import ipdb
+
+        ipdb.set_trace()
 
     return data.tobytes()
