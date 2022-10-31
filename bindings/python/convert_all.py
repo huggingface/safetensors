@@ -18,7 +18,6 @@ if __name__ == "__main__":
         print(f"[{model.downloads}] {model.modelId}")
         try:
             result = convert(api, model_id)
-            print(result)
             if result is not None:
                 correct += 1
         except RuntimeError as e:

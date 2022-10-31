@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from collections import defaultdict
 
 import torch
 
@@ -6,6 +7,19 @@ from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    ptrs = defaultdict( set)
+    for k, v in tensors.items():
+        ptrs[v.data_ptr()].add(k)
+
+    failing = []
+    for ptr, names in ptrs.items():
+        if len(names) > 1:
+            failing.append(names)
+
+    if failing:
+        raise RuntimeError(f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}""")
+        
+    
     return {
         k: {
             "dtype": str(v.dtype).split(".")[-1],
