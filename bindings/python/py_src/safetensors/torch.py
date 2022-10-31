@@ -9,7 +9,8 @@ from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
     ptrs = defaultdict(set)
     for k, v in tensors.items():
-        ptrs[v.data_ptr()].add(k)
+        if v.layout == torch.strided:
+            ptrs[v.data_ptr()].add(k)
 
     failing = []
     for ptr, names in ptrs.items():

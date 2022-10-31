@@ -175,12 +175,12 @@ def convert(api: "HfApi", model_id: str, force: bool=False) -> Optional["CommitI
 
             if operations:
                 check_final_model(model_id, folder)
-                new_pr = api.create_commit(
-                    repo_id=model_id,
-                    operations=operations,
-                    commit_message=pr_title,
-                    create_pr=True,
-                )
+                # new_pr = api.create_commit(
+                #     repo_id=model_id,
+                #     operations=operations,
+                #     commit_message=pr_title,
+                #     create_pr=True,
+                # )
         finally:
             shutil.rmtree(folder)
         return new_pr
