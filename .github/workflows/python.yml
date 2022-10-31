@@ -2,9 +2,6 @@ name: Python
 
 on:
   pull_request:
-    paths:
-      - bindings/python/**
-      - safetensors/**
 
 jobs:
   build_and_test:
