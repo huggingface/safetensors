@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667336161682,
+  "lastUpdate": 1667340479725,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -186,6 +186,68 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0938069992411799",
             "extra": "mean: 526.5935975999923 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "huggingface",
+            "username": "huggingface"
+          },
+          "committer": {
+            "name": "huggingface",
+            "username": "huggingface"
+          },
+          "id": "ef4b5376e576d4aacf4dc6f61bbb722fb7cc87ca",
+          "message": "Adding M1 (mps) benchmarks (going first through CPU seems faster though? but PT is just as slow going directly on MPS.).",
+          "timestamp": "2022-11-01T16:19:06Z",
+          "url": "https://github.com/huggingface/safetensors/pull/51/commits/ef4b5376e576d4aacf4dc6f61bbb722fb7cc87ca"
+        },
+        "date": 1667340479214,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2724705472134157,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08044266918841757",
+            "extra": "mean: 785.8728064000388 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.8580227329207966,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08729102818479534",
+            "extra": "mean: 349.89224840001043 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.0195338390758084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009859319389670097",
+            "extra": "mean: 331.1769475999881 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 2.3880156878685623,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010386881288471457",
+            "extra": "mean: 418.75771799998347 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.210452945917001,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055273436198714845",
+            "extra": "mean: 826.1370286000101 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.1099034460376394,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03661509552614141",
+            "extra": "mean: 321.55339140001615 msec\nrounds: 5"
           }
         ]
       }
