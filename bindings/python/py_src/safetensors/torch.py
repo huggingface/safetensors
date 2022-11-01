@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from collections import defaultdict
 
 import torch
 
@@ -6,6 +7,21 @@ from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    ptrs = defaultdict(set)
+    for k, v in tensors.items():
+        if v.layout == torch.strided:
+            ptrs[v.data_ptr()].add(k)
+
+    failing = []
+    for ptr, names in ptrs.items():
+        if len(names) > 1:
+            failing.append(names)
+
+    if failing:
+        raise RuntimeError(
+            f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}"""
+        )
+
     return {
         k: {
             "dtype": str(v.dtype).split(".")[-1],
@@ -106,7 +122,9 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
 
     import numpy as np
 
-    length = np.prod(tensor.shape).item()
+    # When shape is empty (scalar), np.prod returns a float
+    # we need a int for the following calculations
+    length = int(np.prod(tensor.shape).item())
     bytes_per_item = _SIZE[tensor.dtype]
 
     total_bytes = length * bytes_per_item
@@ -114,6 +132,11 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     ptr = tensor.data_ptr()
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
 
-    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
+    try:
+        data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
+    except Exception:
+        import ipdb
+
+        ipdb.set_trace()
 
     return data.tobytes()

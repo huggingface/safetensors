@@ -1,72 +1,197 @@
 import argparse
 import json
 import os
+import shutil
+from tempfile import TemporaryDirectory
+from collections import defaultdict
+from inspect import signature
+from typing import Optional, List
 
 import torch
 
-from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download
+from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download, get_repo_discussions
+from huggingface_hub.file_download import repo_folder_name
+from transformers import AutoConfig
+from transformers.pipelines.base import infer_framework_load_model
 from safetensors.torch import save_file
 
 
-def rename(pt_filename) -> str:
+class AlreadyExists(Exception):
+    pass
+
+
+def shared_pointers(tensors):
+    ptrs = defaultdict(list)
+    for k, v in tensors.items():
+        ptrs[v.data_ptr()].append(k)
+    failing = []
+    for ptr, names in ptrs.items():
+        if len(names) > 1:
+            failing.append(names)
+    return failing
+
+def check_file_size(sf_filename: str, pt_filename: str):
+    sf_size = os.stat(sf_filename).st_size
+    pt_size = os.stat(pt_filename).st_size
+
+    if (sf_size - pt_size) / pt_size > 0.01:
+        raise RuntimeError(f"""The file size different is more than 1%:
+         - {sf_filename}: {sf_size}
+         - {pt_filename}: {pt_size}
+         """)
+
+
+def rename(pt_filename: str) -> str:
     local = pt_filename.replace(".bin", ".safetensors")
     local = local.replace("pytorch_model", "model")
     return local
 
 
-def convert_multi(model_id):
-    local_filenames = []
-    try:
-        filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json")
-        with open(filename, "r") as f:
-            data = json.load(f)
+def convert_multi(model_id: str) -> List["CommitOperationAdd"]:
+    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json")
+    with open(filename, "r") as f:
+        data = json.load(f)
 
-        filenames = set(data["weight_map"].values())
-        for filename in filenames:
-            cached_filename = hf_hub_download(repo_id=model_id, filename=filename)
-            loaded = torch.load(cached_filename)
-            local = rename(filename)
-            save_file(loaded, local, metadata={"format": "pt"})
-            local_filenames.append(local)
+    filenames = set(data["weight_map"].values())
+    for filename in filenames:
+        cached_filename = hf_hub_download(repo_id=model_id, filename=filename)
+        loaded = torch.load(cached_filename)
+        sf_filename = rename(filename)
 
-        index = "model.safetensors.index.json"
-        with open(index, "w") as f:
-            newdata = {k: v for k, v in data.items()}
-            newmap = {k: rename(v) for k, v in data["weight_map"].items()}
-            newdata["weight_map"] = newmap
-            json.dump(newdata, f)
-        local_filenames.append(index)
-
-        api = HfApi()
-        operations = [CommitOperationAdd(path_in_repo=local, path_or_fileobj=local) for local in local_filenames]
-        api.create_commit(
-            repo_id=model_id,
-            operations=operations,
-            commit_message="Adding `safetensors` variant of this model",
-            create_pr=True,
-        )
-    finally:
-        for local in local_filenames:
-            os.remove(local)
-
-
-def convert_single(model_id):
-    local = "model.safetensors"
-    try:
-        filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
-        loaded = torch.load(filename)
+        local = os.path.join(folder, sf_filename)
         save_file(loaded, local, metadata={"format": "pt"})
+        check_file_size(local, cached_filename)
+        local_filenames.append(local)
 
-        api = HfApi()
+    index = os.path.join(folder, "model.safetensors.index.json")
+    with open(index, "w") as f:
+        newdata = {k: v for k, v in data.items()}
+        newmap = {k: rename(v) for k, v in data["weight_map"].items()}
+        newdata["weight_map"] = newmap
+        json.dump(newdata, f)
+    local_filenames.append(index)
 
-        api.upload_file(
-            path_or_fileobj=local,
-            create_pr=True,
-            path_in_repo=local,
-            repo_id=model_id,
-        )
-    finally:
-        os.remove(local)
+    operations = [CommitOperationAdd(path_in_repo=local.split("/")[-1], path_or_fileobj=local) for local in local_filenames]
+
+    return operations
+
+
+def convert_single(model_id: str, folder: str) -> List["CommitOperationAdd"]:
+    sf_filename = "model.safetensors"
+    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
+    loaded = torch.load(filename)
+
+    local = os.path.join(folder, sf_filename)
+    shared = shared_pointers(loaded)
+    for shared_weights in shared:
+        for name in shared_weights[1:]:
+            loaded.pop(name)
+
+    # For tensors to be contiguous
+    loaded = {k: v.contiguous() for k, v in loaded.items()}
+
+    save_file(loaded, local, metadata={"format": "pt"})
+
+    check_file_size(local, filename)
+
+    operations = [CommitOperationAdd(path_in_repo=sf_filename, path_or_fileobj=local)]
+    return operations
+
+def check_final_model(model_id: str, folder: str):
+    config = hf_hub_download(repo_id=model_id, filename="config.json")
+    shutil.copy(config, os.path.join(folder, "config.json"))
+    config = AutoConfig.from_pretrained(folder)
+
+    _, pt_model = infer_framework_load_model(model_id, config)
+    _, sf_model = infer_framework_load_model(folder, config)
+
+    pt_model = pt_model
+    sf_model = sf_model
+
+    pt_params = pt_model.state_dict()
+    sf_params = sf_model.state_dict()
+
+    pt_shared = shared_pointers(pt_params)
+    sf_shared = shared_pointers(sf_params)
+    if pt_shared != sf_shared:
+        raise RuntimeError("The reconstructed model is wrong, shared tensors are different {shared_pt} != {shared_tf}")
+
+    sig = signature(pt_model.forward)
+    input_ids = torch.arange(10).unsqueeze(0)
+    pixel_values = torch.randn(1, 3, 224, 224)
+    input_values = torch.arange(1000).float().unsqueeze(0)
+    kwargs = {}
+    if "input_ids" in sig.parameters:
+        kwargs["input_ids"] = input_ids
+    if "decoder_input_ids" in sig.parameters:
+        kwargs["decoder_input_ids"] = input_ids
+    if "pixel_values" in sig.parameters:
+        kwargs["pixel_values"] = pixel_values
+    if "input_values" in sig.parameters:
+        kwargs["input_values"] = input_values
+    if "bbox" in sig.parameters:
+        kwargs["bbox"] = torch.zeros((1, 10, 4)).long()
+    if "image" in sig.parameters:
+        kwargs["image"] = pixel_values
+
+
+    if torch.cuda.is_available():
+        pt_model = pt_model.cuda()
+        sf_model = sf_model.cuda()
+        kwargs = {k: v.cuda() for k, v in kwargs.items()}
+
+    pt_logits = pt_model(**kwargs)[0]
+    sf_logits = sf_model(**kwargs)[0]
+
+    torch.testing.assert_close(sf_logits, pt_logits)
+    print(f"Model {model_id} is ok !")
+
+def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discussion"]:
+    try:
+        discussions = api.get_repo_discussions(repo_id=model_id)
+    except Exception:
+        return None
+    for discussion in discussions:
+        if discussion.status == "open" and discussion.is_pull_request and discussion.title == pr_title:
+            return discussion
+
+
+def convert(api: "HfApi", model_id: str, force: bool=False) -> Optional["CommitInfo"]:
+    pr_title = "Adding `safetensors` variant of this model"
+    info = api.model_info(model_id)
+    filenames = set(s.rfilename for s in info.siblings)
+
+    with TemporaryDirectory() as d:
+        folder = os.path.join(d, repo_folder_name(repo_id=model_id, repo_type="models"))
+        os.makedirs(folder)
+        new_pr = None
+        try:
+            operations = None
+            pr = previous_pr(api, model_id, pr_title)
+            if ("model.safetensors" in filenames or "model_index.safetensors.index.json" in filenames) and not force:
+                raise AlreadyExists(f"Model {model_id} is already converted, skipping..")
+            elif pr is not None and not force:
+                url = f"https://huggingface.co/{model_id}/discussions/{pr.num}"
+                new_pr = pr
+                raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
+            elif "pytorch_model.bin" in filenames:
+                operations = convert_single(model_id, folder)
+            elif "pytorch_model.bin.index.json" in filenames:
+                operations = convert_multi(model_id, folder)
+            else:
+                raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
+
+            if operations:
+                check_final_model(model_id, folder)
+                # new_pr = api.create_commit(
+                #     repo_id=model_id,
+                #     operations=operations,
+                #     commit_message=pr_title,
+                #     create_pr=True,
+                # )
+        finally:
+            shutil.rmtree(folder)
+        return new_pr
 
 
 if __name__ == "__main__":
@@ -82,12 +207,12 @@ if __name__ == "__main__":
         type=str,
         help="The name of the model on the hub to convert. E.g. `gpt2` or `facebook/wav2vec2-base-960h`",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Create the PR even if it already exists of if the model was already converted.",
+    )
     args = parser.parse_args()
     model_id = args.model_id
     api = HfApi()
-    info = api.model_info(model_id)
-    filenames = set(s.rfilename for s in info.siblings)
-    if "pytorch_model.bin" in filenames:
-        convert_single(model_id)
-    else:
-        convert_multi(model_id)
+    convert(api, model_id, force=args.force)
