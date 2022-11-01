@@ -1,6 +1,7 @@
 """Simple utility tool to convert automatically most downloaded models"""
+from convert import AlreadyExists, convert
 from huggingface_hub import HfApi, ModelFilter, ModelSearchArguments
-from convert import convert, AlreadyExists
+from transformers import AutoConfig
 
 
 if __name__ == "__main__":
@@ -8,7 +9,9 @@ if __name__ == "__main__":
     args = ModelSearchArguments()
 
     total = 100
-    models = list(api.list_models(filter=ModelFilter(library=args.library.Transformers), sort="downloads", direction=-1))[:total]
+    models = list(
+        api.list_models(filter=ModelFilter(library=args.library.Transformers), sort="downloads", direction=-1)
+    )[:total]
 
     correct = 0
     errors = set()
@@ -22,10 +25,10 @@ if __name__ == "__main__":
             correct += 1
             print(e)
         except Exception as e:
-            errors.add( model_id)
+            config = AutoConfig.from_pretrained(model_id)
+            errors.add(config)
             print(e)
 
-
     print(f"Errors: {errors}")
-    print(f"File size is difference {len(errors)}")
+    print(f"Errors: {len(errors)}")
     print(f"Correct rate {correct}/{total} ({correct/total * 100:.2f}%)")
