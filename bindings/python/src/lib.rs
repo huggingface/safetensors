@@ -259,9 +259,20 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
     Some(lib)
 }
 
+fn find_cuda_memcpy<'py>(
+    py: Python,
+    cudart: &'py GILOnceCell<Option<Library>>,
+) -> Option<Symbol<'py, MemcpyFn>> {
+    if let Some(Some(cudart)) = cudart.get(py) {
+        unsafe { cudart.get(b"cudaMemcpy").ok() }
+    } else {
+        None
+    }
+}
+
 fn create_cuda_unsafe_tensor(
     module: &PyModule,
-    cudart: &Library,
+    cuda_memcpy: Symbol<MemcpyFn>,
     info: &TensorInfo,
     device: &Device,
     data: &[u8],
@@ -273,9 +284,6 @@ fn create_cuda_unsafe_tensor(
 
     // SAFETY: This is unsafe for the same reasons as when we load the library
     let out = unsafe {
-        let cuda_memcpy: Symbol<MemcpyFn> = cudart.get(b"cudaMemcpy").map_err(|e| {
-            exceptions::PyException::new_err(format!("Couldn't find cudaMemcpy {e:?}",))
-        })?;
         cuda_memcpy(
             data_ptr as u64,
             data.as_ptr() as *const std::ffi::c_void,
@@ -297,7 +305,7 @@ fn create_cuda_unsafe_tensor(
 
 fn create_cuda_unsafe_tensor_from_slice(
     module: &PyModule,
-    cudart: &Library,
+    cuda_memcpy: Symbol<MemcpyFn>,
     shape: &[usize],
     dtype: Dtype,
     device: &Device,
@@ -305,22 +313,13 @@ fn create_cuda_unsafe_tensor_from_slice(
 ) -> PyResult<PyObject> {
     let tensor = create_empty_tensor_pt(module, shape, dtype, device)?;
 
-    // let data_ptr_fn = tensor.getattr("data_ptr")?;
-    // let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
     let mut offset = 0;
-    // SAFETY: This is unsafe for the same reasons as when we load the library
-    let cuda_memcpy: Symbol<MemcpyFn> = unsafe {
-        cudart.get(b"cudaMemcpy").map_err(|e| {
-            exceptions::PyException::new_err(format!("Couldn't find cudaMemcpy {e:?}",))
-        })?
-    };
-    // let data_ptr_fn = tensor.getattr("data_ptr")?;
-    // let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
     for slice in iterator {
         let len = slice.len();
         let data_ptr_fn = tensor.getattr("data_ptr")?;
         let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-        let ptr = slice.as_ptr() as *const std::ffi::c_void;
+        let slice_ptr = slice.as_ptr();
+        let ptr = slice_ptr as *const std::ffi::c_void;
         let out = unsafe { cuda_memcpy((data_ptr + offset) as u64, ptr, len) };
 
         // SAFETY: Here we have a correct library, we successfully called memcpy,
@@ -421,10 +420,10 @@ impl safe_open {
         let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
         Python::with_gil(|py| -> PyResult<PyObject> {
-            match (&self.device, &self.framework, &CUDART.get(py)) {
-                (Device::Cuda(_), Framework::Pytorch, Some(Some(cudart))) => {
+            match (&self.device, &self.framework, find_cuda_memcpy(py, &CUDART)) {
+                (Device::Cuda(_), Framework::Pytorch, Some(cuda_memcpy)) => {
                     let module = get_module(py, &TORCH_MODULE)?;
-                    create_cuda_unsafe_tensor(module, cudart, info, &self.device, data)
+                    create_cuda_unsafe_tensor(module, cuda_memcpy, info, &self.device, data)
                 }
                 _ => {
                     let array: PyObject =
@@ -551,13 +550,13 @@ impl PySafeSlice {
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
 
-        Python::with_gil(
-            |py| match (&self.device, &self.framework, &CUDART.get(py)) {
-                (Device::Cuda(_), Framework::Pytorch, Some(Some(cudart))) => {
+        Python::with_gil(|py| {
+            match (&self.device, &self.framework, find_cuda_memcpy(py, &CUDART)) {
+                (Device::Cuda(_), Framework::Pytorch, Some(cuda_memcpy)) => {
                     let module = get_module(py, &TORCH_MODULE)?;
                     create_cuda_unsafe_tensor_from_slice(
                         module,
-                        cudart,
+                        cuda_memcpy,
                         &newshape,
                         self.info.dtype,
                         &self.device,
@@ -583,8 +582,8 @@ impl PySafeSlice {
                         &self.device,
                     )
                 }
-            },
-        )
+            }
+        })
     }
 }
 
