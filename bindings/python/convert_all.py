@@ -26,7 +26,7 @@ if __name__ == "__main__":
             print(e)
         except Exception as e:
             config = AutoConfig.from_pretrained(model_id)
-            errors.add(config)
+            errors.add(repr(config))
             print(e)
 
     print(f"Errors: {errors}")
