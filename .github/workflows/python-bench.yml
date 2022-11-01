@@ -38,6 +38,7 @@ jobs:
           pytest --benchmark-json output.json benches/
       # Download previous benchmark result from cache (if exists)
       - name: Download previous benchmark data
+        working-directory: ./bindings/python
         uses: actions/cache@v1
         with:
           path: ./cache
@@ -45,6 +46,7 @@ jobs:
       # Run `github-action-benchmark` action
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
+        working-directory: ./bindings/python
         with:
           # What benchmark tool the output.txt came from
           tool: 'pytest'
