@@ -12,17 +12,28 @@ use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
-type MemcpyFn =
-    unsafe extern "C" fn(device_ptr: u64, src_ptr: *const std::ffi::c_void, src_len: usize) -> u32;
+#[repr(C)]
+enum cudaMemcpyKind {
+    _HostToHost = 0,
+    HostToDevice = 1,
+    _DeviceToHost = 2,
+    _Default = 3,
+}
+
+type MemcpyFn = unsafe extern "C" fn(
+    dst: *mut std::ffi::c_void,
+    src: *const std::ffi::c_void,
+    count: usize,
+    kind: cudaMemcpyKind,
+) -> std::ffi::c_uint;
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-static CUDART: GILOnceCell<Option<Library>> = GILOnceCell::new();
+static CUDA_MEMCPY: GILOnceCell<Option<Symbol<MemcpyFn>>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
     let mut tensors = BTreeMap::new();
@@ -260,20 +271,20 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
     Some(lib)
 }
 
-fn find_cuda_memcpy<'py>(
-    py: Python,
-    cudart: &'py GILOnceCell<Option<Library>>,
-) -> Option<Symbol<'py, MemcpyFn>> {
-    if let Some(Some(cudart)) = cudart.get(py) {
-        unsafe { cudart.get(b"cudaMemcpy").ok() }
-    } else {
-        None
-    }
+fn find_cuda_memcpy<'py>(module: &PyModule) -> Option<Symbol<'py, MemcpyFn>> {
+    let cudart = find_cudart(module)?;
+    // Leaking the library so that the reference becomes static
+    let cudart = Box::leak(Box::new(cudart));
+    // SAFETY: This is unsafe because the library might run arbitrary code
+    // So it's really important to make sure we are targeting the correct
+    // library.
+    let cuda_memcpy = unsafe { cudart.get(b"cudaMemcpy").ok() };
+    cuda_memcpy
 }
 
 fn create_cuda_unsafe_tensor(
     module: &PyModule,
-    cuda_memcpy: Symbol<MemcpyFn>,
+    cuda_memcpy: &Symbol<MemcpyFn>,
     info: &TensorInfo,
     device: &Device,
     data: &[u8],
@@ -282,23 +293,19 @@ fn create_cuda_unsafe_tensor(
 
     let data_ptr_fn = tensor.getattr("data_ptr")?;
     let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-
-    let out = unsafe {
-        cuda_memcpy(
-            data_ptr.try_into()?,
-            data.as_ptr() as *const std::ffi::c_void,
-            data.len(),
-        )
-    };
-    // SAFETY: Here we have a correct library, we successfully called memcpy,
-    // but somehow the call failed. This is really worrying since Pytorch is
-    // responsible for allocating the memory.
-    handle_cuda_error(module, out);
+    check_cuda(cuda_memcpy, data_ptr, data, module);
     let tensor: PyObject = tensor.into_py(module.py());
     Ok(tensor)
 }
 
-fn handle_cuda_error(module: &PyModule, out: u32) {
+fn check_cuda(cuda_memcpy: &Symbol<MemcpyFn>, dst: usize, src: &[u8], module: &PyModule) {
+    let dst = dst as *mut std::ffi::c_void;
+    let count = src.len();
+    let src_ptr = src.as_ptr() as *const std::ffi::c_void;
+    // SAFETY: Here we have a correct library, we successfully called memcpy,
+    // but somehow the call failed. This is really worrying since Pytorch is
+    // responsible for allocating the memory.
+    let out = unsafe { cuda_memcpy(dst, src_ptr, count, cudaMemcpyKind::HostToDevice) };
     if out != 0 {
         let string = match get_error_string(module, out) {
             Ok(string) => string,
@@ -313,7 +320,7 @@ fn handle_cuda_error(module: &PyModule, out: u32) {
 
 fn create_cuda_unsafe_tensor_from_slice(
     module: &PyModule,
-    cuda_memcpy: Symbol<MemcpyFn>,
+    cuda_memcpy: &Symbol<MemcpyFn>,
     shape: &[usize],
     dtype: Dtype,
     device: &Device,
@@ -322,26 +329,12 @@ fn create_cuda_unsafe_tensor_from_slice(
     let tensor = create_empty_tensor_pt(module, shape, dtype, device)?;
 
     let mut offset = 0;
+    let data_ptr_fn = tensor.getattr("data_ptr")?;
+    let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
     for slice in iterator {
         let len = slice.len();
-
-        let data_ptr_fn = tensor.getattr("data_ptr")?;
-        // SAFETY: Weirdly enough, we **need** to resolve the pointers in
-        // usize first, then cast into u64.
-        // In the same line, the data_ptr **needs**  to be extracted here.
-        // The values don't seem to change however we trigger cuda errors
-        // otherwise.
-        let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
-        let data_ptr: u64 = data_ptr.try_into()?;
-        let slice_ptr = slice.as_ptr();
-        let ptr = slice_ptr as *const std::ffi::c_void;
-
-        let out = unsafe { cuda_memcpy(data_ptr + offset, ptr, len) };
-        // SAFETY: Here we have a correct library, we successfully called memcpy,
-        // but somehow the call failed. This is really worrying since Pytorch is
-        // responsible for allocating the memory.
-        handle_cuda_error(module, out);
-        offset += len as u64;
+        check_cuda(cuda_memcpy, data_ptr + offset, slice, module);
+        offset += len;
     }
     let tensor: PyObject = tensor.into_py(module.py());
     Ok(tensor)
@@ -394,7 +387,7 @@ impl safe_open {
 
             if let (Device::Cuda(_), Framework::Pytorch) = (&device, &framework) {
                 let module: &PyModule = get_module(py, &TORCH_MODULE)?;
-                CUDART.get_or_init(py, || find_cudart(module));
+                CUDA_MEMCPY.get_or_init(py, || find_cuda_memcpy(module));
             }
             Ok(())
         })?;
@@ -426,8 +419,8 @@ impl safe_open {
         let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
         Python::with_gil(|py| -> PyResult<PyObject> {
-            match (&self.device, &self.framework, find_cuda_memcpy(py, &CUDART)) {
-                (Device::Cuda(_), Framework::Pytorch, Some(cuda_memcpy)) => {
+            match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
+                (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
                     let module = get_module(py, &TORCH_MODULE)?;
                     create_cuda_unsafe_tensor(module, cuda_memcpy, info, &self.device, data)
                 }
@@ -556,9 +549,9 @@ impl PySafeSlice {
         let mut offset = 0;
         let length = iterator.remaining_byte_len();
 
-        Python::with_gil(|py| {
-            match (&self.device, &self.framework, find_cuda_memcpy(py, &CUDART)) {
-                (Device::Cuda(_), Framework::Pytorch, Some(cuda_memcpy)) => {
+        Python::with_gil(
+            |py| match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
+                (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
                     let module = get_module(py, &TORCH_MODULE)?;
                     create_cuda_unsafe_tensor_from_slice(
                         module,
@@ -588,8 +581,8 @@ impl PySafeSlice {
                         &self.device,
                     )
                 }
-            }
-        })
+            },
+        )
     }
 }
 
