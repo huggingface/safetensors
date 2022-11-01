@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667311560795,
+  "lastUpdate": 1667336161682,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -124,6 +124,68 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.018136643384694662",
             "extra": "mean: 175.46490859997448 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "huggingface",
+            "username": "huggingface"
+          },
+          "committer": {
+            "name": "huggingface",
+            "username": "huggingface"
+          },
+          "id": "15168a809b69b2297b919674ba61e113deb0dec1",
+          "message": "Make GPU loading faster by removing all extra CPU copies.",
+          "timestamp": "2022-11-01T16:19:06Z",
+          "url": "https://github.com/huggingface/safetensors/pull/33/commits/15168a809b69b2297b919674ba61e113deb0dec1"
+        },
+        "date": 1667336160596,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 0.9234793964248041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07689400323299302",
+            "extra": "mean: 1.0828611919999958 sec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 1.9663002818321826,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11837197429890743",
+            "extra": "mean: 508.5693213999889 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 2.0818910599288447,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008944479841901432",
+            "extra": "mean: 480.3325299999983 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 1.600741779642756,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01073290347342444",
+            "extra": "mean: 624.7103766000123 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.0993446095506627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10641603073651551",
+            "extra": "mean: 909.63287699999 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 1.8989976417442387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0938069992411799",
+            "extra": "mean: 526.5935975999923 msec\nrounds: 5"
           }
         ]
       }
