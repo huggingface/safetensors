@@ -1,5 +1,6 @@
 import tempfile
 
+import pytest
 import torch
 
 from safetensors.torch import load_file, save_file
@@ -52,6 +53,7 @@ def test_pt_sf_load(benchmark):
         assert torch.allclose(v, tv)
 
 
+@pytest.mark.skipif(torch.cuda.is_available(), reason="requires cuda")
 def test_pt_pt_load_gpu(benchmark):
     # benchmark something
     weights = create_gpt2(12)
@@ -65,6 +67,7 @@ def test_pt_pt_load_gpu(benchmark):
         assert torch.allclose(v, tv)
 
 
+@pytest.mark.skipif(torch.cuda.is_available(), reason="requires cuda")
 def test_pt_sf_load_gpu(benchmark):
     # benchmark something
     weights = create_gpt2(12)
