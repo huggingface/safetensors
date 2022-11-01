@@ -9,7 +9,7 @@ name = "safetensors_rust"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.17.1", features = ["extension-module"] }
+pyo3 = { version = "0.17.2", features = ["extension-module"] }
 memmap = "0.7"
 serde_json = "1.0"
 

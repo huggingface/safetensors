@@ -87,6 +87,12 @@ class SpeedTestCase(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_deserialization_safe_gpu(self):
         # First time to hit disk
+        torch.load(self.filename, map_location="cuda:0")
+        start = datetime.datetime.now()
+        tweights = torch.load(self.filename, map_location="cuda:0")
+        pt_time = datetime.datetime.now() - start
+
+        # First time to hit disk
         load_file(self.local, device=0)
         load_file(self.local, device="cuda:0")
         # Second time we should be in disk cache
@@ -94,11 +100,6 @@ class SpeedTestCase(unittest.TestCase):
         weights = load_file(self.local, device="cuda:0")
         safe_time = datetime.datetime.now() - start
 
-        # First time to hit disk
-        torch.load(self.filename, map_location="cuda:0")
-        start = datetime.datetime.now()
-        tweights = torch.load(self.filename, map_location="cuda:0")
-        pt_time = datetime.datetime.now() - start
         print()
         print(f"Deserialization (Safe - GPU) took {safe_time}")
         print(f"Deserialization (PT - GPU) took {pt_time} (Safe is {pt_time/safe_time} faster)")
