@@ -37,67 +37,6 @@ class TorchTestCase(unittest.TestCase):
             save_file(data, local)
 
 
-class LoadTestCase(unittest.TestCase):
-    def setUp(self):
-        data = {
-            "test": torch.zeros((1024, 1024), dtype=torch.float32),
-            "test2": torch.zeros((1024, 1024), dtype=torch.float32),
-            "test3": torch.zeros((1024, 1024), dtype=torch.float32),
-        }
-        self.pt_filename = "./tests/data/pt_load.pt"
-        self.sf_filename = "./tests/data/pt_load.safetensors"
-
-        with open(self.pt_filename, "wb") as f:
-            torch.save(data, f)
-
-        save_file(data, self.sf_filename)
-
-    def test_deserialization_safe(self):
-        tweights = torch.load(self.pt_filename)
-        weights = load_file(self.sf_filename)
-
-        for k, v in weights.items():
-            tv = tweights[k]
-            self.assertTrue(torch.allclose(v, tv))
-            self.assertEqual(v.device, torch.device("cpu"))
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
-    def test_deserialization_safe_gpu(self):
-        # First time to hit disk
-        tweights = torch.load(self.pt_filename, map_location="cuda:0")
-
-        load_file(self.sf_filename, device=0)
-        weights = load_file(self.sf_filename, device="cuda:0")
-
-        for k, v in weights.items():
-            tv = tweights[k]
-            self.assertTrue(torch.allclose(v, tv))
-            self.assertEqual(v.device, torch.device("cuda:0"))
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
-    def test_deserialization_safe_gpu_slice(self):
-        weights = {}
-        with safe_open(self.sf_filename, framework="pt", device="cuda:0") as f:
-            for k in f.keys():
-                weights[k] = f.get_slice(k)[:1]
-        tweights = torch.load(self.pt_filename, map_location="cuda:0")
-        tweights = {k: v[:1] for k, v in tweights.items()}
-        for k, v in weights.items():
-            tv = tweights[k]
-            self.assertTrue(torch.allclose(v, tv))
-            self.assertEqual(v.device, torch.device("cuda:0"))
-
-    @unittest.skipIf(torch.cuda.device_count() < 2, "Only 1 device available")
-    def test_deserialization_safe_device_1(self):
-        load_file(self.sf_filename, device=1)
-        weights = load_file(self.sf_filename, device="cuda:1")
-        tweights = torch.load(self.pt_filename, map_location="cuda:1")
-        for k, v in weights.items():
-            tv = tweights[k]
-            self.assertTrue(torch.allclose(v, tv))
-            self.assertEqual(v.device, torch.device("cuda:1"))
-
-
 class SliceTestCase(unittest.TestCase):
     def setUp(self):
         self.tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))

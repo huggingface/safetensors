@@ -1,11 +1,7 @@
-import datetime
-import os
 import platform
 import unittest
 
 import numpy as np
-
-from huggingface_hub import hf_hub_download
 
 
 if platform.system() != "Windows":
@@ -15,65 +11,32 @@ if platform.system() != "Windows":
     from flax.serialization import msgpack_restore, msgpack_serialize
     from safetensors.flax import load_file, save_file
 
-MODEL_ID = os.getenv("MODEL_ID", "gpt2")
-
-
-def _load(nested, flat, prefix=""):
-    for k, v in nested.items():
-        if isinstance(v, dict):
-            _load(v, flat, prefix=f"{prefix}_{k}")
-        elif isinstance(v, np.ndarray):
-            flat[f"{prefix}_{k}"] = jnp.array(v)
-
-
-def load(nested_np_dicts):
-    tensors = {}
-    _load(nested_np_dicts, tensors)
-    return tensors
-
 
 # Jax doesn't not exist on Windows
 @unittest.skipIf(platform.system() == "Windows", "Jax is not available on Windows")
-class SafeTestCase(unittest.TestCase):
+class LoadTestCase(unittest.TestCase):
     def setUp(self):
-        self.filename = hf_hub_download(MODEL_ID, filename="flax_model.msgpack")
-        with open(self.filename, "rb") as f:
-            data = f.read()
-        self.data = load(msgpack_restore(data))
-        self.local = "./tests/data/out_safe_flax_mmap.safetensors"
-        save_file(self.data, self.local)
+        data = {
+            "test": jnp.zeros((1024, 1024), dtype=jnp.float32),
+            "test2": jnp.zeros((1024, 1024), dtype=jnp.float32),
+            "test3": jnp.zeros((1024, 1024), dtype=jnp.float32),
+        }
+        self.flax_filename = "./tests/data/flax_load.msgpack"
+        self.sf_filename = "./tests/data/flax_load.safetensors"
+
+        serialized = msgpack_serialize(data)
+        with open(self.flax_filename, "wb") as f:
+            f.write(serialized)
+
+        save_file(data, self.sf_filename)
 
     def test_deserialization_safe(self):
-        load_file(self.local)
+        weights = load_file(self.sf_filename)
 
-        start = datetime.datetime.now()
-        load_file(self.local)
-        safe_time = datetime.datetime.now() - start
-
-        with open(self.filename, "rb") as f:
+        with open(self.flax_filename, "rb") as f:
             data = f.read()
+        flax_weights = msgpack_restore(data)
 
-        start = datetime.datetime.now()
-        with open(self.filename, "rb") as f:
-            data = f.read()
-        msgpack_restore(data)
-        flax_time = datetime.datetime.now() - start
-
-        print()
-        print(f"Deserialization (Safe) took {safe_time}")
-        print(f"Deserialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
-
-    def test_serialization_safe(self):
-        outfilename = "./tests/data/out_safe.safetensors"
-        save_file(self.data, outfilename)
-        start = datetime.datetime.now()
-        save_file(self.data, outfilename)
-        safe_time = datetime.datetime.now() - start
-        start = datetime.datetime.now()
-        serialized = msgpack_serialize(self.data)
-        with open("./tests/data/out_flax.msgpack", "wb") as f:
-            f.write(serialized)
-        flax_time = datetime.datetime.now() - start
-        print()
-        print(f"Serialization (safe) took {safe_time}")
-        print(f"Serialization (flax) took {flax_time} (Safe is {flax_time/safe_time} faster)")
+        for k, v in weights.items():
+            tv = flax_weights[k]
+            self.assertTrue(np.allclose(v, tv))
