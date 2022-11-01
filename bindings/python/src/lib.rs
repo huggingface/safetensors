@@ -12,6 +12,7 @@ use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
@@ -282,10 +283,9 @@ fn create_cuda_unsafe_tensor(
     let data_ptr_fn = tensor.getattr("data_ptr")?;
     let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
 
-    // SAFETY: This is unsafe for the same reasons as when we load the library
     let out = unsafe {
         cuda_memcpy(
-            data_ptr as u64,
+            data_ptr.try_into()?,
             data.as_ptr() as *const std::ffi::c_void,
             data.len(),
         )
@@ -293,14 +293,22 @@ fn create_cuda_unsafe_tensor(
     // SAFETY: Here we have a correct library, we successfully called memcpy,
     // but somehow the call failed. This is really worrying since Pytorch is
     // responsible for allocating the memory.
-    if out != 0 {
-        println!(
-            "We tried to set your tensor fast, but there was a cuda error, This could have corrupted your GPU ram, aborting to prevent further errors {out:?}"
-        );
-        std::process::abort()
-    }
+    handle_cuda_error(module, out);
     let tensor: PyObject = tensor.into_py(module.py());
     Ok(tensor)
+}
+
+fn handle_cuda_error(module: &PyModule, out: u32) {
+    if out != 0 {
+        let string = match get_error_string(module, out) {
+            Ok(string) => string,
+            Err(_) => format!("{}", out),
+        };
+        println!(
+                "We tried to set your tensor fast, but there was a cuda error, This could have corrupted your GPU ram, aborting to prevent further errors {string:?}"
+            );
+        std::process::abort();
+    }
 }
 
 fn create_cuda_unsafe_tensor_from_slice(
@@ -318,24 +326,16 @@ fn create_cuda_unsafe_tensor_from_slice(
         let len = slice.len();
         let data_ptr_fn = tensor.getattr("data_ptr")?;
         let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
+        let data_ptr: u64 = data_ptr.try_into()?;
         let slice_ptr = slice.as_ptr();
         let ptr = slice_ptr as *const std::ffi::c_void;
-        let out = unsafe { cuda_memcpy((data_ptr + offset) as u64, ptr, len) };
 
+        let out = unsafe { cuda_memcpy(data_ptr + offset, ptr, len) };
         // SAFETY: Here we have a correct library, we successfully called memcpy,
         // but somehow the call failed. This is really worrying since Pytorch is
         // responsible for allocating the memory.
-        if out != 0 {
-            let string = match get_error_string(module, out) {
-                Ok(string) => string,
-                Err(_) => format!("{}", out),
-            };
-            println!(
-                "We tried to set your tensor fast, but there was a cuda error, This could have corrupted your GPU ram, aborting to prevent further errors {string:?}"
-            );
-            std::process::abort();
-        }
-        offset += len;
+        handle_cuda_error(module, out);
+        offset += len as u64;
     }
     let tensor: PyObject = tensor.into_py(module.py());
     Ok(tensor)
