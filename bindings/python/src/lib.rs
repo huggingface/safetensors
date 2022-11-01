@@ -324,7 +324,13 @@ fn create_cuda_unsafe_tensor_from_slice(
     let mut offset = 0;
     for slice in iterator {
         let len = slice.len();
+
         let data_ptr_fn = tensor.getattr("data_ptr")?;
+        // SAFETY: Weirdly enough, we **need** to resolve the pointers in
+        // usize first, then cast into u64.
+        // In the same line, the data_ptr **needs**  to be extracted here.
+        // The values don't seem to change however we trigger cuda errors
+        // otherwise.
         let data_ptr: usize = data_ptr_fn.call0()?.extract()?;
         let data_ptr: u64 = data_ptr.try_into()?;
         let slice_ptr = slice.as_ptr();
