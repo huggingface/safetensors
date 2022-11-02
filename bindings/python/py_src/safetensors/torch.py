@@ -47,6 +47,28 @@ def save_file(
 
 
 def load_file(filename: str, device="cpu") -> Dict[str, torch.Tensor]:
+    """
+    Loads a safetensors file into torch format. Etc. more descriptions
+
+    Args:
+        filename (`str`):
+            Total loss as the sum of the masked language modeling loss and the next sequence prediction
+            (classification) loss.
+        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
+            Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
+    
+    Returns:
+        `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`
+
+    Example:
+
+    ```python
+    from from safetensors.torch import load_file
+
+    file_path = "./my_folder/bert.safetensors"
+    loaded = load_file(file_path)
+    ```
+    """
     result = {}
     with safe_open(filename, framework="pt", device=device) as f:
         for k in f.keys():
