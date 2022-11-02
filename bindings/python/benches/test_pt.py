@@ -79,3 +79,31 @@ def test_pt_sf_load_gpu(benchmark):
         v = v.cuda()
         tv = result[k]
         assert torch.allclose(v, tv)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="requires mps")
+def test_pt_pt_load_mps(benchmark):
+    # benchmark something
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile() as f:
+        torch.save(weights, f)
+        result = benchmark(torch.load, f.name, map_location="mps")
+
+    for k, v in weights.items():
+        v = v.to(device="mps")
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="requires mps")
+def test_pt_sf_load_mps(benchmark):
+    # benchmark something
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile() as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file, f.name, device="mps")
+
+    for k, v in weights.items():
+        v = v.to(device="mps")
+        tv = result[k]
+        assert torch.allclose(v, tv)
