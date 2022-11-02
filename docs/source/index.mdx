@@ -1,0 +1,42 @@
+<!-- DISABLE-FRONTMATTER-SECTIONS -->
+
+# Safetensors
+
+Safetensors is a new simple format for storing tensors safely (as opposed to pickle) and that is still fast (zero-copy).
+
+
+## Load tensors
+
+```python
+from safetensors import safe_open
+
+tensors = {}
+with safe_open("model.safetensors", framework="pt", device=0) as f:
+    for k in f.keys():
+        tensors[k] = f.get_tensor(k)
+```
+
+Loading only part of the tensors (interesting when running on multiple GPU)
+
+```python
+from safetensors import safe_open
+
+tensors = {}
+with safe_open("model.safetensors", framework="pt", device=0) as f:
+    tensor_slice = f.get_slice("embedding")
+    vocab_size, hidden_dim = tensor_slice.get_shape()
+    tensor = tensor_slice[:, :hidden_dim]
+```
+
+## Save tensors
+
+```python
+import torch
+from safetensors.torch import save_file
+
+tensors = {
+    "embedding": torch.zeros((2, 2)),
+    "attention": torch.zeros((2, 3))
+}
+save_file(tensors, "model.safetensors")
+```
