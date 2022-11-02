@@ -2,8 +2,8 @@ name: Python Release extra
 
 on:
   push:
-    tags:
-      - python-v*
+    # tags:
+    #   - python-v*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -89,32 +89,32 @@ jobs:
             --rm -v `pwd`/../..:/io quay.io/pypa/manylinux2014_s390x \
             /bin/bash -c "yum install -y openssl-devel && cd /io/bindings/python; sh build-wheels.sh"
 
-  upload_package:
-    name: Upload package to PyPi
-    runs-on: ubuntu-latest
-    needs:
-      - create_wheels_manylinux_2014_ppc64le
-      - create_wheels_manylinux_2014_aarch64
-      - create_wheels_manylinux_2014_x390x
+            # upload_package:
+            #   name: Upload package to PyPi
+            #   runs-on: ubuntu-latest
+            #   needs:
+            #     - create_wheels_manylinux_2014_ppc64le
+            #     - create_wheels_manylinux_2014_aarch64
+            #     - create_wheels_manylinux_2014_x390x
 
-    steps:
-      - uses: actions/checkout@v2
+            #   steps:
+            #     - uses: actions/checkout@v2
 
-      - name: Install Python
-        uses: actions/setup-python@v1
+            #     - name: Install Python
+            #       uses: actions/setup-python@v1
 
-      - name: Retrieve all wheels
-        shell: bash
-        run: |
-          pip install awscli
-          aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
+            #     - name: Retrieve all wheels
+            #       shell: bash
+            #       run: |
+            #         pip install awscli
+            #         aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
 
-      - name: Install dependencies
-        run: |
-          pip install setuptools wheel setuptools-rust
+            #     - name: Install dependencies
+            #       run: |
+            #         pip install setuptools wheel setuptools-rust
 
-      - name: Upload to PyPi
-        working-directory: ./bindings/python
-        run: |
-          pip install twine
-          twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
+            #     - name: Upload to PyPi
+            #       working-directory: ./bindings/python
+            #       run: |
+            #         pip install twine
+            #         twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
