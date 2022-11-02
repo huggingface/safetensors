@@ -384,6 +384,47 @@ enum Storage {
     TorchStorage(GILOnceCell<PyObject>),
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd)]
+struct Version {
+    major: u8,
+    minor: u8,
+    patch: u8,
+}
+
+impl Version {
+    fn new(major: u8, minor: u8, patch: u8) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+
+    fn from_string(string: String) -> Result<Self, &'static str> {
+        let mut parts = string.split('.');
+        let major_str = parts.next().ok_or("Torch major version missing")?;
+        let minor_str = parts.next().ok_or("Torch minor version missing")?;
+        let patch_str = parts.next().ok_or("Torch path version missing")?;
+        let mut patch_parts = patch_str.split('+');
+        let patch_str = patch_parts.next().ok_or("Torch path version missing")?;
+
+        let major = major_str
+            .parse()
+            .map_err(|_| "Python major version not an integer")?;
+        let minor = minor_str
+            .parse()
+            .map_err(|_| "Python minor version not an integer")?;
+        let patch = patch_str
+            .parse()
+            .map_err(|_| "Python patch version not an integer")?;
+        Ok(Version {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
@@ -453,26 +494,36 @@ impl safe_open {
             (Framework::Pytorch, Device::Cpu) => Python::with_gil(|py| -> PyResult<Storage> {
                 let module = get_module(py, &TORCH_MODULE)?;
 
-                // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
-                let py_filename: PyObject = filename.into_py(py);
-                let size: PyObject = buffer.len().into_py(py);
-                let shared: PyObject = false.into_py(py);
-                let kwargs =
-                    [(intern!(py, "shared"), shared), (intern!(py, "size"), size)].into_py_dict(py);
-                let storage = module
-                    .getattr(intern!(py, "ByteStorage"))?
-                    .getattr(intern!(py, "from_file"))?
-                    .call((py_filename,), Some(kwargs))?;
+                let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
+                let version =
+                    Version::from_string(version).map_err(exceptions::PyException::new_err)?;
 
-                let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
-                    Ok(untyped) => untyped,
-                    Err(_) => storage.getattr(intern!(py, "_untyped"))?,
-                };
-                let storage = untyped.call0()?.into_py(py);
-                let gil_storage = GILOnceCell::new();
-                gil_storage.get_or_init(py, || storage);
+                // Untyped storage only exists for versions over 1.11.0
+                // Same for torch.asarray which is necessary for zero-copy tensor
+                if version >= Version::new(1, 11, 0) {
+                    // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
+                    let py_filename: PyObject = filename.into_py(py);
+                    let size: PyObject = buffer.len().into_py(py);
+                    let shared: PyObject = false.into_py(py);
+                    let kwargs = [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
+                        .into_py_dict(py);
+                    let storage = module
+                        .getattr(intern!(py, "ByteStorage"))?
+                        .getattr(intern!(py, "from_file"))?
+                        .call((py_filename,), Some(kwargs))?;
 
-                Ok(Storage::TorchStorage(gil_storage))
+                    let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
+                        Ok(untyped) => untyped,
+                        Err(_) => storage.getattr(intern!(py, "_untyped"))?,
+                    };
+                    let storage = untyped.call0()?.into_py(py);
+                    let gil_storage = GILOnceCell::new();
+                    gil_storage.get_or_init(py, || storage);
+
+                    Ok(Storage::TorchStorage(gil_storage))
+                } else {
+                    Ok(Storage::Mmap(buffer))
+                }
             })?,
             _ => Storage::Mmap(buffer),
         };
