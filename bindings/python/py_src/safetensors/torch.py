@@ -1,38 +1,36 @@
-from typing import Any, Dict, Optional
 from collections import defaultdict
+from typing import Any, Dict, Optional
 
 import torch
 
 from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
 
 
-def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
-    ptrs = defaultdict(set)
-    for k, v in tensors.items():
-        if v.layout == torch.strided:
-            ptrs[v.data_ptr()].add(k)
-
-    failing = []
-    for ptr, names in ptrs.items():
-        if len(names) > 1:
-            failing.append(names)
-
-    if failing:
-        raise RuntimeError(
-            f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}"""
-        )
-
-    return {
-        k: {
-            "dtype": str(v.dtype).split(".")[-1],
-            "shape": v.shape,
-            "data": _tobytes(v, k),
-        }
-        for k, v in tensors.items()
-    }
-
-
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
+    """
+    Saves a dictionnary of tensors into raw bytes in safetensors format.
+
+    Args:
+        tensors (`Dict[str, torch.Tensor]`):
+            The incoming tensors. Tensors need to be contiguous and dense.
+        metadata (`Dict[str, str]`, *optional*, defaults to `None`):
+            Optional text only metadata you might want to save in your header.
+            For instance it can be useful to specify more about the underlying
+            tensors. This is purely informative and does not affect tensor loading.
+
+    Returns:
+        `bytes`: The raw bytes representing the format
+
+    Example:
+
+    ```python
+    from safetensors.torch import save
+    import torch
+
+    tensors = {"embedding": torch.zeros((512, 1024)), "attention": torch.zeros((256, 256))}
+    byte_data = save(tensors)
+    ```
+    """
     serialized = serialize(_flatten(tensors), metadata=metadata)
     result = bytes(serialized)
     return result
@@ -43,27 +41,53 @@ def save_file(
     filename: str,
     metadata: Optional[Dict[str, str]] = None,
 ):
+    """
+    Saves a dictionnary of tensors into raw bytes in safetensors format.
+
+    Args:
+        tensors (`Dict[str, torch.Tensor]`):
+            The incoming tensors. Tensors need to be contiguous and dense.
+        filename (`str`):
+            The filename we're saving into.
+        metadata (`Dict[str, str]`, *optional*, defaults to `None`):
+            Optional text only metadata you might want to save in your header.
+            For instance it can be useful to specify more about the underlying
+            tensors. This is purely informative and does not affect tensor loading.
+
+    Returns:
+        `None`
+
+    Example:
+
+    ```python
+    from safetensors.torch import save_file
+    import torch
+
+    tensors = {"embedding": torch.zeros((512, 1024)), "attention": torch.zeros((256, 256))}
+    save(tensors, "model.safetensors")
+    ```
+    """
     serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
 def load_file(filename: str, device="cpu") -> Dict[str, torch.Tensor]:
     """
-    Loads a safetensors file into torch format. Etc. more descriptions
+    Loads a safetensors file into torch format.
 
     Args:
         filename (`str`):
-            Total loss as the sum of the masked language modeling loss and the next sequence prediction
-            (classification) loss.
+            The name of the file which contains the tensors
         device (`Dict[str, any]`, *optional*, defaults to `cpu`):
-            Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-    
+            The device where the tensors need to be located after load.
+            available options are all regular torch device locations
+
     Returns:
         `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`
 
     Example:
 
     ```python
-    from from safetensors.torch import load_file
+    from safetensors.torch import load_file
 
     file_path = "./my_folder/bert.safetensors"
     loaded = load_file(file_path)
@@ -76,8 +100,30 @@ def load_file(filename: str, device="cpu") -> Dict[str, torch.Tensor]:
     return result
 
 
-def load(filename: str) -> Dict[str, torch.Tensor]:
-    flat = deserialize(filename)
+def load(data: bytes) -> Dict[str, torch.Tensor]:
+    """
+    Loads a safetensors file into torch format from pure bytes.
+
+    Args:
+        data (`bytes`):
+            The content of a safetensors file
+
+    Returns:
+        `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor` on cpu
+
+    Example:
+
+    ```python
+    from safetensors.torch import load
+
+    file_path = "./my_folder/bert.safetensors"
+    with open(file_path, "rb") as f:
+        data = f.read()
+
+    loaded = load(data)
+    ```
+    """
+    flat = deserialize(data)
     return _view2torch(flat)
 
 
@@ -154,11 +200,32 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     ptr = tensor.data_ptr()
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
 
-    try:
-        data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
-    except Exception:
-        import ipdb
-
-        ipdb.set_trace()
+    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
 
     return data.tobytes()
+
+
+def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    ptrs = defaultdict(set)
+    for k, v in tensors.items():
+        if v.layout == torch.strided:
+            ptrs[v.data_ptr()].add(k)
+
+    failing = []
+    for ptr, names in ptrs.items():
+        if len(names) > 1:
+            failing.append(names)
+
+    if failing:
+        raise RuntimeError(
+            f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}"""
+        )
+
+    return {
+        k: {
+            "dtype": str(v.dtype).split(".")[-1],
+            "shape": v.shape,
+            "data": _tobytes(v, k),
+        }
+        for k, v in tensors.items()
+    }

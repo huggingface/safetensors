@@ -7,6 +7,7 @@ with open("requirements-dev.txt", "r") as f:
 
 extras = {}
 extras["testing"] = testing
+extras["dev"] = testing
 
 setup(
     name="safetensors",

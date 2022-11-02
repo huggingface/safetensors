@@ -60,7 +60,20 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
     Ok(tensors)
 }
 
+/// Serializes raw data.
+///
+/// Args:
+///     tensor_dict (:obj:`Dict[str, Dict[Any]]`):
+///         The tensor dict is like:
+///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
+///     metadata (:obj:`Dict[str, str]`, *optional*):
+///         The optional purely text annotations
+///
+/// Returns:
+///     (:obj:`bytes`):
+///         The serialized content.
 #[pyfunction]
+#[pyo3(text_signature = "(tensor_dict, metadata=None)")]
 fn serialize<'a, 'b>(
     py: Python<'b>,
     tensor_dict: HashMap<String, &'a PyDict>,
@@ -75,7 +88,22 @@ fn serialize<'a, 'b>(
     Ok(pybytes)
 }
 
+/// Serializes raw data.
+///
+/// Args:
+///     tensor_dict (:obj:`Dict[str, Dict[Any]]`):
+///         The tensor dict is like:
+///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
+///     filename (:obj:`str`):
+///         The name of the file to write into.
+///     metadata (:obj:`Dict[str, str]`, *optional*):
+///         The optional purely text annotations
+///
+/// Returns:
+///     (:obj:`bytes`):
+///         The serialized content.
 #[pyfunction]
+#[pyo3(text_signature = "(tensor_dict, filename, metadata=None)")]
 fn serialize_file(
     tensor_dict: HashMap<String, &PyDict>,
     filename: &str,
@@ -89,7 +117,18 @@ fn serialize_file(
     Ok(())
 }
 
+/// Opens a safetensors lazily and returns tensors as asked
+///
+/// Args:
+///     data (:obj:`bytes`):
+///         The byte content of a file
+///
+/// Returns:
+///     (:obj:`List[str, Dict[str, Dict[str, any]]]`):
+///         The deserialized content is like:
+///             [("tensor_name", {"shape": [2, 3], "dtype": "F32", "data": b"\0\0.." }), (...)]
 #[pyfunction]
+#[pyo3(text_signature = "(bytes)")]
 fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let safetensor = SafeTensors::deserialize(bytes).map_err(|e| {
         exceptions::PyException::new_err(format!("Error while deserializing: {:?}", e))
@@ -204,8 +243,21 @@ impl IntoPy<PyObject> for Device {
     }
 }
 
+/// Opens a safetensors lazily and returns tensors as asked
+///
+/// Args:
+///     filename (:obj:`str`):
+///         The filename to open
+///
+///     framework (:obj:`str`):
+///         The framework you want you tensors in. Supported values:
+///         `pt`, `tf`, `flax`, `numpy`.
+///
+///     device (:obj:`str`, defaults to :obj:`"cpu"`):
+///         The device on which you want the tensors.
 #[pyclass]
 #[allow(non_camel_case_types)]
+#[pyo3(text_signature = "(self, filename, framework, device=\"cpu\")")]
 struct safe_open {
     metadata: Metadata,
     offset: usize,
@@ -261,16 +313,44 @@ impl safe_open {
         })
     }
 
+    /// Return the special non tensor information in the header
+    ///
+    /// Returns:
+    ///     (:obj:`Dict[str, str]`):
+    ///         The freeform metadata.
     pub fn metadata(&self) -> Option<BTreeMap<String, String>> {
         self.metadata.metadata().clone()
     }
 
+    /// Returns the names of the tensors in the file.
+    ///
+    /// Returns:
+    ///     (:obj:`List[str]`):
+    ///         The name of the tensors contained in that file
     pub fn keys(&self) -> PyResult<Vec<String>> {
         let mut keys: Vec<_> = self.metadata.tensors().keys().cloned().collect();
         keys.sort();
         Ok(keys)
     }
 
+    /// Returns a full tensor
+    ///
+    /// Args:
+    ///     name (:obj:`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (:obj:`Tensor`):
+    ///         The tensor in the framework you opened the file for.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor = f.get_tensor("embedding")
+    ///
+    /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
         let info = self.metadata.tensors().get(name).ok_or_else(|| {
             exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
@@ -291,6 +371,23 @@ impl safe_open {
         })
     }
 
+    /// Returns a full slice view object
+    ///
+    /// Args:
+    ///     name (:obj:`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (:obj:`PySafeSlice`):
+    ///         A dummy object you can slice into to get a real tensor
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor_part = f.get_slice("embedding")[:, ::8]
+    ///
+    /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
         if let Some(info) = self.metadata.tensors().get(name) {
             Ok(PySafeSlice {
@@ -332,6 +429,22 @@ enum Slice<'a> {
 
 #[pymethods]
 impl PySafeSlice {
+    /// Returns the shape of the full underlying tensor
+    ///
+    /// Returns:
+    ///     (:obj:`List[int]`):
+    ///         The shape of the full tensor
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tslice = f.get_slice("embedding")
+    ///     shape = tslice.get_shape()
+    ///     dim = shape // 8
+    ///     tensor = tslice[:, :dim]
+    /// ```
     pub fn get_shape(&self, py: Python) -> PyResult<PyObject> {
         let shape = self.info.shape.clone();
         let shape: PyObject = shape.into_py(py);
