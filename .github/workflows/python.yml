@@ -12,7 +12,7 @@ jobs:
         os: [ubuntu-18.04, macos-latest, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
-        torch_version: [torch==1.10, torch]
+        torch_version: [torch==1.11, torch]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v1

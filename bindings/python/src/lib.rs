@@ -462,10 +462,13 @@ impl safe_open {
                 let storage = module
                     .getattr(intern!(py, "ByteStorage"))?
                     .getattr(intern!(py, "from_file"))?
-                    .call((py_filename,), Some(kwargs))?
-                    .getattr(intern!(py, "untyped"))?
-                    .call0()?
-                    .into_py(py);
+                    .call((py_filename,), Some(kwargs))?;
+
+                let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
+                    Ok(untyped) => untyped,
+                    Err(_) => storage.getattr(intern!(py, "_untyped"))?,
+                };
+                let storage = untyped.call0()?.into_py(py);
                 let gil_storage = GILOnceCell::new();
                 gil_storage.get_or_init(py, || storage);
 
