@@ -5,6 +5,27 @@
 This repository implements a new simple format for storing tensors
 safely (as opposed to pickle) and that is still fast (zero-copy).
 
+### Getting started
+
+```python
+from safetensors import safe_open
+from safetensors.torch import save_file
+
+tensors = {
+   "weight1": torch.zeros((1024, 1024)),
+   "weight2": torch.zeros((1024, 1024))
+}
+save_file(tensors, "model.safetensors")
+
+tensors = {}
+with safe_open("model.safetensors", framework="pt", device="cpu") as f:
+   for key in f.keys():
+       tensors[key] = f.get_tensor(key)
+```
+
+[Python documentation](https://github.com/huggingface/safetensors/tree/main/bindings/python)
+
+
 ### Format
 
 - 8 bytes: `N`, a u64 int, containing the size of the header
@@ -25,15 +46,17 @@ formats.
 Let's take a look at alternatives and why this format is deemed interesting.
 This is my very personal and probably biased view:
 
-| Format | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility |
-| --- | --- | --- | --- | --- | --- | --- |
-| pickle (PyTorch) | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 |
-| H5 (Tensorflow) | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ |
-| SavedModel (Tensorflow) | 🗸? | ✗? | ✗ | 🗸  | 🗸 | ✗ | 🗸 |
-| MsgPack (flax) | 🗸 | 🗸 | ✗ | 🗸 | ✗ | ✗ | ~ |
-| Protobuf (ONNX) | 🗸 | ✗ | ✗ | ✗ | ✗ | ✗ | ~ |
-| Cap'n'Proto | 🗸  | 🗸 | ~ | 🗸  | 🗸 | ~ | ~ |
-| SafeTensors | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ |
+| Format                  | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16
+| ----------------------- | --- | --- | --- | --- | --- | --- | --- |
+| pickle (PyTorch)        | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 | 🗸 |
+| H5 (Tensorflow)         | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ | ✗ |
+| SavedModel (Tensorflow) | 🗸 | ✗ | ✗ | 🗸 | 🗸 | ✗ | 🗸 |
+| MsgPack (flax)          | 🗸 | 🗸 | ✗ | 🗸 | ✗ | ✗ | 🗸 |
+| Protobuf (ONNX)         | 🗸 | ✗ | ✗ | ✗ | ✗ | ✗ | 🗸 |
+| Cap'n'Proto             | 🗸 | 🗸 | ~ | 🗸 | 🗸 | ~ | ✗ |
+| Arrow                   | ? | ? | ? | ? | ? | ? | ✗ |
+| Numpy (npy,npz)         | 🗸 | ? | ? | ✗ | 🗸 | ✗ | ✗ |
+| SafeTensors             | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ | 🗸 |
 
 - Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
 - Zero-copy: Does reading the file require more memory than the original file ?
@@ -42,6 +65,8 @@ some tensors in it without scanning the whole file (distributed setting) ?
 - Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling layout to keep fast access to single tensors is important.
 - No file size limit: Is there a limit to the file size ?
 - Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
+- Bfloat16: Does the format support native bfloat16 (meaning to weird workarounds are
+necessary). This is becoming increasingly important in the ML world.
 
 
 ### Main oppositions
@@ -52,6 +77,8 @@ some tensors in it without scanning the whole file (distributed setting) ?
 - MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
 - Protobuf: Hard 2Go max file size limit
 - Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
+- Numpy (npz): No `bfloat16` support. Vulnerable to zip bombs (DOS).
+- Arrow: No `bfloat16` support. Seem do require decoding [link](https://arrow.apache.org/docs/python/parquet.html#reading-parquet-and-memory-mapping)
 
 ### Notes
 
@@ -63,3 +90,27 @@ some tensors in it without scanning the whole file (distributed setting) ?
 - Order: 'C' or row-major. This seems to have won. We can add that information later if needed.
 - Stride: No striding, all tensors need to be packed before being serialized. I have yet to see a case where it seems useful to have a strided tensor stored in serialized format
 
+### Benefits
+
+Since we can invent a new format we can propose additional benefits:
+
+- Prevent DOS attacks: We can craft the format in such a way that it's almost
+impossible to use malicious files to DOS attack a user. Currently there's a limit
+on the size of the header of 100MB to prevent parsing extremely large JSON.
+ Also when reading the file, there's a guarantee that addresses in the file
+ do not overlap in any way, meaning when you're loading a file you should never
+ exceed the size of the file in memory
+
+- Faster load: PyTorch seems to be the fastest file to load out in the major
+ML formats. However, it does seem to have an extra copy on CPU, which we
+can bypass in this lib [link](https://github.com/huggingface/safetensors/pull/33).
+Currently CPU loading the entire file is still slightly slower than PyTorch on
+some platforms but it's not entirely clear why.
+
+- Lazy loading: in distributed (multi node or multi gpu) settings, it's nice to be able to
+load only part of the tensors on the various models. For
+[BLOOM](https://huggingface.co/bigscience/bloom) using this format enabled
+to load the model on 8 GPUs from 10mn with regular PyToch weights down to 45s.
+This really speeds up feedbacks loops when developping on the model. For instance
+you don't have to have separate copies of the weights when changing the distribution
+strategy (for instance Pipeline Parallelism vs Tensor Parallelism).
