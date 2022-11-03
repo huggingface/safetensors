@@ -33,6 +33,8 @@ type MemcpyFn = unsafe extern "C" fn(
 ) -> std::ffi::c_uint;
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static CUDA_MEMCPY: GILOnceCell<Option<Symbol<MemcpyFn>>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
@@ -192,7 +194,7 @@ enum Framework {
     Pytorch,
     Numpy,
     Tensorflow,
-    Jax,
+    Flax,
 }
 
 impl<'source> FromPyObject<'source> for Framework {
@@ -200,9 +202,17 @@ impl<'source> FromPyObject<'source> for Framework {
         let name: String = ob.extract()?;
         match &name[..] {
             "pt" => Ok(Framework::Pytorch),
+            "torch" => Ok(Framework::Pytorch),
+            "pytorch" => Ok(Framework::Pytorch),
+
             "np" => Ok(Framework::Numpy),
+            "numpy" => Ok(Framework::Numpy),
+
             "tf" => Ok(Framework::Tensorflow),
-            "jax" => Ok(Framework::Jax),
+            "tensorflow" => Ok(Framework::Tensorflow),
+
+            "jax" => Ok(Framework::Flax),
+            "flax" => Ok(Framework::Flax),
             name => Err(exceptions::PyException::new_err(format!(
                 "framework {name} is invalid"
             ))),
@@ -717,40 +727,60 @@ fn create_tensor(
     array: PyObject,
     device: &Device,
 ) -> PyResult<PyObject> {
-    match framework {
-        Framework::Pytorch | Framework::Numpy => Python::with_gil(|py| -> PyResult<PyObject> {
-            let module: &PyModule = match framework {
-                Framework::Numpy => NUMPY_MODULE.get(py),
-                Framework::Pytorch => TORCH_MODULE.get(py),
-                _ => unreachable!(),
+    Python::with_gil(|py| -> PyResult<PyObject> {
+        let module: &PyModule = match framework {
+            Framework::Pytorch => TORCH_MODULE.get(py),
+            _ => NUMPY_MODULE.get(py),
+        }
+        .ok_or_else(|| {
+            exceptions::PyException::new_err(format!("Could not find module {framework:?}",))
+        })?
+        .as_ref(py);
+        let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
+        let dtype: PyObject = get_pydtype(module, dtype)?;
+        let kwargs = [
+            (intern!(py, "buffer"), array),
+            (intern!(py, "dtype"), dtype),
+        ]
+        .into_py_dict(py);
+        let tensor = frombuffer.call((), Some(kwargs))?;
+        let shape = shape.to_vec();
+        let shape: PyObject = shape.into_py(py);
+        let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+        if device != &Device::Cpu {
+            let device: PyObject = device.clone().into_py(py);
+            let kwargs = PyDict::new(py);
+            tensor = tensor
+                .getattr(intern!(py, "to"))?
+                .call((device,), Some(kwargs))?;
+        }
+        let tensor = match framework {
+            Framework::Flax => {
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "jax"))?;
+                    Ok(FLAX_MODULE.get_or_init(py, || module.into()))
+                })?
+                .as_ref(py);
+                module
+                    .getattr(intern!(py, "numpy"))?
+                    .getattr(intern!(py, "array"))?
+                    .call1((tensor,))?
             }
-            .ok_or_else(|| {
-                exceptions::PyException::new_err(format!("Could not find module {framework:?}",))
-            })?
-            .as_ref(py);
-            let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
-            let dtype: PyObject = get_pydtype(module, dtype)?;
-            let kwargs = [
-                (intern!(py, "buffer"), array),
-                (intern!(py, "dtype"), dtype),
-            ]
-            .into_py_dict(py);
-            let tensor = frombuffer.call((), Some(kwargs))?;
-            let shape = shape.to_vec();
-            let shape: PyObject = shape.into_py(py);
-            let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-            if device != &Device::Cpu {
-                let device: PyObject = device.clone().into_py(py);
-                let kwargs = PyDict::new(py);
-                tensor = tensor
-                    .getattr(intern!(py, "to"))?
-                    .call((device,), Some(kwargs))?;
+            Framework::Tensorflow => {
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "tensorflow"))?;
+                    Ok(TENSORFLOW_MODULE.get_or_init(py, || module.into()))
+                })?
+                .as_ref(py);
+                module
+                    .getattr(intern!(py, "convert_to_tensor"))?
+                    .call1((tensor,))?
             }
-            let tensor = tensor.into_py(py);
-            Ok(tensor)
-        }),
-        framework => todo!("{framework:?}"),
-    }
+            _ => tensor,
+        };
+        let tensor = tensor.into_py(py);
+        Ok(tensor)
+    })
 }
 
 fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
@@ -769,7 +799,12 @@ fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
             Dtype::U8 => module.getattr(intern!(py, "uint8"))?.into(),
             Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
             Dtype::BOOL => module.getattr(intern!(py, "bool"))?.into(),
-            dtype => todo!("Dtype {dtype:?}"),
+            dtype => {
+                return Err(exceptions::PyException::new_err(format!(
+                    "Dtype not understood: {:?}",
+                    dtype
+                )))
+            }
         };
         Ok(dtype)
     })
