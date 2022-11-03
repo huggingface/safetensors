@@ -9,11 +9,12 @@ if platform.system() != "Windows":
     # This test will be skipped anyway.
     import jax.numpy as jnp
     from flax.serialization import msgpack_restore, msgpack_serialize
+    from safetensors import safe_open
     from safetensors.flax import load_file, save_file
 
 
 # Jax doesn't not exist on Windows
-@unittest.skipIf(platform.system() == "Windows", "Jax is not available on Windows")
+@unittest.skipIf(platform.system() == "Windows", "Flax is not available on Windows")
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
         data = {
@@ -32,6 +33,20 @@ class LoadTestCase(unittest.TestCase):
 
     def test_deserialization_safe(self):
         weights = load_file(self.sf_filename)
+
+        with open(self.flax_filename, "rb") as f:
+            data = f.read()
+        flax_weights = msgpack_restore(data)
+
+        for k, v in weights.items():
+            tv = flax_weights[k]
+            self.assertTrue(np.allclose(v, tv))
+
+    def test_deserialization_safe_open(self):
+        weights = {}
+        with safe_open(self.sf_filename, framework="flax") as f:
+            for k in f.keys():
+                weights[k] = f.get_tensor(k)
 
         with open(self.flax_filename, "rb") as f:
             data = f.read()
