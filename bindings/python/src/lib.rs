@@ -381,6 +381,10 @@ fn get_error_string(module: &PyModule, out: u32) -> PyResult<String> {
 
 enum Storage {
     Mmap(Mmap),
+    /// Torch specific mmap
+    /// This allows us to not manage it
+    /// so Pytorch can handle the whole lifecycle.
+    /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
     TorchStorage(GILOnceCell<PyObject>),
 }
 
