@@ -747,13 +747,6 @@ fn create_tensor(
         let shape = shape.to_vec();
         let shape: PyObject = shape.into_py(py);
         let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-        if device != &Device::Cpu {
-            let device: PyObject = device.clone().into_py(py);
-            let kwargs = PyDict::new(py);
-            tensor = tensor
-                .getattr(intern!(py, "to"))?
-                .call((device,), Some(kwargs))?;
-        }
         let tensor = match framework {
             Framework::Flax => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
@@ -775,6 +768,16 @@ fn create_tensor(
                 module
                     .getattr(intern!(py, "convert_to_tensor"))?
                     .call1((tensor,))?
+            }
+            Framework::Pytorch => {
+                if device != &Device::Cpu {
+                    let device: PyObject = device.clone().into_py(py);
+                    let kwargs = PyDict::new(py);
+                    tensor = tensor
+                        .getattr(intern!(py, "to"))?
+                        .call((device,), Some(kwargs))?;
+                }
+                tensor
             }
             _ => tensor,
         };
