@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667491960266,
+  "lastUpdate": 1667570893545,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -950,6 +950,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010005243046268762",
             "extra": "mean: 347.1092829999975 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f1da8be6258f520a7a849d68a56696ddb3464dc",
+          "message": "Found out about `torch.asarray` + `torch.Storage` combo. (#56)\n\n* Found out about `torch.asarray` + `torch.Storage` combo.\r\n\r\nExtremely fast (I'm guessing it's just pointer arithmetic and actual\r\nload time would it when actually using the tensors.)\r\n\r\n* Dropping 1.10 support (no `asarray`.)\r\n\r\n* Accepting torch==1.10.0 in slow mode.\r\n\r\n* Adding a comment about `Storage`.",
+          "timestamp": "2022-11-04T15:02:30+01:00",
+          "tree_id": "b2a790aaee1d6e3f9261ad0e00ae454314aae4a4",
+          "url": "https://github.com/huggingface/safetensors/commit/2f1da8be6258f520a7a849d68a56696ddb3464dc"
+        },
+        "date": 1667570893022,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2679113162564155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04949065266930508",
+            "extra": "mean: 788.6986945999979 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.318022938062026,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0722661863232775",
+            "extra": "mean: 301.3842937999925 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.8714826161530174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010536996550223074",
+            "extra": "mean: 258.29897720002464 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 190.58565561757982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006219523492831864",
+            "extra": "mean: 5.246984599966709 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.6048717254997897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07911022158218482",
+            "extra": "mean: 623.102758999994 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.012037754064634,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013451905122312965",
+            "extra": "mean: 332.00115059996733 msec\nrounds: 5"
           }
         ]
       }
