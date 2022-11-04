@@ -269,29 +269,6 @@ impl IntoPy<PyObject> for Device {
     }
 }
 
-/// Opens a safetensors lazily and returns tensors as asked
-///
-/// Args:
-///     filename (:obj:`str`):
-///         The filename to open
-///
-///     framework (:obj:`str`):
-///         The framework you want you tensors in. Supported values:
-///         `pt`, `tf`, `flax`, `numpy`.
-///
-///     device (:obj:`str`, defaults to :obj:`"cpu"`):
-///         The device on which you want the tensors.
-#[pyclass]
-#[allow(non_camel_case_types)]
-#[pyo3(text_signature = "(self, filename, framework, device=\"cpu\")")]
-struct safe_open {
-    metadata: Metadata,
-    offset: usize,
-    framework: Framework,
-    device: Device,
-    mmap: Arc<Mmap>,
-}
-
 fn create_empty_tensor_pt<'a>(
     module: &'a PyModule,
     shape: &[usize],
@@ -412,6 +389,79 @@ fn get_error_string(module: &PyModule, out: u32) -> PyResult<String> {
         .extract()
 }
 
+enum Storage {
+    Mmap(Mmap),
+    /// Torch specific mmap
+    /// This allows us to not manage it
+    /// so Pytorch can handle the whole lifecycle.
+    /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
+    TorchStorage(GILOnceCell<PyObject>),
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd)]
+struct Version {
+    major: u8,
+    minor: u8,
+    patch: u8,
+}
+
+impl Version {
+    fn new(major: u8, minor: u8, patch: u8) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+
+    fn from_string(string: String) -> Result<Self, &'static str> {
+        let mut parts = string.split('.');
+        let major_str = parts.next().ok_or("Torch major version missing")?;
+        let minor_str = parts.next().ok_or("Torch minor version missing")?;
+        let patch_str = parts.next().ok_or("Torch path version missing")?;
+        let mut patch_parts = patch_str.split('+');
+        let patch_str = patch_parts.next().ok_or("Torch path version missing")?;
+
+        let major = major_str
+            .parse()
+            .map_err(|_| "Python major version not an integer")?;
+        let minor = minor_str
+            .parse()
+            .map_err(|_| "Python minor version not an integer")?;
+        let patch = patch_str
+            .parse()
+            .map_err(|_| "Python patch version not an integer")?;
+        Ok(Version {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
+/// Opens a safetensors lazily and returns tensors as asked
+///
+/// Args:
+///     filename (:obj:`str`):
+///         The filename to open
+///
+///     framework (:obj:`str`):
+///         The framework you want you tensors in. Supported values:
+///         `pt`, `tf`, `flax`, `numpy`.
+///
+///     device (:obj:`str`, defaults to :obj:`"cpu"`):
+///         The device on which you want the tensors.
+#[pyclass]
+#[allow(non_camel_case_types)]
+#[pyo3(text_signature = "(self, filename, framework, device=\"cpu\")")]
+struct safe_open {
+    metadata: Metadata,
+    offset: usize,
+    framework: Framework,
+    device: Device,
+    storage: Arc<Storage>,
+}
+
 #[pymethods]
 impl safe_open {
     #[new]
@@ -454,12 +504,52 @@ impl safe_open {
             Ok(())
         })?;
 
+        let storage = match (&framework, &device) {
+            (Framework::Pytorch, Device::Cpu) => Python::with_gil(|py| -> PyResult<Storage> {
+                let module = get_module(py, &TORCH_MODULE)?;
+
+                let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
+                let version =
+                    Version::from_string(version).map_err(exceptions::PyException::new_err)?;
+
+                // Untyped storage only exists for versions over 1.11.0
+                // Same for torch.asarray which is necessary for zero-copy tensor
+                if version >= Version::new(1, 11, 0) {
+                    // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
+                    let py_filename: PyObject = filename.into_py(py);
+                    let size: PyObject = buffer.len().into_py(py);
+                    let shared: PyObject = false.into_py(py);
+                    let kwargs = [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
+                        .into_py_dict(py);
+                    let storage = module
+                        .getattr(intern!(py, "ByteStorage"))?
+                        .getattr(intern!(py, "from_file"))?
+                        .call((py_filename,), Some(kwargs))?;
+
+                    let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
+                        Ok(untyped) => untyped,
+                        Err(_) => storage.getattr(intern!(py, "_untyped"))?,
+                    };
+                    let storage = untyped.call0()?.into_py(py);
+                    let gil_storage = GILOnceCell::new();
+                    gil_storage.get_or_init(py, || storage);
+
+                    Ok(Storage::TorchStorage(gil_storage))
+                } else {
+                    Ok(Storage::Mmap(buffer))
+                }
+            })?,
+            _ => Storage::Mmap(buffer),
+        };
+
+        let storage = Arc::new(storage);
+
         Ok(Self {
             metadata,
             offset,
             framework,
             device,
-            mmap: Arc::new(buffer),
+            storage,
         })
     }
 
@@ -506,28 +596,64 @@ impl safe_open {
             exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
         })?;
 
-        let data = &self.mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+        match &self.storage.as_ref() {
+            Storage::Mmap(mmap) => {
+                let data =
+                    &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-        Python::with_gil(|py| -> PyResult<PyObject> {
-            match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
-                (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
-                    let module = get_module(py, &TORCH_MODULE)?;
-                    create_cuda_unsafe_tensor(module, cuda_memcpy, info, &self.device, data)
-                }
-                _ => {
-                    let array: PyObject =
-                        Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
+                        (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
+                            let module = get_module(py, &TORCH_MODULE)?;
+                            create_cuda_unsafe_tensor(module, cuda_memcpy, info, &self.device, data)
+                        }
+                        _ => {
+                            let array: PyObject =
+                                Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
 
-                    create_tensor(
-                        &self.framework,
-                        info.dtype,
-                        &info.shape,
-                        array,
-                        &self.device,
-                    )
-                }
+                            create_tensor(
+                                &self.framework,
+                                info.dtype,
+                                &info.shape,
+                                array,
+                                &self.device,
+                            )
+                        }
+                    }
+                })
             }
-        })
+            Storage::TorchStorage(storage) => {
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    let torch = get_module(py, &TORCH_MODULE)?;
+                    let dtype: PyObject = get_pydtype(torch, info.dtype)?;
+                    let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8)?;
+                    let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py);
+                    let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
+                    let shape = info.shape.to_vec();
+                    let shape: PyObject = shape.into_py(py);
+
+                    let start = (info.data_offsets.0 + self.offset) as isize;
+                    let stop = (info.data_offsets.1 + self.offset) as isize;
+                    let slice = PySlice::new(py, start, stop, 1);
+                    let storage: &PyObject = storage.get(py).unwrap();
+                    let storage: &PyAny = storage.as_ref(py);
+
+                    let storage_slice = storage
+                        .getattr(intern!(py, "__getitem__"))?
+                        .call1((slice,))?;
+
+                    let tensor = torch
+                        .getattr(intern!(py, "asarray"))?
+                        .call((storage_slice,), Some(kwargs))?
+                        .getattr(intern!(py, "view"))?
+                        .call((), Some(view_kwargs))?
+                        .getattr(intern!(py, "reshape"))?
+                        .call1((shape,))?;
+                    Ok(tensor.into_py(py))
+                    // torch.asarray(storage[start + n : stop + n], dtype=torch.uint8).view(dtype=dtype).reshape(shape)
+                })
+            }
+        }
     }
 
     /// Returns a full slice view object
@@ -554,7 +680,7 @@ impl safe_open {
                 framework: self.framework.clone(),
                 offset: self.offset,
                 device: self.device.clone(),
-                mmap: self.mmap.clone(),
+                storage: self.storage.clone(),
             })
         } else {
             Err(exceptions::PyException::new_err(format!(
@@ -613,7 +739,7 @@ struct PySafeSlice {
     framework: Framework,
     offset: usize,
     device: Device,
-    mmap: Arc<Mmap>,
+    storage: Arc<Storage>,
 }
 
 #[derive(FromPyObject)]
@@ -652,60 +778,96 @@ impl PySafeSlice {
             Slice::Slice(slice) => vec![slice],
             Slice::Slices(slices) => slices,
         };
-        let data = &self.mmap
-            [self.info.data_offsets.0 + self.offset..self.info.data_offsets.1 + self.offset];
 
-        let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data);
-        let slices: Vec<TensorIndexer> = slices
-            .into_iter()
-            .map(slice_to_indexer)
-            .collect::<Result<_, _>>()?;
+        match &self.storage.as_ref() {
+            Storage::Mmap(mmap) => {
+                let data = &mmap[self.info.data_offsets.0 + self.offset
+                    ..self.info.data_offsets.1 + self.offset];
 
-        let iterator = tensor.get_sliced_data(slices.clone()).map_err(|e| {
-            exceptions::PyException::new_err(format!(
-                "Error during slicing {slices:?} vs {:?}:  {:?}",
-                self.info.shape, e
-            ))
-        })?;
-        let newshape = iterator.newshape();
+                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data);
+                let slices: Vec<TensorIndexer> = slices
+                    .into_iter()
+                    .map(slice_to_indexer)
+                    .collect::<Result<_, _>>()?;
 
-        let mut offset = 0;
-        let length = iterator.remaining_byte_len();
+                let iterator = tensor.get_sliced_data(slices.clone()).map_err(|e| {
+                    exceptions::PyException::new_err(format!(
+                        "Error during slicing {slices:?} vs {:?}:  {:?}",
+                        self.info.shape, e
+                    ))
+                })?;
+                let newshape = iterator.newshape();
 
-        Python::with_gil(
-            |py| match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
-                (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
-                    let module = get_module(py, &TORCH_MODULE)?;
-                    create_cuda_unsafe_tensor_from_slice(
-                        module,
-                        cuda_memcpy,
-                        &newshape,
-                        self.info.dtype,
-                        &self.device,
-                        iterator,
-                    )
-                }
-                _ => {
-                    let array: PyObject =
-                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
-                            for slice in iterator {
-                                let len = slice.len();
-                                bytes[offset..offset + slice.len()].copy_from_slice(slice);
-                                offset += len;
-                            }
-                            Ok(())
-                        })?
-                        .into_py(py);
-                    create_tensor(
-                        &self.framework,
-                        self.info.dtype,
-                        &newshape,
-                        array,
-                        &self.device,
-                    )
-                }
-            },
-        )
+                let mut offset = 0;
+                let length = iterator.remaining_byte_len();
+
+                Python::with_gil(
+                    |py| match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
+                        (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
+                            let module = get_module(py, &TORCH_MODULE)?;
+                            create_cuda_unsafe_tensor_from_slice(
+                                module,
+                                cuda_memcpy,
+                                &newshape,
+                                self.info.dtype,
+                                &self.device,
+                                iterator,
+                            )
+                        }
+                        _ => {
+                            let array: PyObject =
+                                PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                                    for slice in iterator {
+                                        let len = slice.len();
+                                        bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                                        offset += len;
+                                    }
+                                    Ok(())
+                                })?
+                                .into_py(py);
+                            create_tensor(
+                                &self.framework,
+                                self.info.dtype,
+                                &newshape,
+                                array,
+                                &self.device,
+                            )
+                        }
+                    },
+                )
+            }
+            Storage::TorchStorage(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
+                let torch = get_module(py, &TORCH_MODULE)?;
+                let dtype: PyObject = get_pydtype(torch, self.info.dtype)?;
+                let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8)?;
+                let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py);
+                let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
+                let shape = self.info.shape.to_vec();
+                let shape: PyObject = shape.into_py(py);
+
+                let start = (self.info.data_offsets.0 + self.offset) as isize;
+                let stop = (self.info.data_offsets.1 + self.offset) as isize;
+                let slice = PySlice::new(py, start, stop, 1);
+                let storage: &PyObject = storage.get(py).unwrap();
+                let storage: &PyAny = storage.as_ref(py);
+
+                let storage_slice = storage
+                    .getattr(intern!(py, "__getitem__"))?
+                    .call1((slice,))?;
+
+                let slices = slices.into_py(py);
+                let tensor = torch
+                    .getattr(intern!(py, "asarray"))?
+                    .call((storage_slice,), Some(kwargs))?
+                    .getattr(intern!(py, "view"))?
+                    .call((), Some(view_kwargs))?
+                    .getattr(intern!(py, "reshape"))?
+                    .call1((shape,))?
+                    .getattr(intern!(py, "__getitem__"))?
+                    .call1((slices,))?;
+                Ok(tensor.into_py(py))
+            }),
+        }
     }
 }
 
