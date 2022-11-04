@@ -1,18 +1,30 @@
 """Simple utility tool to convert automatically most downloaded models"""
+from convert import AlreadyExists, convert
 from huggingface_hub import HfApi, ModelFilter, ModelSearchArguments
-from convert import convert, AlreadyExists
+from transformers import AutoConfig
 
 
 if __name__ == "__main__":
     api = HfApi()
     args = ModelSearchArguments()
 
-    total = 100
-    models = list(api.list_models(filter=ModelFilter(library=args.library.Transformers), sort="downloads", direction=-1))[:total]
+    total = 50
+    models = list(
+        api.list_models(filter=ModelFilter(library=args.library.Transformers), sort="downloads", direction=-1)
+    )[:total]
 
     correct = 0
     errors = set()
     for model in models:
+        model = api.model_info(model.modelId, files_metadata=True)
+        size = None
+        for sibling in model.siblings:
+            if sibling.rfilename == "pytorch_model.bin":
+                size = sibling.size
+        if size is None or size > 2_000_000_000:
+            print(f"[{model.downloads}] Skipping {model.modelId} (too large {size})")
+            continue
+
         model_id = model.modelId
         print(f"[{model.downloads}] {model.modelId}")
         try:
@@ -22,9 +34,9 @@ if __name__ == "__main__":
             correct += 1
             print(e)
         except Exception as e:
-            errors.add( model_id)
+            config = AutoConfig.from_pretrained(model_id)
+            errors.add(config.__class__.__name__)
             print(e)
-
 
     print(f"Errors: {errors}")
     print(f"File size is difference {len(errors)}")
