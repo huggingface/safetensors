@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667573352242,
+  "lastUpdate": 1667580293827,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -1082,6 +1082,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.051299599292381065",
             "extra": "mean: 328.0990982000162 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "764ff0faf4b36b1a0b42a2bd57869f3b8ccb2aaf",
+          "message": "Adding the convert scripts which will now prevent converting models (#59)\n\n* Adding the convert scripts which will now prevent converting models\r\n\r\nin case they will trigger warnigns in the `transformers` side.\r\nEven if the model is perfectly fine, core maintainers fear an influx\r\nof opened issues.\r\n\r\nThis is perfectly legit.\r\nOn the `transformers` side fixes are on the way: https://github.com/huggingface/transformers/pull/20042\r\n\r\nWe can wait for this PR to hit `main` before communicating super widely.\r\n\r\nIn the meantime this script of convertion will now prevent converting\r\nmodels that would trigger such warnings (so the output of the script\r\n**will** depend on the `transformers` freshness.\r\n\r\n* Adding a nicer diff for the error when reloading.",
+          "timestamp": "2022-11-04T17:38:58+01:00",
+          "tree_id": "fcae620c33c26f5246f757ecd039a2db34add15e",
+          "url": "https://github.com/huggingface/safetensors/commit/764ff0faf4b36b1a0b42a2bd57869f3b8ccb2aaf"
+        },
+        "date": 1667580293041,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.4783809617931654,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05922416427706766",
+            "extra": "mean: 676.4156370000023 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.101111456077411,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05815818075012042",
+            "extra": "mean: 243.8363382000034 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 5.218556539955357,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02408313574336143",
+            "extra": "mean: 191.62386999998944 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 227.2820694510784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00015381513366589567",
+            "extra": "mean: 4.399819142861361 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.8810317299829102,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06028957922813192",
+            "extra": "mean: 531.623142799981 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 5.936693692795961,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020659453048524873",
+            "extra": "mean: 168.4439271666444 msec\nrounds: 6"
           }
         ]
       }
