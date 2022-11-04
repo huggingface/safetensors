@@ -2,18 +2,18 @@ import argparse
 import json
 import os
 import shutil
-from tempfile import TemporaryDirectory
 from collections import defaultdict
 from inspect import signature
-from typing import Optional, List
+from tempfile import TemporaryDirectory
+from typing import List, Optional
 
 import torch
 
-from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download, get_repo_discussions
+from huggingface_hub import CommitInfo, CommitOperationAdd, Discussion, HfApi, hf_hub_download
 from huggingface_hub.file_download import repo_folder_name
+from safetensors.torch import save_file
 from transformers import AutoConfig
 from transformers.pipelines.base import infer_framework_load_model
-from safetensors.torch import save_file
 
 
 class AlreadyExists(Exception):
@@ -30,15 +30,18 @@ def shared_pointers(tensors):
             failing.append(names)
     return failing
 
+
 def check_file_size(sf_filename: str, pt_filename: str):
     sf_size = os.stat(sf_filename).st_size
     pt_size = os.stat(pt_filename).st_size
 
     if (sf_size - pt_size) / pt_size > 0.01:
-        raise RuntimeError(f"""The file size different is more than 1%:
+        raise RuntimeError(
+            f"""The file size different is more than 1%:
          - {sf_filename}: {sf_size}
          - {pt_filename}: {pt_size}
-         """)
+         """
+        )
 
 
 def rename(pt_filename: str) -> str:
@@ -47,12 +50,13 @@ def rename(pt_filename: str) -> str:
     return local
 
 
-def convert_multi(model_id: str) -> List["CommitOperationAdd"]:
+def convert_multi(model_id: str, folder: str) -> List["CommitOperationAdd"]:
     filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json")
     with open(filename, "r") as f:
         data = json.load(f)
 
     filenames = set(data["weight_map"].values())
+    local_filenames = []
     for filename in filenames:
         cached_filename = hf_hub_download(repo_id=model_id, filename=filename)
         loaded = torch.load(cached_filename)
@@ -71,7 +75,9 @@ def convert_multi(model_id: str) -> List["CommitOperationAdd"]:
         json.dump(newdata, f)
     local_filenames.append(index)
 
-    operations = [CommitOperationAdd(path_in_repo=local.split("/")[-1], path_or_fileobj=local) for local in local_filenames]
+    operations = [
+        CommitOperationAdd(path_in_repo=local.split("/")[-1], path_or_fileobj=local) for local in local_filenames
+    ]
 
     return operations
 
@@ -97,16 +103,17 @@ def convert_single(model_id: str, folder: str) -> List["CommitOperationAdd"]:
     operations = [CommitOperationAdd(path_in_repo=sf_filename, path_or_fileobj=local)]
     return operations
 
+
 def check_final_model(model_id: str, folder: str):
     config = hf_hub_download(repo_id=model_id, filename="config.json")
     shutil.copy(config, os.path.join(folder, "config.json"))
     config = AutoConfig.from_pretrained(folder)
 
-    _, pt_model = infer_framework_load_model(model_id, config)
-    _, sf_model = infer_framework_load_model(folder, config)
+    _, (pt_model, pt_infos) = infer_framework_load_model(model_id, config, output_loading_info=True)
+    _, (sf_model, sf_infos) = infer_framework_load_model(folder, config, output_loading_info=True)
 
-    pt_model = pt_model
-    sf_model = sf_model
+    if pt_infos != sf_infos:
+        raise ValueError(f"different infos {model_id}")
 
     pt_params = pt_model.state_dict()
     sf_params = sf_model.state_dict()
@@ -134,7 +141,6 @@ def check_final_model(model_id: str, folder: str):
     if "image" in sig.parameters:
         kwargs["image"] = pixel_values
 
-
     if torch.cuda.is_available():
         pt_model = pt_model.cuda()
         sf_model = sf_model.cuda()
@@ -146,6 +152,7 @@ def check_final_model(model_id: str, folder: str):
     torch.testing.assert_close(sf_logits, pt_logits)
     print(f"Model {model_id} is ok !")
 
+
 def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discussion"]:
     try:
         discussions = api.get_repo_discussions(repo_id=model_id)
@@ -156,7 +163,7 @@ def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discuss
             return discussion
 
 
-def convert(api: "HfApi", model_id: str, force: bool=False) -> Optional["CommitInfo"]:
+def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["CommitInfo"]:
     pr_title = "Adding `safetensors` variant of this model"
     info = api.model_info(model_id)
     filenames = set(s.rfilename for s in info.siblings)
@@ -183,12 +190,12 @@ def convert(api: "HfApi", model_id: str, force: bool=False) -> Optional["CommitI
 
             if operations:
                 check_final_model(model_id, folder)
-                # new_pr = api.create_commit(
-                #     repo_id=model_id,
-                #     operations=operations,
-                #     commit_message=pr_title,
-                #     create_pr=True,
-                # )
+                new_pr = api.create_commit(
+                    repo_id=model_id,
+                    operations=operations,
+                    commit_message=pr_title,
+                    create_pr=True,
+                )
         finally:
             shutil.rmtree(folder)
         return new_pr
