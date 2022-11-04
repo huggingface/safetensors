@@ -5,7 +5,7 @@ import shutil
 from collections import defaultdict
 from inspect import signature
 from tempfile import TemporaryDirectory
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import torch
 
@@ -104,6 +104,22 @@ def convert_single(model_id: str, folder: str) -> List["CommitOperationAdd"]:
     return operations
 
 
+def create_diff(pt_infos: Dict[str, List[str]], sf_infos: Dict[str, List[str]]) -> str:
+    errors = []
+    for key in ["missing_keys", "mismatched_keys", "unexpected_keys"]:
+        pt_set = set(pt_infos[key])
+        sf_set = set(sf_infos[key])
+
+        pt_only = pt_set - sf_set
+        sf_only = sf_set - pt_set
+
+        if pt_only:
+            errors.append(f"{key} : PT warnings contain {pt_only} which are not present in SF warnings")
+        if sf_only:
+            errors.append(f"{key} : SF warnings contain {sf_only} which are not present in PT warnings")
+    return "\n".join(errors)
+
+
 def check_final_model(model_id: str, folder: str):
     config = hf_hub_download(repo_id=model_id, filename="config.json")
     shutil.copy(config, os.path.join(folder, "config.json"))
@@ -113,7 +129,8 @@ def check_final_model(model_id: str, folder: str):
     _, (sf_model, sf_infos) = infer_framework_load_model(folder, config, output_loading_info=True)
 
     if pt_infos != sf_infos:
-        raise ValueError(f"different infos {model_id}")
+        error_string = create_diff(pt_infos, sf_infos)
+        raise ValueError(f"Different infos when reloading the model: {error_string}")
 
     pt_params = pt_model.state_dict()
     sf_params = sf_model.state_dict()
@@ -190,12 +207,12 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
 
             if operations:
                 check_final_model(model_id, folder)
-                new_pr = api.create_commit(
-                    repo_id=model_id,
-                    operations=operations,
-                    commit_message=pr_title,
-                    create_pr=True,
-                )
+                # new_pr = api.create_commit(
+                #     repo_id=model_id,
+                #     operations=operations,
+                #     commit_message=pr_title,
+                #     create_pr=True,
+                # )
         finally:
             shutil.rmtree(folder)
         return new_pr
