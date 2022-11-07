@@ -30,7 +30,7 @@ type MemcpyFn = unsafe extern "C" fn(
     src: *const std::ffi::c_void,
     count: usize,
     kind: cudaMemcpyKind,
-) -> std::ffi::c_uint;
+) -> std::os::raw::c_uint;
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static CUDA_MEMCPY: GILOnceCell<Option<Symbol<MemcpyFn>>> = GILOnceCell::new();
