@@ -54,7 +54,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: audit
-          args: -D warnings --manifest-path ./bindings/python/Cargo.toml
+          args: -D warnings -f ./bindings/python/Cargo.lock
 
       - name: Install
         working-directory: ./bindings/python
