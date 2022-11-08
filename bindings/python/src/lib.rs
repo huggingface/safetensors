@@ -1,7 +1,7 @@
 #![deny(missing_docs)]
 //! Dummy doc
 use libloading::{Library, Symbol};
-use memmap::{Mmap, MmapOptions};
+use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions;
 use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
