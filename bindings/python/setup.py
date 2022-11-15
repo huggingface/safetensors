@@ -11,10 +11,10 @@ _deps = [
     "datasets",
     "flake8>=3.8.3",
     "flax",
+    "h5py",
     "huggingface_hub",
     "isort>=5.5.4",
     "jax",
-    "jaxlib",
     "numpy",
     "setuptools_rust",
     "pyarrow",
@@ -44,9 +44,9 @@ extras = {}
 extras["torch"] = deps_list("torch")
 extras["numpy"] = deps_list("numpy")
 extras["tensorflow"] = deps_list("tensorflow")
-extras["jax"] = deps_list("jax", "jaxlib", "flax")
+extras["jax"] = deps_list("jax", "flax")
 extras["quality"] = deps_list("black", "datasets", "pyarrow", "requests", "isort", "flake8", "click")
-extras["testing"] = deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark") + extras["numpy"]
+extras["testing"] = deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark", "h5py") + extras["numpy"]
 extras["all"] = extras["torch"] + extras["numpy"] + extras["tensorflow"] + extras["jax"] + extras["quality"] + extras["testing"]
 extras["dev"] = extras["all"]
 
