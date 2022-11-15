@@ -1,13 +1,52 @@
+import re
 from setuptools import setup
 from setuptools_rust import Binding, RustExtension
 
 
-with open("requirements-dev.txt", "r") as f:
-    testing = f.read().splitlines()
+# IMPORTANT:
+# 1. all dependencies should be listed here with their version requirements if any
+_deps = [
+    "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
+    "datasets",
+    "flake8>=3.8.3",
+    "flax",
+    "huggingface_hub",
+    "isort>=5.5.4",
+    "jax",
+    "jaxlib",
+    "numpy",
+    "setuptools_rust",
+    "pyarrow",
+    "pytest",
+    "tensorflow",
+    "torch",
+    "requests",
+]
+
+
+# this is a lookup table with items like:
+#
+# tokenizers: "tokenizers==0.9.4"
+# packaging: "packaging"
+#
+# some of the values are versioned whereas others aren't.
+deps = {b: a for a, b in (re.findall(r"^(([^!=<>~ ]+)(?:[!=<>~ ].*)?$)", x)[0] for x in _deps)}
+
+
+def deps_list(*pkgs):
+    return [deps[pkg] for pkg in pkgs]
+
+
 
 extras = {}
-extras["testing"] = testing
-extras["dev"] = testing
+extras["torch"] = deps_list("torch")
+extras["numpy"] = deps_list("numpy")
+extras["tensorflow"] = deps_list("tensorflow")
+extras["jax"] = deps_list("jax", "jaxlib", "flax")
+extras["quality"] = deps_list("black", "datasets", "pyarrow", "requests", "isort", "flake8")
+extras["testing"] = deps_list("setuptools_rust", "huggingface_hub", "pytest") + extras["numpy"]
+extras["all"] = extras["torch"] + extras["numpy"] + extras["tensorflow"] + extras["jax"] + extras["quality"] + extras["testing"]
+extras["dev"] = extras["all"]
 
 setup(
     name="safetensors",
