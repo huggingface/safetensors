@@ -54,15 +54,12 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install -U pip
-          pip install pytest requests setuptools_rust numpy pyarrow datasets
-          pip install ${{ matrix.torch_version }} tensorflow numpy
-          pip install jax jaxlib flax
-          python setup.py develop
+          pip install .[dev]
+          pip install ${{ matrix.torch_version }} --force-reinstall
 
       - name: Check style
         working-directory: ./bindings/python
         run: |
-          pip install black==22.3 click==8.0.4
           black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
       - name: Run tests

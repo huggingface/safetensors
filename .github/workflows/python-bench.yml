@@ -32,10 +32,7 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install -U pip
-          pip install pytest pytest-benchmark setuptools_rust
-          pip install torch tensorflow numpy
-          pip install jax jaxlib flax
-          python setup.py develop
+          pip install .[dev]
 
       - name: Run tests
         working-directory: ./bindings/python
