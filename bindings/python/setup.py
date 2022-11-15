@@ -7,6 +7,7 @@ from setuptools_rust import Binding, RustExtension
 # 1. all dependencies should be listed here with their version requirements if any
 _deps = [
     "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
+    "click==8.0.4",
     "datasets",
     "flake8>=3.8.3",
     "flax",
@@ -18,6 +19,7 @@ _deps = [
     "setuptools_rust",
     "pyarrow",
     "pytest",
+    "pytest-benchmark",
     "tensorflow",
     "torch",
     "requests",
@@ -43,8 +45,8 @@ extras["torch"] = deps_list("torch")
 extras["numpy"] = deps_list("numpy")
 extras["tensorflow"] = deps_list("tensorflow")
 extras["jax"] = deps_list("jax", "jaxlib", "flax")
-extras["quality"] = deps_list("black", "datasets", "pyarrow", "requests", "isort", "flake8")
-extras["testing"] = deps_list("setuptools_rust", "huggingface_hub", "pytest") + extras["numpy"]
+extras["quality"] = deps_list("black", "datasets", "pyarrow", "requests", "isort", "flake8", "click")
+extras["testing"] = deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark") + extras["numpy"]
 extras["all"] = extras["torch"] + extras["numpy"] + extras["tensorflow"] + extras["jax"] + extras["quality"] + extras["testing"]
 extras["dev"] = extras["all"]
 
