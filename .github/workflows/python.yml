@@ -66,6 +66,7 @@ jobs:
       - name: Check style
         working-directory: ./bindings/python
         run: |
+          pip install .[quality]
           black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
       - name: Run tests
