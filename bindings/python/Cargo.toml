@@ -1,6 +1,6 @@
 [package]
 name = "safetensors-python"
-version = "0.2.3"
+version = "0.2.5"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.17.2", features = ["extension-module"] }
-memmap = "0.7"
+memmap2 = "0.5"
 serde_json = "1.0"
 libloading = "0.7"
 

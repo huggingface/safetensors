@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import tensorflow as tf
 
+from safetensors import safe_open
 from safetensors.tensorflow import load_file, save_file
 
 
@@ -42,6 +43,19 @@ class SafeTestCase(unittest.TestCase):
 
     def test_deserialization_safe(self):
         weights = load_file(self.sf_filename)
+
+        with h5py.File(self.tf_filename, "r") as f:
+            tf_weights = _load(f)
+
+        for k, v in weights.items():
+            tv = tf_weights[k]
+            self.assertTrue(np.allclose(v, tv))
+
+    def test_deserialization_safe_open(self):
+        weights = {}
+        with safe_open(self.sf_filename, framework="tf") as f:
+            for k in f.keys():
+                weights[k] = f.get_tensor(k)
 
         with h5py.File(self.tf_filename, "r") as f:
             tf_weights = _load(f)

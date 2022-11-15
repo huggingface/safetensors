@@ -50,9 +50,12 @@ extras["testing"] = deps_list("setuptools_rust", "huggingface_hub", "pytest", "p
 extras["all"] = extras["torch"] + extras["numpy"] + extras["tensorflow"] + extras["jax"] + extras["quality"] + extras["testing"]
 extras["dev"] = extras["all"]
 
+with open("py_src/safetensors/__init__.py", "r") as f:
+    version = f.readline().split("=")[-1].strip().strip('"')
+
 setup(
     name="safetensors",
-    version="0.2.3",
+    version=version,
     description="Fast and Safe Tensor serialization",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
