@@ -45,7 +45,7 @@ class SliceTestCase(unittest.TestCase):
         # Need to copy since that call mutates the tensors to numpy
         save_file(self.data.copy(), self.local)
 
-    def test_cannot_serialize_a_non_contiguous_tensor(self):
+    def test_cannot_serialize_a_non_contiguous_tensor_test(self):
         tensor = torch.arange(6, dtype=torch.float32).reshape((1, 2, 3))
         x = tensor[:, :, 1]
         data = {"test": x}
