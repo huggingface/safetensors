@@ -60,8 +60,15 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install -U pip
-          pip install .[numpy,tensorflow,jax]
+          pip install .[numpy,tensorflow]
           pip install ${{ matrix.torch_version }}
+
+      - name: Install (jax, flax)
+        if: matrix.os != 'windows-latest'
+        working-directory: ./bindings/python
+        run: |
+          pip install .[jax]
+        shell: bash
 
       - name: Check style
         working-directory: ./bindings/python
