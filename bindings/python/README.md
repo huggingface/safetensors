@@ -46,14 +46,15 @@ loaded = load_file("./model.safetensors")
 ### Developing
 
 ```
-pip install setuptools_rust
-python setup.py develop
+# inside ./safetensors/bindings/python
+pip install .[dev]
 ```
 Should be enough to install this library locally.
 
 ### Testing
 
 ```
-pip install pytest   # We don't require pytest, but it's a common library used across HF.
+# inside ./safetensors/bindings/python
+pip install .[dev]
 pytest -sv tests/
 ```
