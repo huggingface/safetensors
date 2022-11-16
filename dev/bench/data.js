@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667919212750,
+  "lastUpdate": 1668613262857,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -1280,6 +1280,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.020145276627615755",
             "extra": "mean: 344.72162300000946 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dmishig@gmail.com",
+            "name": "Mishig",
+            "username": "mishig25"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "050d5d398bfc0142e893c6ba397e01fc05df4772",
+          "message": "pip install .[dev] (#68)\n\n* Update setup.py\r\n\r\n* add click==8.0.4 to setup.py\r\n\r\n* gh actions use pip install .[dev]\r\n\r\n* Update binding local dev readme\r\n\r\n* fix gh action\r\n\r\n* fix gh action\r\n\r\n* fix gh action ?\r\n\r\n* don't install jax flax on windows\r\n\r\n* try removing unused deps",
+          "timestamp": "2022-11-16T16:35:03+01:00",
+          "tree_id": "0c282ad5b308864d61cec4860cc676acd6c3ccd0",
+          "url": "https://github.com/huggingface/safetensors/commit/050d5d398bfc0142e893c6ba397e01fc05df4772"
+        },
+        "date": 1668613261534,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.4073831684119906,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01991015581292761",
+            "extra": "mean: 710.5385529999921 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.917838556300919,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0640741664632032",
+            "extra": "mean: 255.24277879999318 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.466203924945665,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02085664666656434",
+            "extra": "mean: 223.903793199986 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 218.54028464442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00038779852758449455",
+            "extra": "mean: 4.575815400016836 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.6919817101135997,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07699478695831562",
+            "extra": "mean: 591.022937199989 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 5.906046348909113,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007917755371955378",
+            "extra": "mean: 169.31800750001003 msec\nrounds: 6"
           }
         ]
       }
