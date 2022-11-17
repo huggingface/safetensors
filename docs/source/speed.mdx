@@ -1,0 +1,80 @@
+<!-- DISABLE-FRONTMATTER-SECTIONS -->
+
+# Speed Comparison
+
+[[open-in-colab]]
+
+`Safetensors` is really fast. Let's compare it against `PyTorch` by loading [gpt2](https://huggingface.co/gpt2) weights. To run the [GPU benchmark](#gpu-benchmark), make sure your machine has GPU or you have selected `GPU runtime` if you are using Google Colab.
+
+Before you begin, make sure you have all the necessary libraries installed:
+
+```bash
+!pip install safetensors huggingface_hub
+```
+
+Let's start by importing all the packages that will be used:
+
+```py
+>>> import os
+>>> import datetime
+>>> from huggingface_hub import hf_hub_download
+>>> from safetensors.torch import load_file
+>>> import torch
+```
+
+### CPU benchmark
+
+```py
+>>> # Make sure the experimental gpu loading feature is off since we are testing CPU here
+>>> if "SAFETENSORS_FAST_GPU" in os.environ: del os.environ["SAFETENSORS_FAST_GPU"]
+
+>>> device = "cpu"
+>>> sf_filename = hf_hub_download("gpt2", filename="model.safetensors")
+>>> pt_filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
+
+>>> start_st = datetime.datetime.now()
+>>> weights = load_file(sf_filename, device=device)
+>>> load_time_st = datetime.datetime.now() - start_st
+>>> print(f"Loaded safetensors {load_time_st}")
+
+>>> start_pt = datetime.datetime.now()
+>>> weights = torch.load(pt_filename, map_location=device)
+>>> load_time_pt = datetime.datetime.now() - start_pt
+>>> print(f"Loaded pytorch {load_time_pt}")
+
+>>> print(f"safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
+Loaded safetensors 0:00:00.004015
+Loaded pytorch 0:00:00.307460
+safetensors is faster than pytorch by: 76.6 X
+```
+
+
+### GPU benchmark
+
+```py
+>>> # This is required because this feature hasn't been fully verified yet, but 
+>>> # it's been tested on many different environments
+>>> os.environ["SAFETENSORS_FAST_GPU"] = "1"
+
+>>> device = "cuda:0"
+>>> sf_filename = hf_hub_download("gpt2", filename="model.safetensors")
+>>> pt_filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
+
+>>> # CUDA startup out of the measurement
+>>> torch.zeros((2, 2)).cuda()
+
+>>> start_st = datetime.datetime.now()
+>>> weights = load_file(sf_filename, device=device)
+>>> load_time_st = datetime.datetime.now() - start_st
+>>> print(f"Loaded safetensors {load_time_st}")
+
+>>> start_pt = datetime.datetime.now()
+>>> weights = torch.load(pt_filename, map_location=device)
+>>> load_time_pt = datetime.datetime.now() - start_pt
+>>> print(f"Loaded pytorch {load_time_pt}")
+
+>>> print(f"safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
+Loaded safetensors 0:00:00.165206
+Loaded pytorch 0:00:00.353889
+safetensors is faster than pytorch by: 2.1 X
+```

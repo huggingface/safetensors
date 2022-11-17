@@ -1,6 +1,8 @@
 - sections: 
   - local: index
     title: 🤗 Safetensors
+  - local: speed
+    title: Speed Comparison
   title: Getting started
 - sections: 
   - local: api/torch
