@@ -1,3 +1,4 @@
+import sys
 from typing import Dict, Optional
 
 import numpy as np
@@ -30,6 +31,10 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     byte_data = save(tensors)
     ```
     """
+    for tensor in tensor_dict.values():
+        byte_order = _byte_order(tensor)
+        if byte_order != "<":
+            raise ValueError("Safetensor format only accepts little endian")
     flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
@@ -151,3 +156,13 @@ def _view2np(safeview) -> Dict[str, np.ndarray]:
         arr = np.frombuffer(v["data"], dtype=dtype).reshape(v["shape"])
         result[k] = arr
     return result
+
+
+def _byte_order(tensor: np.ndarray) -> str:
+    byteorder = tensor.dtype.byteorder
+    if byteorder == "=":
+        if sys.byteorder == "little":
+            return "<"
+        else:
+            return ">"
+    return byteorder

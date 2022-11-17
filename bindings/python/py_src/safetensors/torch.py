@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 from typing import Any, Dict, Optional
 
@@ -206,6 +207,8 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    if sys.byteorder == "big":
+        raise ValueError("Big endian is not supported, serialization need to be in little endian")
     ptrs = defaultdict(set)
     for k, v in tensors.items():
         if v.layout == torch.strided:
