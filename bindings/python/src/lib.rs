@@ -64,7 +64,9 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                         "float64" => Dtype::F64,
                         "bfloat16" => Dtype::BF16,
                         dtype_str => {
-                            unimplemented!("Did not cover this dtype: {}", dtype_str)
+                            return Err(exceptions::PyException::new_err(format!(
+                                "dtype {dtype_str} is not covered",
+                            )));
                         }
                     }
                 }
