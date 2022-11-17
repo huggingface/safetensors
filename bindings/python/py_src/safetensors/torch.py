@@ -168,6 +168,8 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
         arr = torch.frombuffer(v["data"], dtype=dtype).reshape(v["shape"])
         result[k] = arr
 
+    return result
+
 
 def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     if tensor.layout != torch.strided:

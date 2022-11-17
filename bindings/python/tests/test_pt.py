@@ -1,33 +1,48 @@
+from pathlib import Path
 import unittest
 
 import torch
 
 from safetensors.safetensors_rust import safe_open
-from safetensors.torch import load_file, save_file
+from safetensors.torch import load, load_file, save, save_file
 
+this_dir = Path(__file__).parent
+data_dir = this_dir / "data"
 
 class TorchTestCase(unittest.TestCase):
-    def test_odd_dtype(self):
-        data = {
+    PT_MMAP_FILE = str(data_dir / "out_safe_pt_mmap_small.safetensors")  # FixMe: must accept Path!
+    MMAP_SERIALIZATION = None
+    MMAP_DATA = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.MMAP_DATA = {
             "test": torch.zeros((2, 2), dtype=torch.bfloat16),
             "test2": torch.zeros((2, 2), dtype=torch.float16),
             "test3": torch.zeros((2, 2), dtype=torch.bool),
         }
-        local = "./tests/data/out_safe_pt_mmap_small.safetensors"
-        save_file(data, local)
-        reloaded = load_file(local)
-        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
-        self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
-        self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
+        save_file(cls.MMAP_DATA, cls.PT_MMAP_FILE)
+        cls.MMAP_SERIALIZATION = save(cls.MMAP_DATA)
+
+    def verify_loaded_data(self, reloaded):
+        self.assertIsInstance(reloaded, dict)
+        self.assertTrue(torch.equal(self.__class__.MMAP_DATA["test"], reloaded["test"]))
+        self.assertTrue(torch.equal(self.__class__.MMAP_DATA["test2"], reloaded["test2"]))
+        self.assertTrue(torch.equal(self.__class__.MMAP_DATA["test3"], reloaded["test3"]))
+
+    def test_odd_dtype(self):
+        self.verify_loaded_data(load_file(self.__class__.PT_MMAP_FILE))
+
+    def test_load(self):
+        self.verify_loaded_data(load(self.__class__.MMAP_SERIALIZATION))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_gpu(self):
         data = {
             "test": torch.arange(4).view((2, 2)).to("cuda:0"),
         }
-        local = "./tests/data/out_safe_pt_mmap_small.safetensors"
-        save_file(data, local)
-        reloaded = load_file(local)
+        save_file(data, self.__class__.PT_MMAP_FILE)
+        reloaded = load_file(self.__class__.PT_MMAP_FILE)
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
 
     def test_sparse(self):
