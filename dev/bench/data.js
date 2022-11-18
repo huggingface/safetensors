@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668769812102,
+  "lastUpdate": 1668774241420,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -1808,6 +1808,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012645247354191263",
             "extra": "mean: 264.9195314000053 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dmishig@gmail.com",
+            "name": "Mishig",
+            "username": "mishig25"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3116ff4d3330a4184aeabae68d7d6651d72334d",
+          "message": "[docs] Loading speed benchmark (#80)\n\n* [docs] Loading speed benchmark\r\n\r\n* Add speed reference in index\r\n\r\n* chore\r\n\r\n* make print statement clearer\r\n\r\n* remove repetition\r\n\r\n* add notebooks folder\r\n\r\n* fuse `device` lines\r\n\r\n* add specs\r\n\r\n* rm unneded lines\r\n\r\n* Update docs/source/speed.mdx\r\n\r\nCo-authored-by: Nicolas Patry <patry.nicolas@protonmail.com>",
+          "timestamp": "2022-11-18T13:18:05+01:00",
+          "tree_id": "14523d04c34d2de09a38e31ada7be843ae0b7a2a",
+          "url": "https://github.com/huggingface/safetensors/commit/a3116ff4d3330a4184aeabae68d7d6651d72334d"
+        },
+        "date": 1668774240498,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.41854486690608,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01642550421256956",
+            "extra": "mean: 704.9477413999966 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.796249261541387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07590481895039233",
+            "extra": "mean: 263.4178977999909 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.061773683276674,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013216460415113086",
+            "extra": "mean: 246.1978627999997 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 228.1939045754306,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001836832437984925",
+            "extra": "mean: 4.382238000005145 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.92548301183252,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06450403824399255",
+            "extra": "mean: 519.3502065999951 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.698562540852467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016058379136666454",
+            "extra": "mean: 212.83105019999766 msec\nrounds: 5"
           }
         ]
       }
