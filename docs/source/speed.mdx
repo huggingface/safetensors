@@ -35,15 +35,13 @@ Download safetensors & torch weights for gpt2:
 >>> # Make sure the experimental gpu loading feature is off since we are testing CPU here
 >>> if "SAFETENSORS_FAST_GPU" in os.environ: del os.environ["SAFETENSORS_FAST_GPU"]
 
->>> device = "cpu"
-
 >>> start_st = datetime.datetime.now()
->>> weights = load_file(sf_filename, device=device)
+>>> weights = load_file(sf_filename, device="cpu")
 >>> load_time_st = datetime.datetime.now() - start_st
 >>> print(f"Loaded safetensors {load_time_st}")
 
 >>> start_pt = datetime.datetime.now()
->>> weights = torch.load(pt_filename, map_location=device)
+>>> weights = torch.load(pt_filename, map_location="cpu")
 >>> load_time_pt = datetime.datetime.now() - start_pt
 >>> print(f"Loaded pytorch {load_time_pt}")
 
@@ -61,18 +59,16 @@ on CPU, safetensors is faster than pytorch by: 76.6 X
 >>> # it's been tested on many different environments
 >>> os.environ["SAFETENSORS_FAST_GPU"] = "1"
 
->>> device = "cuda:0"
-
 >>> # CUDA startup out of the measurement
 >>> torch.zeros((2, 2)).cuda()
 
 >>> start_st = datetime.datetime.now()
->>> weights = load_file(sf_filename, device=device)
+>>> weights = load_file(sf_filename, device="cuda:0")
 >>> load_time_st = datetime.datetime.now() - start_st
 >>> print(f"Loaded safetensors {load_time_st}")
 
 >>> start_pt = datetime.datetime.now()
->>> weights = torch.load(pt_filename, map_location=device)
+>>> weights = torch.load(pt_filename, map_location="cuda:0")
 >>> load_time_pt = datetime.datetime.now() - start_pt
 >>> print(f"Loaded pytorch {load_time_pt}")
 
