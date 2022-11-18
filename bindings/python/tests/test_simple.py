@@ -40,6 +40,12 @@ class TestCase(unittest.TestCase):
 
         self.assertEqual(out1, out2)
 
+    def test_serialization_no_big_endian(self):
+        # Big endian tensor
+        data = np.zeros((2, 2), dtype=">u4")
+        with self.assertRaises(ValueError):
+            save({"test1": data})
+
 
 class ReadmeTestCase(unittest.TestCase):
     def assertTensorEqual(self, tensors1, tensors2, equality_fn):
