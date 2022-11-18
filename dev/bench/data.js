@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668779125021,
+  "lastUpdate": 1668779172598,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -2072,6 +2072,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03218822507810663",
             "extra": "mean: 188.2014283999979 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11c21549cca3ec3f871b44a8804e2f9ce4df2ac6",
+          "message": "Torch fixes (#90)\n\n* Fix `KeyError: torch.float64` when serializing tensors of doubles and `KeyError: BF16` when parsing.\r\n\r\n* Fix non-working `_view2torch` because of the forgotten returns.\r\nAdded some tests.\r\n\r\n* Test in the same style.\r\n\r\n* Like previous style.\r\n\r\nCo-authored-by: KOLANICH <kolan_n@mail.ru>",
+          "timestamp": "2022-11-18T14:40:12+01:00",
+          "tree_id": "20e576d6f23dbc64faa256d56c2f1a447c396fd5",
+          "url": "https://github.com/huggingface/safetensors/commit/11c21549cca3ec3f871b44a8804e2f9ce4df2ac6"
+        },
+        "date": 1668779171733,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1553624239403764,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02488906321445527",
+            "extra": "mean: 865.529274000005 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.557268212296707,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05042642579917077",
+            "extra": "mean: 281.1145914000008 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.801206173610491,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04603616291867478",
+            "extra": "mean: 208.28099520000478 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 240.94099215353313,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002992712080123191",
+            "extra": "mean: 4.150393800000529 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.406624372065602,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04780854881817957",
+            "extra": "mean: 710.9218494000061 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.703873461826983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020248584184639484",
+            "extra": "mean: 269.9876252000081 msec\nrounds: 5"
           }
         ]
       }
