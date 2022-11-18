@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668775978194,
+  "lastUpdate": 1668777706209,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -1940,6 +1940,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005981824935314808",
             "extra": "mean: 181.3034459999964 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dmishig@gmail.com",
+            "name": "Mishig",
+            "username": "mishig25"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8e324da16898d246e63c76873de0c32560bbec6",
+          "message": "[docs] Fixes the colab btn on speed page (#91)",
+          "timestamp": "2022-11-18T14:15:53+01:00",
+          "tree_id": "2b5d56bbc1647a7f23c673e0a37b3a209cc8209c",
+          "url": "https://github.com/huggingface/safetensors/commit/a8e324da16898d246e63c76873de0c32560bbec6"
+        },
+        "date": 1668777705689,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.3969696669119924,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019703343598809105",
+            "extra": "mean: 715.8351563999986 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.834063907181543,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07464657925458416",
+            "extra": "mean: 260.8198570000127 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.138466778129653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015215764782861851",
+            "extra": "mean: 241.63538180000614 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 225.40624065198972,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00018428177316964369",
+            "extra": "mean: 4.436434399985956 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.878107024993401,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09497847428051742",
+            "extra": "mean: 532.4510193999799 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.009871578842393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015452046426182541",
+            "extra": "mean: 249.38454519999596 msec\nrounds: 5"
           }
         ]
       }
