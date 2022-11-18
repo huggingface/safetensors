@@ -32,9 +32,6 @@ Download safetensors & torch weights for gpt2:
 ### CPU benchmark
 
 ```py
->>> # Make sure the experimental gpu loading feature is off since we are testing CPU here
->>> if "SAFETENSORS_FAST_GPU" in os.environ: del os.environ["SAFETENSORS_FAST_GPU"]
-
 >>> start_st = datetime.datetime.now()
 >>> weights = load_file(sf_filename, device="cpu")
 >>> load_time_st = datetime.datetime.now() - start_st
