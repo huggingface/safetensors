@@ -1,0 +1,88 @@
+<!-- DISABLE-FRONTMATTER-SECTIONS -->
+
+# Speed Comparison
+
+[[open-in-colab]]
+
+`Safetensors` is really fast. Let's compare it against `PyTorch` by loading [gpt2](https://huggingface.co/gpt2) weights. To run the [GPU benchmark](#gpu-benchmark), make sure your machine has GPU or you have selected `GPU runtime` if you are using Google Colab.
+
+Before you begin, make sure you have all the necessary libraries installed:
+
+```bash
+!pip install safetensors huggingface_hub torch
+```
+
+Let's start by importing all the packages that will be used:
+
+```py
+>>> import os
+>>> import datetime
+>>> from huggingface_hub import hf_hub_download
+>>> from safetensors.torch import load_file
+>>> import torch
+```
+
+Download safetensors & torch weights for gpt2:
+
+```py
+>>> sf_filename = hf_hub_download("gpt2", filename="model.safetensors")
+>>> pt_filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
+```
+
+### CPU benchmark
+
+```py
+>>> start_st = datetime.datetime.now()
+>>> weights = load_file(sf_filename, device="cpu")
+>>> load_time_st = datetime.datetime.now() - start_st
+>>> print(f"Loaded safetensors {load_time_st}")
+
+>>> start_pt = datetime.datetime.now()
+>>> weights = torch.load(pt_filename, map_location="cpu")
+>>> load_time_pt = datetime.datetime.now() - start_pt
+>>> print(f"Loaded pytorch {load_time_pt}")
+
+>>> print(f"on CPU, safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
+Loaded safetensors 0:00:00.004015
+Loaded pytorch 0:00:00.307460
+on CPU, safetensors is faster than pytorch by: 76.6 X
+```
+
+This speedup is due to the fact that this library avoids unnecessary copies by mapping the file directly. It is actually possible to do on [pure pytorch](https://gist.github.com/Narsil/3edeec2669a5e94e4707aa0f901d2282).
+The currently shown speedup was gotten on:
+* OS: Ubuntu 18.04.6 LTS
+* CPU: Intel(R) Xeon(R) CPU @ 2.00GHz
+
+
+### GPU benchmark
+
+```py
+>>> # This is required because this feature hasn't been fully verified yet, but 
+>>> # it's been tested on many different environments
+>>> os.environ["SAFETENSORS_FAST_GPU"] = "1"
+
+>>> # CUDA startup out of the measurement
+>>> torch.zeros((2, 2)).cuda()
+
+>>> start_st = datetime.datetime.now()
+>>> weights = load_file(sf_filename, device="cuda:0")
+>>> load_time_st = datetime.datetime.now() - start_st
+>>> print(f"Loaded safetensors {load_time_st}")
+
+>>> start_pt = datetime.datetime.now()
+>>> weights = torch.load(pt_filename, map_location="cuda:0")
+>>> load_time_pt = datetime.datetime.now() - start_pt
+>>> print(f"Loaded pytorch {load_time_pt}")
+
+>>> print(f"on GPU, safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
+Loaded safetensors 0:00:00.165206
+Loaded pytorch 0:00:00.353889
+on GPU, safetensors is faster than pytorch by: 2.1 X
+```
+
+The speedup works because this library is able to skip unecessary CPU allocations. It is unfortunately not replicable in pure pytorch as far as we know. The library works by memory mapping the file, creating the tensor empty with pytorch and calling `cudaMemcpy` directly to move the tensor directly on the GPU.
+The currently shown speedup was gotten on:
+* OS: Ubuntu 18.04.6 LTS.
+* GPU: Tesla T4
+* Driver Version: 460.32.03
+* CUDA Version: 11.2
