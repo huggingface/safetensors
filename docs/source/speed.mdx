@@ -22,6 +22,13 @@ Let's start by importing all the packages that will be used:
 >>> import torch
 ```
 
+Download safetensors & torch weights for gpt2:
+
+```py
+>>> sf_filename = hf_hub_download("gpt2", filename="model.safetensors")
+>>> pt_filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
+```
+
 ### CPU benchmark
 
 ```py
@@ -29,8 +36,6 @@ Let's start by importing all the packages that will be used:
 >>> if "SAFETENSORS_FAST_GPU" in os.environ: del os.environ["SAFETENSORS_FAST_GPU"]
 
 >>> device = "cpu"
->>> sf_filename = hf_hub_download("gpt2", filename="model.safetensors")
->>> pt_filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
 
 >>> start_st = datetime.datetime.now()
 >>> weights = load_file(sf_filename, device=device)
@@ -57,8 +62,6 @@ on CPU, safetensors is faster than pytorch by: 76.6 X
 >>> os.environ["SAFETENSORS_FAST_GPU"] = "1"
 
 >>> device = "cuda:0"
->>> sf_filename = hf_hub_download("gpt2", filename="model.safetensors")
->>> pt_filename = hf_hub_download("gpt2", filename="pytorch_model.bin")
 
 >>> # CUDA startup out of the measurement
 >>> torch.zeros((2, 2)).cuda()
