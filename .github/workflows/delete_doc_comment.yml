@@ -3,6 +3,9 @@ name: Delete dev documentation
 on:
   pull_request:
     types: [ closed ]
+    paths:
+      - "docs/**"
+      - "bindings/python/py_src/**"
 
 
 jobs:
