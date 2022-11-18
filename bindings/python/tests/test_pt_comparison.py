@@ -3,7 +3,7 @@ import unittest
 import torch
 
 from safetensors.safetensors_rust import safe_open
-from safetensors.torch import load_file, save_file
+from safetensors.torch import load, load_file, save, save_file
 
 
 class TorchTestCase(unittest.TestCase):
@@ -19,6 +19,18 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
+
+    def test_in_memory(self):
+        data = {
+            "test": torch.zeros((2, 2), dtype=torch.float32),
+        }
+        binary = save(data)
+        self.assertEqual(
+            binary,
+            b'<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+        )
+        reloaded = load(binary)
+        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_gpu(self):

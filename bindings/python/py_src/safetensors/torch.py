@@ -138,12 +138,14 @@ _SIZE = {
     torch.uint8: 1,
     torch.int8: 1,
     torch.bool: 1,
+    torch.float64: 8,
 }
 
 _TYPES = {
     "F64": torch.float64,
     "F32": torch.float32,
     "F16": torch.float16,
+    "BF16": torch.bfloat16,
     "I64": torch.int64,
     # "U64": torch.uint64,
     "I32": torch.int32,
@@ -166,6 +168,8 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
         dtype = _getdtype(v["dtype"])
         arr = torch.frombuffer(v["data"], dtype=dtype).reshape(v["shape"])
         result[k] = arr
+
+    return result
 
 
 def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
