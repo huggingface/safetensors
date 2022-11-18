@@ -22,15 +22,15 @@ class TorchTestCase(unittest.TestCase):
 
     def test_in_memory(self):
         data = {
-            "test": torch.zeros((2, 2), dtype=torch.bfloat16),
-            "test2": torch.zeros((2, 2), dtype=torch.float16),
-            "test3": torch.zeros((2, 2), dtype=torch.bool),
+            "test": torch.zeros((2, 2), dtype=torch.float32),
         }
         binary = save(data)
+        self.assertEqual(
+            binary,
+            b'<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+        )
         reloaded = load(binary)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
-        self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
-        self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_gpu(self):
