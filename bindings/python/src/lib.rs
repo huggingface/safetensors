@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[repr(C)]
@@ -126,12 +127,12 @@ fn serialize<'a, 'b>(
 #[pyo3(text_signature = "(tensor_dict, filename, metadata=None)")]
 fn serialize_file(
     tensor_dict: HashMap<String, &PyDict>,
-    filename: &str,
+    filename: PathBuf,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
     let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
-    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename).map_err(
+    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, &filename).map_err(
         |e| exceptions::PyException::new_err(format!("Error while serializing: {:?}", e)),
     )?;
     Ok(())
@@ -467,8 +468,8 @@ struct safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    fn new(filename: &str, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(filename)?;
+    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+        let file = File::open(filename.clone())?;
         let device = device.unwrap_or(Device::Cpu);
 
         if device != Device::Cpu && framework != Framework::Pytorch {
