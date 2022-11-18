@@ -14,5 +14,6 @@ jobs:
     with:
       commit_sha: ${{ github.sha }}
       package: safetensors
+      notebook_folder: safetensors_doc
       package_path: safetensors/bindings/python/
       install_rust: true
