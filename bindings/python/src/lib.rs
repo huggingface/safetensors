@@ -84,14 +84,14 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
 /// Serializes raw data.
 ///
 /// Args:
-///     tensor_dict (:obj:`Dict[str, Dict[Any]]`):
+///     tensor_dict (`Dict[str, Dict[Any]]`):
 ///         The tensor dict is like:
 ///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
-///     metadata (:obj:`Dict[str, str]`, *optional*):
+///     metadata (`Dict[str, str]`, *optional*):
 ///         The optional purely text annotations
 ///
 /// Returns:
-///     (:obj:`bytes`):
+///     (`bytes`):
 ///         The serialized content.
 #[pyfunction]
 #[pyo3(text_signature = "(tensor_dict, metadata=None)")]
@@ -112,16 +112,16 @@ fn serialize<'a, 'b>(
 /// Serializes raw data.
 ///
 /// Args:
-///     tensor_dict (:obj:`Dict[str, Dict[Any]]`):
+///     tensor_dict (`Dict[str, Dict[Any]]`):
 ///         The tensor dict is like:
 ///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
-///     filename (:obj:`str`):
+///     filename (`str`, or `os.PathLike`):
 ///         The name of the file to write into.
-///     metadata (:obj:`Dict[str, str]`, *optional*):
+///     metadata (`Dict[str, str]`, *optional*):
 ///         The optional purely text annotations
 ///
 /// Returns:
-///     (:obj:`bytes`):
+///     (`bytes`):
 ///         The serialized content.
 #[pyfunction]
 #[pyo3(text_signature = "(tensor_dict, filename, metadata=None)")]
@@ -142,11 +142,11 @@ fn serialize_file(
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
-///     data (:obj:`bytes`):
+///     data (`bytes`):
 ///         The byte content of a file
 ///
 /// Returns:
-///     (:obj:`List[str, Dict[str, Dict[str, any]]]`):
+///     (`List[str, Dict[str, Dict[str, any]]]`):
 ///         The deserialized content is like:
 ///             [("tensor_name", {"shape": [2, 3], "dtype": "F32", "data": b"\0\0.." }), (...)]
 #[pyfunction]
@@ -446,14 +446,14 @@ impl Version {
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
-///     filename (:obj:`str`):
+///     filename (`str`, or `os.PathLike`):
 ///         The filename to open
 ///
-///     framework (:obj:`str`):
+///     framework (`str`):
 ///         The framework you want you tensors in. Supported values:
 ///         `pt`, `tf`, `flax`, `numpy`.
 ///
-///     device (:obj:`str`, defaults to :obj:`"cpu"`):
+///     device (`str`, defaults to `"cpu"`):
 ///         The device on which you want the tensors.
 #[pyclass]
 #[allow(non_camel_case_types)]
@@ -560,7 +560,7 @@ impl safe_open {
     /// Return the special non tensor information in the header
     ///
     /// Returns:
-    ///     (:obj:`Dict[str, str]`):
+    ///     (`Dict[str, str]`):
     ///         The freeform metadata.
     pub fn metadata(&self) -> Option<BTreeMap<String, String>> {
         self.metadata.metadata().clone()
@@ -569,7 +569,7 @@ impl safe_open {
     /// Returns the names of the tensors in the file.
     ///
     /// Returns:
-    ///     (:obj:`List[str]`):
+    ///     (`List[str]`):
     ///         The name of the tensors contained in that file
     pub fn keys(&self) -> PyResult<Vec<String>> {
         let mut keys: Vec<_> = self.metadata.tensors().keys().cloned().collect();
@@ -580,11 +580,11 @@ impl safe_open {
     /// Returns a full tensor
     ///
     /// Args:
-    ///     name (:obj:`str`):
+    ///     name (`str`):
     ///         The name of the tensor you want
     ///
     /// Returns:
-    ///     (:obj:`Tensor`):
+    ///     (`Tensor`):
     ///         The tensor in the framework you opened the file for.
     ///
     /// Example:
@@ -663,11 +663,11 @@ impl safe_open {
     /// Returns a full slice view object
     ///
     /// Args:
-    ///     name (:obj:`str`):
+    ///     name (`str`):
     ///         The name of the tensor you want
     ///
     /// Returns:
-    ///     (:obj:`PySafeSlice`):
+    ///     (`PySafeSlice`):
     ///         A dummy object you can slice into to get a real tensor
     /// Example:
     /// ```python
@@ -758,7 +758,7 @@ impl PySafeSlice {
     /// Returns the shape of the full underlying tensor
     ///
     /// Returns:
-    ///     (:obj:`List[int]`):
+    ///     (`List[int]`):
     ///         The shape of the full tensor
     ///
     /// Example:

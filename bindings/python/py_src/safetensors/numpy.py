@@ -48,7 +48,7 @@ def save_file(tensor_dict: Dict[str, np.ndarray], filename: str, metadata: Optio
     Args:
         tensors (`Dict[str, np.ndarray]`):
             The incoming tensors. Tensors need to be contiguous and dense.
-        filename (`str`):
+        filename (`str`, or `os.PathLike`)):
             The filename we're saving into.
         metadata (`Dict[str, str]`, *optional*, defaults to `None`):
             Optional text only metadata you might want to save in your header.
@@ -104,7 +104,7 @@ def load_file(filename: str) -> Dict[str, np.ndarray]:
     Loads a safetensors file into numpy format.
 
     Args:
-        filename (`str`):
+        filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
         device (`Dict[str, any]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
