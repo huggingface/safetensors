@@ -132,9 +132,10 @@ fn serialize_file(
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
     let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
-    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, &filename).map_err(
-        |e| exceptions::PyException::new_err(format!("Error while serializing: {:?}", e)),
-    )?;
+    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename.as_path())
+        .map_err(|e| {
+            exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
+        })?;
     Ok(())
 }
 
@@ -469,7 +470,7 @@ struct safe_open {
 impl safe_open {
     #[new]
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(filename.clone())?;
+        let file = File::open(&filename)?;
         let device = device.unwrap_or(Device::Cpu);
 
         if device != Device::Cpu && framework != Framework::Pytorch {
