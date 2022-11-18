@@ -42,10 +42,10 @@ Let's start by importing all the packages that will be used:
 >>> load_time_pt = datetime.datetime.now() - start_pt
 >>> print(f"Loaded pytorch {load_time_pt}")
 
->>> print(f"safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
+>>> print(f"on CPU, safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
 Loaded safetensors 0:00:00.004015
 Loaded pytorch 0:00:00.307460
-safetensors is faster than pytorch by: 76.6 X
+on CPU, safetensors is faster than pytorch by: 76.6 X
 ```
 
 
@@ -73,8 +73,8 @@ safetensors is faster than pytorch by: 76.6 X
 >>> load_time_pt = datetime.datetime.now() - start_pt
 >>> print(f"Loaded pytorch {load_time_pt}")
 
->>> print(f"safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
+>>> print(f"on GPU, safetensors is faster than pytorch by: {load_time_pt/load_time_st:.1f} X")
 Loaded safetensors 0:00:00.165206
 Loaded pytorch 0:00:00.353889
-safetensors is faster than pytorch by: 2.1 X
+on GPU, safetensors is faster than pytorch by: 2.1 X
 ```
