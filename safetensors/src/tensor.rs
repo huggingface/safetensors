@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::path::Path;
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 
@@ -81,7 +82,7 @@ pub fn serialize(
 pub fn serialize_to_file(
     data: &BTreeMap<String, TensorView>,
     data_info: &Option<BTreeMap<String, String>>,
-    filename: &str,
+    filename: &Path,
 ) -> Result<(), SafeTensorError> {
     let (metadata, tensors, _) = prepare(data, data_info)?;
     let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();

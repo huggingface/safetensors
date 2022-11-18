@@ -1,4 +1,6 @@
+import os
 import unittest
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -45,6 +47,15 @@ class TestCase(unittest.TestCase):
         data = np.zeros((2, 2), dtype=">u4")
         with self.assertRaises(ValueError):
             save({"test1": data})
+
+    def test_accept_path(self):
+        tensors = {
+            "a": torch.zeros((2, 2)),
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+        save_file_pt(tensors, Path("./out.safetensors"))
+        load_file_pt(Path("./out.safetensors"))
+        os.remove(Path("./out.safetensors"))
 
 
 class ReadmeTestCase(unittest.TestCase):
