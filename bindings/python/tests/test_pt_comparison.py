@@ -3,7 +3,7 @@ import unittest
 import torch
 
 from safetensors.safetensors_rust import safe_open
-from safetensors.torch import load_file, save_file
+from safetensors.torch import load, load_file, save, save_file
 
 
 class TorchTestCase(unittest.TestCase):
@@ -16,6 +16,18 @@ class TorchTestCase(unittest.TestCase):
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
         save_file(data, local)
         reloaded = load_file(local)
+        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
+        self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
+        self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
+
+    def test_in_memory(self):
+        data = {
+            "test": torch.zeros((2, 2), dtype=torch.bfloat16),
+            "test2": torch.zeros((2, 2), dtype=torch.float16),
+            "test3": torch.zeros((2, 2), dtype=torch.bool),
+        }
+        binary = save(data)
+        reloaded = load(binary)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
