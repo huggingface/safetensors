@@ -49,7 +49,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: audit
-          args: -D warnings -f ./safetensors/Cargo.lock
+          args: -D warnings -f ./safetensors/Cargo.lock --ignore RUSTSEC-2021-0145
 
       # Verify that Readme.md is up to date.
       - name: Make sure, Readme generated from lib.rs matches actual Readme
