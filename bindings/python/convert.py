@@ -231,17 +231,20 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
                     operations = convert_multi(model_id, folder)
                 else:
                     raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
+                check_final_model(model_id, folder)
             else:
                 operations = convert_generic(model_id, folder, filenames)
 
             if operations:
-                check_final_model(model_id, folder)
-                # new_pr = api.create_commit(
-                #     repo_id=model_id,
-                #     operations=operations,
-                #     commit_message=pr_title,
-                #     create_pr=True,
-                # )
+                new_pr = api.create_commit(
+                    repo_id=model_id,
+                    operations=operations,
+                    commit_message=pr_title,
+                    create_pr=True,
+                )
+                print(f"Pr created at {new_pr.pr_url}")
+            else:
+                print("No files to convert")
         finally:
             shutil.rmtree(folder)
         return new_pr
