@@ -45,7 +45,8 @@ def check_file_size(sf_filename: str, pt_filename: str):
 
 
 def rename(pt_filename: str) -> str:
-    local = pt_filename.replace(".bin", ".safetensors")
+    filename, ext = os.path.splitext(pt_filename)
+    local = f"{filename}.safetensors"
     local = local.replace("pytorch_model", "model")
     return local
 
@@ -103,7 +104,7 @@ def convert_file(
     # For tensors to be contiguous
     loaded = {k: v.contiguous() for k, v in loaded.items()}
 
-    dirname = sf_filename.rsplit(os.path.sep, 1)[0]
+    dirname = os.path.dirname(sf_filename)
     os.makedirs(dirname, exist_ok=True)
     save_file(loaded, sf_filename, metadata={"format": "pt"})
     check_file_size(sf_filename, pt_filename)
@@ -199,7 +200,7 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["Co
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
             pt_filename = hf_hub_download(model_id, filename=filename)
-            sf_in_repo = f"{filename}.safetensors"
+            sf_in_repo = f"{prefix}.safetensors"
             sf_filename = os.path.join(folder, sf_in_repo)
             convert_file(pt_filename, sf_filename)
             operations.append(CommitOperationAdd(path_in_repo=sf_in_repo, path_or_fileobj=sf_filename))
