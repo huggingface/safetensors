@@ -875,6 +875,7 @@ impl PySafeSlice {
     }
 }
 
+// TODO Remove this once https://github.com/PyO3/pyo3/issues/2768 is released
 fn pyslice_new(py: Python<'_>, start: isize, stop: isize, step: isize) -> &PySlice {
     let slice: &PySlice = unsafe {
         let ptr = pyo3::ffi::PySlice_New(
