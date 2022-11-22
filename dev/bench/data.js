@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669119626880,
+  "lastUpdate": 1669126460445,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -2336,6 +2336,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.030052409743994875",
             "extra": "mean: 341.7851303999896 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fb46d7a54be5bd9ef2419b1606ec4625951e2c3",
+          "message": "Fixing Windows overflow issue with `c_long`. (#99)\n\n* Fixing Windows overflow issue with `c_long`.\r\n\r\n* Adding comment to remove the code once fixed.\r\n\r\n* Fixing just like PyO3.",
+          "timestamp": "2022-11-22T15:07:31+01:00",
+          "tree_id": "3d91346cd6b86e7913deb3483ea61de9b42d613d",
+          "url": "https://github.com/huggingface/safetensors/commit/5fb46d7a54be5bd9ef2419b1606ec4625951e2c3"
+        },
+        "date": 1669126459825,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 0.9812078097113685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029014071648890936",
+            "extra": "mean: 1.0191521002000172 sec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.469238445967857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0975401065530492",
+            "extra": "mean: 404.9831645999802 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.1571060419037553,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02680745565877583",
+            "extra": "mean: 316.74577500000396 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 122.80460971172688,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000864453086106275",
+            "extra": "mean: 8.143016799999714 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.1698394559498564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04032394515268611",
+            "extra": "mean: 854.8181504000013 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 2.9654184207941765,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057620722928500456",
+            "extra": "mean: 337.22053960000267 msec\nrounds: 5"
           }
         ]
       }
