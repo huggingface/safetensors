@@ -5,13 +5,13 @@ import shutil
 from collections import defaultdict
 from inspect import signature
 from tempfile import TemporaryDirectory
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import torch
 
 from huggingface_hub import CommitInfo, CommitOperationAdd, Discussion, HfApi, hf_hub_download
 from huggingface_hub.file_download import repo_folder_name
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from transformers import AutoConfig
 from transformers.pipelines.base import infer_framework_load_model
 
@@ -58,14 +58,12 @@ def convert_multi(model_id: str, folder: str) -> List["CommitOperationAdd"]:
     filenames = set(data["weight_map"].values())
     local_filenames = []
     for filename in filenames:
-        cached_filename = hf_hub_download(repo_id=model_id, filename=filename)
-        loaded = torch.load(cached_filename)
-        sf_filename = rename(filename)
+        pt_filename = hf_hub_download(repo_id=model_id, filename=filename)
 
-        local = os.path.join(folder, sf_filename)
-        save_file(loaded, local, metadata={"format": "pt"})
-        check_file_size(local, cached_filename)
-        local_filenames.append(local)
+        sf_filename = rename(pt_filename)
+        sf_filename = os.path.join(folder, sf_filename)
+        convert_file(pt_filename, sf_filename)
+        local_filenames.append(sf_filename)
 
     index = os.path.join(folder, "model.safetensors.index.json")
     with open(index, "w") as f:
@@ -83,11 +81,20 @@ def convert_multi(model_id: str, folder: str) -> List["CommitOperationAdd"]:
 
 
 def convert_single(model_id: str, folder: str) -> List["CommitOperationAdd"]:
-    sf_filename = "model.safetensors"
-    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
-    loaded = torch.load(filename)
+    pt_filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
 
-    local = os.path.join(folder, sf_filename)
+    sf_name = "model.safetensors"
+    sf_filename = os.path.join(folder, sf_name)
+    convert_file(pt_filename, sf_filename)
+    operations = [CommitOperationAdd(path_in_repo=sf_name, path_or_fileobj=sf_filename)]
+    return operations
+
+
+def convert_file(
+    pt_filename: str,
+    sf_filename: str,
+):
+    loaded = torch.load(pt_filename)
     shared = shared_pointers(loaded)
     for shared_weights in shared:
         for name in shared_weights[1:]:
@@ -96,12 +103,16 @@ def convert_single(model_id: str, folder: str) -> List["CommitOperationAdd"]:
     # For tensors to be contiguous
     loaded = {k: v.contiguous() for k, v in loaded.items()}
 
-    save_file(loaded, local, metadata={"format": "pt"})
-
-    check_file_size(local, filename)
-
-    operations = [CommitOperationAdd(path_in_repo=sf_filename, path_or_fileobj=local)]
-    return operations
+    dirname = sf_filename.rsplit(os.path.sep, 1)[0]
+    os.makedirs(dirname, exist_ok=True)
+    save_file(loaded, sf_filename, metadata={"format": "pt"})
+    check_file_size(sf_filename, pt_filename)
+    reloaded = load_file(sf_filename)
+    for k in loaded:
+        pt_tensor = loaded[k]
+        sf_tensor = reloaded[k]
+        if not torch.equal(pt_tensor, sf_tensor):
+            raise RuntimeError(f"The output tensors do not match for key {k}")
 
 
 def create_diff(pt_infos: Dict[str, List[str]], sf_infos: Dict[str, List[str]]) -> str:
@@ -180,6 +191,21 @@ def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discuss
             return discussion
 
 
+def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["CommitOperationAdd"]:
+    operations = []
+
+    extensions = set([".bin", ".ckpt"])
+    for filename in filenames:
+        prefix, ext = os.path.splitext(filename)
+        if ext in extensions:
+            pt_filename = hf_hub_download(model_id, filename=filename)
+            sf_in_repo = f"{filename}.safetensors"
+            sf_filename = os.path.join(folder, sf_in_repo)
+            convert_file(pt_filename, sf_filename)
+            operations.append(CommitOperationAdd(path_in_repo=sf_in_repo, path_or_fileobj=sf_filename))
+    return operations
+
+
 def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["CommitInfo"]:
     pr_title = "Adding `safetensors` variant of this model"
     info = api.model_info(model_id)
@@ -198,12 +224,15 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
                 url = f"https://huggingface.co/{model_id}/discussions/{pr.num}"
                 new_pr = pr
                 raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
-            elif "pytorch_model.bin" in filenames:
-                operations = convert_single(model_id, folder)
-            elif "pytorch_model.bin.index.json" in filenames:
-                operations = convert_multi(model_id, folder)
+            elif info.library_name == "transformers":
+                if "pytorch_model.bin" in filenames:
+                    operations = convert_single(model_id, folder)
+                elif "pytorch_model.bin.index.json" in filenames:
+                    operations = convert_multi(model_id, folder)
+                else:
+                    raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
             else:
-                raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
+                operations = convert_generic(model_id, folder, filenames)
 
             if operations:
                 check_final_model(model_id, folder)
