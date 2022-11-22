@@ -33,7 +33,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: ["3.7", "3.8", "3.9", "3.10"]
+        python: ["3.7", "3.8", "3.9", "3.10", "3.11"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -79,7 +79,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, macos-10.15]
-        python: ["3.7", "3.8", "3.9", "3.10"]
+        python: ["3.7", "3.8", "3.9", "3.10", "3.11"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -121,7 +121,7 @@ jobs:
     runs-on: macos-arm64
     strategy:
       matrix:
-        python: ["3.9.13", "3.10.6"]
+        python: ["3.9.13", "3.10.6", "3.11"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -175,6 +175,6 @@ jobs:
 
       - name: Upload to PyPi
         working-directory: ./bindings/python
-        run: |
+        run: 
           pip install twine
           twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
