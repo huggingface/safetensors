@@ -638,7 +638,7 @@ impl safe_open {
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
                     let stop = (info.data_offsets.1 + self.offset) as isize;
-                    let slice = PySlice::new(py, start, stop, 1);
+                    let slice = pyslice_new(py, start, stop, 1);
                     let storage: &PyObject = storage.get(py).unwrap();
                     let storage: &PyAny = storage.as_ref(py);
 
@@ -851,7 +851,7 @@ impl PySafeSlice {
 
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
-                let slice = PySlice::new(py, start, stop, 1);
+                let slice = pyslice_new(py, start, stop, 1);
                 let storage: &PyObject = storage.get(py).unwrap();
                 let storage: &PyAny = storage.as_ref(py);
 
@@ -873,6 +873,18 @@ impl PySafeSlice {
             }),
         }
     }
+}
+
+fn pyslice_new(py: Python<'_>, start: isize, stop: isize, step: isize) -> &PySlice {
+    let slice: &PySlice = unsafe {
+        let ptr = pyo3::ffi::PySlice_New(
+            pyo3::ffi::PyLong_FromLongLong(start as std::ffi::c_longlong),
+            pyo3::ffi::PyLong_FromLongLong(stop as std::ffi::c_longlong),
+            pyo3::ffi::PyLong_FromLongLong(step as std::ffi::c_longlong),
+        );
+        py.from_owned_ptr(ptr)
+    };
+    slice
 }
 
 fn get_module<'a>(
