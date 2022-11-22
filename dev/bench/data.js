@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669128131809,
+  "lastUpdate": 1669128869380,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -2468,6 +2468,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.014553135907535245",
             "extra": "mean: 293.4559444000115 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5c91853aa14682fdde294efa5806fea88aca43c",
+          "message": "Making convertion working with diffusers/stable-diffusion. (#96)\n\n* Making convertion working with diffusers/stable-diffusion.\r\n\r\n* Update bindings/python/convert.py\r\n\r\nCo-authored-by: Sylvain Gugger <35901082+sgugger@users.noreply.github.com>\r\n\r\nCo-authored-by: Sylvain Gugger <35901082+sgugger@users.noreply.github.com>",
+          "timestamp": "2022-11-22T15:25:30+01:00",
+          "tree_id": "8b5c621c6d3dfc584d1b341d27d3f2a04282b0d7",
+          "url": "https://github.com/huggingface/safetensors/commit/e5c91853aa14682fdde294efa5806fea88aca43c"
+        },
+        "date": 1669128868097,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1862751180327613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0316307669166667",
+            "extra": "mean: 842.9747743999997 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.043250471189642,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06973002987738959",
+            "extra": "mean: 328.5960224000519 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.3669993719506004,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011387554800112549",
+            "extra": "mean: 297.0003524000276 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 121.67884290553769,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001904246925087757",
+            "extra": "mean: 8.218355600047289 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3975348484789567,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1475143610886606",
+            "extra": "mean: 715.5456632000096 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.2194914979697207,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011769740751905398",
+            "extra": "mean: 310.60805739994066 msec\nrounds: 5"
           }
         ]
       }
