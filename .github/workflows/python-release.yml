@@ -175,6 +175,6 @@ jobs:
 
       - name: Upload to PyPi
         working-directory: ./bindings/python
-        run: 
+        run: |
           pip install twine
           twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
