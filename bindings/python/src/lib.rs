@@ -879,9 +879,9 @@ impl PySafeSlice {
 fn pyslice_new(py: Python<'_>, start: isize, stop: isize, step: isize) -> &PySlice {
     let slice: &PySlice = unsafe {
         let ptr = pyo3::ffi::PySlice_New(
-            pyo3::ffi::PyLong_FromLongLong(start as std::ffi::c_longlong),
-            pyo3::ffi::PyLong_FromLongLong(stop as std::ffi::c_longlong),
-            pyo3::ffi::PyLong_FromLongLong(step as std::ffi::c_longlong),
+            pyo3::ffi::PyLong_FromSsize_t(start),
+            pyo3::ffi::PyLong_FromSsize_t(stop),
+            pyo3::ffi::PyLong_FromSsize_t(step),
         );
         py.from_owned_ptr(ptr)
     };
