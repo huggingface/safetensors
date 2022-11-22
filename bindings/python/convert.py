@@ -103,7 +103,7 @@ def convert_file(
     # For tensors to be contiguous
     loaded = {k: v.contiguous() for k, v in loaded.items()}
 
-    dirname = sf_filename.rsplit("/", 1)[0]
+    dirname = sf_filename.rsplit(os.path.sep, 1)[0]
     os.makedirs(dirname, exist_ok=True)
     save_file(loaded, sf_filename, metadata={"format": "pt"})
     check_file_size(sf_filename, pt_filename)
