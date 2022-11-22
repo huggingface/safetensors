@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669126460445,
+  "lastUpdate": 1669128131809,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -2402,6 +2402,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.057620722928500456",
             "extra": "mean: 337.22053960000267 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "383871d475875c17c3489de505a4214e3685df2b",
+          "message": "Adding suppot for 3.11 where possible (conda does not support 3.11 yet). (#97)\n\n* Adding suppot for 3.11 where possible (conda does not support 3.11 yet).\r\n\r\n* Update .github/workflows/python-release.yml\r\n\r\n* Update .github/workflows/python-release-conda.yml\r\n\r\nCo-authored-by: Sylvain Gugger <35901082+sgugger@users.noreply.github.com>\r\n\r\nCo-authored-by: Sylvain Gugger <35901082+sgugger@users.noreply.github.com>",
+          "timestamp": "2022-11-22T15:36:11+01:00",
+          "tree_id": "10203e8e8c72c785223df7cba6eca71d0ee49bbd",
+          "url": "https://github.com/huggingface/safetensors/commit/383871d475875c17c3489de505a4214e3685df2b"
+        },
+        "date": 1669128131241,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.3758689602766425,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05126254843922128",
+            "extra": "mean: 726.8134021999686 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.489830457461386,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05388336405602394",
+            "extra": "mean: 286.5468716000123 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.303560938979685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029994731573023847",
+            "extra": "mean: 232.36571160000494 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 200.58047990981058,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008865505759917868",
+            "extra": "mean: 4.985529999976279 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.6732785095677132,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05861653797188899",
+            "extra": "mean: 597.6291420000052 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.407666530812864,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014553135907535245",
+            "extra": "mean: 293.4559444000115 msec\nrounds: 5"
           }
         ]
       }
