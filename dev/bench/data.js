@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669214853411,
+  "lastUpdate": 1669214880615,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -2798,6 +2798,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012344362941798772",
             "extra": "mean: 178.89012420000654 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9b4a932d57a60dfdf4aa149c8fe7763c64172c4",
+          "message": "Fix `convert.py` to handle diffusers, and its transformers part (#105)\n\nTurns out `diffusers` does rely on `transformers`:\r\n\r\n`pytorch_model.safetensors` was not a recognized filename by\r\n`transformers` which expects it to be named `model.safetensors`.\r\n\r\nThe convert_generic works by simply creating the new files and changing\r\nthe extension, which broke this.\r\n\r\nCurrent proposed fix is to handle specially files named\r\n`pytorch_model.bin` since they are more likely to be `transformers`\r\nfiles.\r\n\r\nThis is however not necessarily true, we might want to protect with\r\nchecking against `model_info.library_name` though I feel like this is\r\nbetter to just check against the name, since it's still likely to be a\r\ntransformers/diffusers/sentence-transformers thing.",
+          "timestamp": "2022-11-23T15:41:15+01:00",
+          "tree_id": "a95372257fa36e9b6ba7e86af6f6fbc921cb1f51",
+          "url": "https://github.com/huggingface/safetensors/commit/f9b4a932d57a60dfdf4aa149c8fe7763c64172c4"
+        },
+        "date": 1669214880017,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.0588198282509813,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02613243032934004",
+            "extra": "mean: 944.4477458000165 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.9799010028018214,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07806879916318188",
+            "extra": "mean: 335.5816179999806 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.560214295649887,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04155312754092277",
+            "extra": "mean: 280.88196859999925 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 186.25091290943567,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002557451833081166",
+            "extra": "mean: 5.369101199983106 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.1210282627255728,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07586994340087701",
+            "extra": "mean: 892.0381700000007 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.953337133043895,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018299152269250767",
+            "extra": "mean: 252.95085299999297 msec\nrounds: 5"
           }
         ]
       }
