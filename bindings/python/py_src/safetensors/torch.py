@@ -213,8 +213,13 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
     if sys.byteorder == "big":
         raise ValueError("Big endian is not supported, serialization need to be in little endian")
+    if not isinstance(tensors, dict):
+        raise ValueError(f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}")
     ptrs = defaultdict(set)
     for k, v in tensors.items():
+        if not isinstance(v, torch.Tensor):
+            raise ValueError(f"Key `{k}` is invalid, expected torch.Tensor but received {type(v)}")
+
         if v.layout == torch.strided:
             ptrs[v.data_ptr()].add(k)
 
