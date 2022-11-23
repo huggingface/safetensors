@@ -45,8 +45,29 @@ class TorchTestCase(unittest.TestCase):
     def test_sparse(self):
         data = {"test": torch.sparse_coo_tensor(size=(2, 3))}
         local = "./tests/data/out_safe_pt_sparse.safetensors"
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as ctx:
             save_file(data, local)
+        self.assertEqual(
+            str(ctx.exception),
+            "You are trying to save a sparse tensor: `test` which this library does not support. You can make it a dense tensor before saving with `.to_dense()` but be aware this might make a much larger file than needed.",
+        )
+
+    def test_bogus(self):
+        data = {"test": {"some": "thing"}}
+        local = "./tests/data/out_safe_pt_sparse.safetensors"
+        with self.assertRaises(ValueError) as ctx:
+            save_file(data, local)
+        self.assertEqual(
+            str(ctx.exception),
+            "Key `test` is invalid, expected torch.Tensor but received <class 'dict'>",
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            save_file("notadict", local)
+        self.assertEqual(
+            str(ctx.exception),
+            "Expected a dict of [str, torch.Tensor] but received <class 'str'>",
+        )
 
 
 class LoadTestCase(unittest.TestCase):
