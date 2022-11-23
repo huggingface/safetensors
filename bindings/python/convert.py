@@ -200,7 +200,13 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["Co
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
             pt_filename = hf_hub_download(model_id, filename=filename)
-            sf_in_repo = f"{prefix}.safetensors"
+            _, raw_filename = os.path.split(filename)
+            if raw_filename == "pytorch_model.bin":
+                # XXX: This is a special case to handle `transformers` and the
+                # `transformers` part of the model which is actually loaded by `transformers`.
+                sf_in_repo = "model.safetensors"
+            else:
+                sf_in_repo = f"{prefix}.safetensors"
             sf_filename = os.path.join(folder, sf_in_repo)
             convert_file(pt_filename, sf_filename)
             operations.append(CommitOperationAdd(path_in_repo=sf_in_repo, path_or_fileobj=sf_filename))
@@ -219,7 +225,7 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
         try:
             operations = None
             pr = previous_pr(api, model_id, pr_title)
-            if ("model.safetensors" in filenames or "model_index.safetensors.index.json" in filenames) and not force:
+            if any(filename.endswith(".safetensors") for filename in filenames) and not force:
                 raise AlreadyExists(f"Model {model_id} is already converted, skipping..")
             elif pr is not None and not force:
                 url = f"https://huggingface.co/{model_id}/discussions/{pr.num}"
