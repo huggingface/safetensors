@@ -50,7 +50,7 @@ jobs:
         run: echo "stable-i686-pc-windows-msvc" > rust-toolchain
 
       - name: Install Python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python }}
           architecture: x86
@@ -91,7 +91,7 @@ jobs:
           override: true
 
       - name: Install Python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python }}
           architecture: x64
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v1
 
       - name: Install Python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v4
 
       - name: Retrieve all wheels
         shell: bash
