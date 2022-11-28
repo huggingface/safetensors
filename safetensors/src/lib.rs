@@ -9,7 +9,7 @@
 //!
 //! You can install safetensors via the pip manager:
 //!
-//! ```
+//! ```bash
 //! pip install safetensors
 //! ```
 //!
@@ -17,7 +17,7 @@
 //!
 //!For the sources, you need Rust
 //!
-//!```
+//!```bash
 //!# Install Rust
 //!curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 //!# Make sure it's up to date and using stable channel
