@@ -1,5 +1,13 @@
 # safetensors
 
+## Installation
+
+You can install safetensors via the pip manager:
+
+```
+pip install safetensors
+```
+
 ## Safetensors
 
 This repository implements a new simple format for storing tensors
