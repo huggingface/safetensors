@@ -5,6 +5,28 @@
 This repository implements a new simple format for storing tensors
 safely (as opposed to pickle) and that is still fast (zero-copy).
 
+### Installation
+#### Pip
+
+You can install safetensors via the pip manager:
+
+```rust
+pip install safetensors
+```
+
+#### From source
+
+For the sources, you need Rust
+
+```rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup update
+git clone https://github.com/huggingface/safetensors
+cd safetensors/bindings/python
+pip install setuptools_rust
+pip install -e .
+```
+
 ### Getting started
 
 ```python
