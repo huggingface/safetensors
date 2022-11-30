@@ -96,6 +96,8 @@ def convert_file(
     sf_filename: str,
 ):
     loaded = torch.load(pt_filename)
+    if "state_dict" in loaded:
+        loaded = loaded["state_dict"]
     shared = shared_pointers(loaded)
     for shared_weights in shared:
         for name in shared_weights[1:]:
