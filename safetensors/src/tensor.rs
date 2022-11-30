@@ -18,6 +18,10 @@ pub enum SafeTensorError {
     InvalidHeaderDeserialization,
     /// The header is large than 100Mo which is considered too large (Might evolve in the future).
     HeaderTooLarge,
+    /// The header is smaller than 8 bytes
+    HeaderTooSmall,
+    /// The header length is invalid
+    InvalidHeaderLength,
     /// The tensor name was not found in the archive
     TensorNotFound,
     /// Invalid information between shape, dtype and the proposed offsets in the file
@@ -113,12 +117,19 @@ impl<'data> SafeTensors<'data> {
     where
         'in_data: 'data,
     {
+        let m = buffer.len();
+        if m < 8 {
+            return Err(SafeTensorError::HeaderTooSmall);
+        }
         let arr: [u8; 8] = [
             buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
         ];
         let n: usize = u64::from_le_bytes(arr)
             .try_into()
             .map_err(|_| SafeTensorError::HeaderTooLarge)?;
+        if n > m - 8 {
+            return Err(SafeTensorError::InvalidHeaderLength);
+        }
         if n > MAX_HEADER_SIZE {
             return Err(SafeTensorError::HeaderTooLarge);
         }
