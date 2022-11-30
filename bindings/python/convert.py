@@ -71,7 +71,7 @@ def convert_multi(model_id: str, folder: str) -> List["CommitOperationAdd"]:
         newdata = {k: v for k, v in data.items()}
         newmap = {k: rename(v) for k, v in data["weight_map"].items()}
         newdata["weight_map"] = newmap
-        json.dump(newdata, f)
+        json.dump(newdata, f, indent=4)
     local_filenames.append(index)
 
     operations = [
@@ -227,13 +227,15 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
         try:
             operations = None
             pr = previous_pr(api, model_id, pr_title)
+
+            library_name = getattr(info, "library_name", None)
             if any(filename.endswith(".safetensors") for filename in filenames) and not force:
                 raise AlreadyExists(f"Model {model_id} is already converted, skipping..")
             elif pr is not None and not force:
                 url = f"https://huggingface.co/{model_id}/discussions/{pr.num}"
                 new_pr = pr
                 raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
-            elif info.library_name == "transformers":
+            elif library_name == "transformers":
                 if "pytorch_model.bin" in filenames:
                     operations = convert_single(model_id, folder)
                 elif "pytorch_model.bin.index.json" in filenames:
