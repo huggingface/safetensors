@@ -117,8 +117,8 @@ impl<'data> SafeTensors<'data> {
     where
         'in_data: 'data,
     {
-        let m = buffer.len();
-        if m < 8 {
+        let buffer_len = buffer.len();
+        if buffer_len < 8 {
             return Err(SafeTensorError::HeaderTooSmall);
         }
         let arr: [u8; 8] = [
@@ -127,14 +127,18 @@ impl<'data> SafeTensors<'data> {
         let n: usize = u64::from_le_bytes(arr)
             .try_into()
             .map_err(|_| SafeTensorError::HeaderTooLarge)?;
-        if n > m - 8 {
-            return Err(SafeTensorError::InvalidHeaderLength);
-        }
         if n > MAX_HEADER_SIZE {
             return Err(SafeTensorError::HeaderTooLarge);
         }
+
+        let stop = n
+            .checked_add(8)
+            .ok_or(SafeTensorError::InvalidHeaderLength)?;
+        if stop > buffer_len {
+            return Err(SafeTensorError::InvalidHeaderLength);
+        }
         let string =
-            std::str::from_utf8(&buffer[8..8 + n]).map_err(|_| SafeTensorError::InvalidHeader)?;
+            std::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
         metadata.validate()?;
