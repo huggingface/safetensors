@@ -95,7 +95,7 @@ def convert_file(
     pt_filename: str,
     sf_filename: str,
 ):
-    loaded = torch.load(pt_filename)
+    loaded = torch.load(pt_filename, map_location="cpu")
     if "state_dict" in loaded:
         loaded = loaded["state_dict"]
     shared = shared_pointers(loaded)
