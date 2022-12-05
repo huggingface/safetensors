@@ -18,6 +18,10 @@ pub enum SafeTensorError {
     InvalidHeaderDeserialization,
     /// The header is large than 100Mo which is considered too large (Might evolve in the future).
     HeaderTooLarge,
+    /// The header is smaller than 8 bytes
+    HeaderTooSmall,
+    /// The header length is invalid
+    InvalidHeaderLength,
     /// The tensor name was not found in the archive
     TensorNotFound,
     /// Invalid information between shape, dtype and the proposed offsets in the file
@@ -113,6 +117,10 @@ impl<'data> SafeTensors<'data> {
     where
         'in_data: 'data,
     {
+        let buffer_len = buffer.len();
+        if buffer_len < 8 {
+            return Err(SafeTensorError::HeaderTooSmall);
+        }
         let arr: [u8; 8] = [
             buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
         ];
@@ -122,8 +130,15 @@ impl<'data> SafeTensors<'data> {
         if n > MAX_HEADER_SIZE {
             return Err(SafeTensorError::HeaderTooLarge);
         }
+
+        let stop = n
+            .checked_add(8)
+            .ok_or(SafeTensorError::InvalidHeaderLength)?;
+        if stop > buffer_len {
+            return Err(SafeTensorError::InvalidHeaderLength);
+        }
         let string =
-            std::str::from_utf8(&buffer[8..8 + n]).map_err(|_| SafeTensorError::InvalidHeader)?;
+            std::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
         metadata.validate()?;
