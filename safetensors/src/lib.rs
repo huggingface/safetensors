@@ -88,7 +88,7 @@
 //!- Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling layout to keep fast access to single tensors is important.
 //!- No file size limit: Is there a limit to the file size ?
 //!- Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
-//!- Bfloat16: Does the format support native bfloat16 (meaning to weird workarounds are
+//!- Bfloat16: Does the format support native bfloat16 (meaning no weird workarounds are
 //!necessary). This is becoming increasingly important in the ML world.
 //!
 //!
