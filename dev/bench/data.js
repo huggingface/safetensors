@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1670429463280,
+  "lastUpdate": 1670837502514,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -3590,6 +3590,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.021855349814812776",
             "extra": "mean: 283.93730300006155 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5e1a3d0b82b4d29f69f5c2d547dddba79286f4e",
+          "message": "Adding support for Python 3.11 on Linux + fix the source build wheel. (#125)",
+          "timestamp": "2022-12-12T10:24:49+01:00",
+          "tree_id": "ea105bc1c020048867a2d1a4b35a81cf9f70f968",
+          "url": "https://github.com/huggingface/safetensors/commit/f5e1a3d0b82b4d29f69f5c2d547dddba79286f4e"
+        },
+        "date": 1670837501271,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.0823979685754146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006059423981839927",
+            "extra": "mean: 923.874608999995 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.9123707545268216,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08702002775742583",
+            "extra": "mean: 343.3628765999856 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.537620875152735,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04669045127288663",
+            "extra": "mean: 220.37980420000167 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 186.855975189145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003431785512396096",
+            "extra": "mean: 5.351715399990553 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3730462962695427,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011885695555562221",
+            "extra": "mean: 728.3075616000133 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.233003626623154,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055728398174555716",
+            "extra": "mean: 309.30989119999595 msec\nrounds: 5"
           }
         ]
       }
