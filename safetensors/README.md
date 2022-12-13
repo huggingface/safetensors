@@ -138,3 +138,5 @@ to load the model on 8 GPUs from 10mn with regular PyToch weights down to 45s.
 This really speeds up feedbacks loops when developping on the model. For instance
 you don't have to have separate copies of the weights when changing the distribution
 strategy (for instance Pipeline Parallelism vs Tensor Parallelism).
+
+License: Apache-2.0
