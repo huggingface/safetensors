@@ -202,11 +202,11 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["Co
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
             pt_filename = hf_hub_download(model_id, filename=filename)
-            _, raw_filename = os.path.split(filename)
+            dirname, raw_filename = os.path.split(filename)
             if raw_filename == "pytorch_model.bin":
                 # XXX: This is a special case to handle `transformers` and the
                 # `transformers` part of the model which is actually loaded by `transformers`.
-                sf_in_repo = "model.safetensors"
+                sf_in_repo = os.path.join(dirname, "model.safetensors")
             else:
                 sf_in_repo = f"{prefix}.safetensors"
             sf_filename = os.path.join(folder, sf_in_repo)
