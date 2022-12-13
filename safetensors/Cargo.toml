@@ -2,6 +2,21 @@
 name = "safetensors"
 version = "0.2.6"
 edition = "2021"
+homepage = "https://github.com/huggingface/safetensors"
+repository = "https://github.com/huggingface/safetensors"
+documentation = "https://docs.rs/safetensors/"
+license = "Apache-2.0"
+keywords = ["safetensors", "huggingface", "Tensors", "Pytorch", "Tensorflow"]
+readme = "./README.md"
+description = """
+Provides functions to read and write safetensors which aim to be safer than
+their PyTorch counterpart.
+The format is 8 bytes which is an unsized int, being the size of a JSON header,
+the JSON header refers the `dtype` the `shape` and `data_offsets` which are the offsets
+for the values in the rest of the file.
+"""
+exclude = [ "rust-toolchain", "target/*", "Cargo.lock", "benches/*"]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
