@@ -53,8 +53,8 @@
 //!
 //! - 8 bytes: `N`, a u64 int, containing the size of the header
 //! - N bytes: a JSON utf-8 string representing the header.
-//!         The header is a dict like {"TENSOR_NAME": {"dtype": "float16", "shape": [1, 16, 256], "offsets": (X, Y)}}, where X and Y are the offsets in the byte buffer of the tensor data
-//!         A special key `__metadata__` is allowed to contain free form text map.
+//!   - The header is a dict like {"TENSOR_NAME": {"dtype": "float16", "shape": [1, 16, 256], "offsets": (X, Y)}}, where X and Y are the offsets in the byte buffer of the tensor data
+//!   - A special key `__metadata__` is allowed to contain free form text map.
 //! - Rest of the file: byte-buffer.
 //!
 //!
