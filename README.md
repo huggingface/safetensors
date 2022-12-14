@@ -110,7 +110,8 @@ necessary)? This is becoming increasingly important in the ML world.
    In PyTorch/numpy, you need a mutable buffer, and we don't really want to mutate a mmaped file, so 1 copy is really necessary to use the thing freely in user code. That being said, zero-copy is achievable in Rust if it's wanted and safety can be guaranteed by some other means.
    SafeTensors is not zero-copy for the header. The choice of JSON is pretty arbitrary, but since deserialization is <<< of the time required to load the actual tensor data and is readable I went that way, (also space is <<< to the tensor data).
 
-- Endianness: Little-endian. This can be modified later, but it feels really unecessary at the moment.
+- Endianness: Little-endian. This can be modified later, but it feels really unecessary at the
+moment.
 - Order: 'C' or row-major. This seems to have won. We can add that information later if needed.
 - Stride: No striding, all tensors need to be packed before being serialized. I have yet to see a case where it seems useful to have a strided tensor stored in serialized format.
 
@@ -128,10 +129,12 @@ on the size of the header of 100MB to prevent parsing extremely large JSON.
 - Faster load: PyTorch seems to be the fastest file to load out in the major
 ML formats. However, it does seem to have an extra copy on CPU, which we
 can bypass in this lib [link](https://github.com/huggingface/safetensors/pull/33).
-Currently, CPU loading the entire file is still slightly slower than PyTorch on
-some platforms but it's not entirely clear why.
+Currently, CPU loading times are extremely fast with this lib compared to pickle.
+GPU loading times can be sped up but are still hidden behind an environment variable
+(`SAFETENSORS_FAST_GPU=1`) because it hasn't received enough external scrutiny to be safe.
+But it does load roughly 2X faster than PyTorch on regular Linux hardware because of this extra CPU copy skip.
 
-- Lazy loading: in distributed (multi-node or multi-GPU) settings, it's nice to be able to
+- Lazy loading: in distributed (multi-node or multi-gpu) settings, it's nice to be able to
 load only part of the tensors on the various models. For
 [BLOOM](https://huggingface.co/bigscience/bloom) using this format enabled
 to load the model on 8 GPUs from 10mn with regular PyTorch weights down to 45s.

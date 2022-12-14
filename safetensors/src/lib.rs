@@ -85,23 +85,23 @@
 //!- Zero-copy: Does reading the file require more memory than the original file ?
 //!- Lazy loading: Can I inspect the file without loading everything ? And loading only
 //!some tensors in it without scanning the whole file (distributed setting) ?
-//!- Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling layout to keep fast access to single tensors is important.
+//!- Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling the layout to keep fast access to single tensors is important.
 //!- No file size limit: Is there a limit to the file size ?
 //!- Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
 //!- Bfloat16: Does the format support native bfloat16 (meaning no weird workarounds are
-//!necessary). This is becoming increasingly important in the ML world.
+//!necessary)? This is becoming increasingly important in the ML world.
 //!
 //!
 //!## Main oppositions
 //!
 //!- Pickle: Unsafe, runs arbitrary code
-//!- H5: Apparently now discouraged for TF/Keras. Seems like a great fit otherwise actually. Some classic user after free issues: <https://www.cvedetails.com/vulnerability-list/vendor_id-15991/product_id-35054/Hdfgroup-Hdf5.html>. On a very different level than pickle security wise. Also 210k lines of code vs ~400 lines for this lib currently.
+//!- H5: Apparently now discouraged for TF/Keras. Seems like a great fit otherwise actually. Some classic use after free issues: <https://www.cvedetails.com/vulnerability-list/vendor_id-15991/product_id-35054/Hdfgroup-Hdf5.html>. On a very different level than pickle security-wise. Also 210k lines of code vs ~400 lines for this lib currently.
 //!- SavedModel: Tensorflow specific (it contains TF graph information).
 //!- MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
 //!- Protobuf: Hard 2Go max file size limit
 //!- Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
 //!- Numpy (npz): No `bfloat16` support. Vulnerable to zip bombs (DOS).
-//!- Arrow: No `bfloat16` support. Seem do require decoding [link](https://arrow.apache.org/docs/python/parquet.html#reading-parquet-and-memory-mapping)
+//!- Arrow: No `bfloat16` support. Seem to require decoding [link](https://arrow.apache.org/docs/python/parquet.html#reading-parquet-and-memory-mapping)
 //!
 //!## Notes
 //!
@@ -109,16 +109,17 @@
 //!    In PyTorch/numpy, you need a mutable buffer, and we don't really want to mutate a mmaped file, so 1 copy is really necessary to use the thing freely in user code. That being said, zero-copy is achievable in Rust if it's wanted and safety can be guaranteed by some other means.
 //!    SafeTensors is not zero-copy for the header. The choice of JSON is pretty arbitrary, but since deserialization is <<< of the time required to load the actual tensor data and is readable I went that way, (also space is <<< to the tensor data).
 //!
-//!- Endianness: Little-endian. This can be modified later, but it feels really unecessary atm
+//!- Endianness: Little-endian. This can be modified later, but it feels really unecessary at the
+//!moment.
 //!- Order: 'C' or row-major. This seems to have won. We can add that information later if needed.
-//!- Stride: No striding, all tensors need to be packed before being serialized. I have yet to see a case where it seems useful to have a strided tensor stored in serialized format
+//!- Stride: No striding, all tensors need to be packed before being serialized. I have yet to see a case where it seems useful to have a strided tensor stored in serialized format.
 //!
 //!## Benefits
 //!
 //!Since we can invent a new format we can propose additional benefits:
 //!
 //!- Prevent DOS attacks: We can craft the format in such a way that it's almost
-//!impossible to use malicious files to DOS attack a user. Currently there's a limit
+//!impossible to use malicious files to DOS attack a user. Currently, there's a limit
 //!on the size of the header of 100MB to prevent parsing extremely large JSON.
 //!  Also when reading the file, there's a guarantee that addresses in the file
 //!  do not overlap in any way, meaning when you're loading a file you should never
@@ -127,14 +128,16 @@
 //!- Faster load: PyTorch seems to be the fastest file to load out in the major
 //! ML formats. However, it does seem to have an extra copy on CPU, which we
 //! can bypass in this lib [link](https://github.com/huggingface/safetensors/pull/33).
-//! Currently CPU loading the entire file is still slightly slower than PyTorch on
-//! some platforms but it's not entirely clear why.
+//! Currently, CPU loading times are extremely fast with this lib compared to pickle.
+//! GPU loading times can be sped up but are still hidden behind an environment variable
+//! (`SAFETENSORS_FAST_GPU=1`) because it hasn't received enough external scrutiny to be safe.
+//! But it does load roughly 2X faster than PyTorch on regular Linux hardware because of this extra CPU copy skip.
 //!
-//!- Lazy loading: in distributed (multi node or multi gpu) settings, it's nice to be able to
+//!- Lazy loading: in distributed (multi-node or multi-gpu) settings, it's nice to be able to
 //!load only part of the tensors on the various models. For
 //![BLOOM](https://huggingface.co/bigscience/bloom) using this format enabled
-//!to load the model on 8 GPUs from 10mn with regular PyToch weights down to 45s.
-//!This really speeds up feedbacks loops when developping on the model. For instance
+//!to load the model on 8 GPUs from 10mn with regular PyTorch weights down to 45s.
+//!This really speeds up feedbacks loops when developing on the model. For instance
 //!you don't have to have separate copies of the weights when changing the distribution
 //!strategy (for instance Pipeline Parallelism vs Tensor Parallelism).
 
