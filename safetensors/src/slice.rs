@@ -208,80 +208,93 @@ pub struct SliceIterator<'data> {
     newshape: Vec<usize>,
 }
 
+/// Compute offsets given an original shape, dtype and a sequence of slices
+pub fn generate_slice_newshape_and_indices(
+    shape: Vec<usize>,
+    byte_per_dtype: usize,
+    slices: Vec<TensorIndexer>
+) -> Result<(Vec<(usize, usize)>, Vec<usize>), InvalidSlice> {
+    // Make sure n. axis does not exceed n. of dimensions
+    let n_slice = slices.len();
+    let n_shape = shape.len();
+    if n_slice > n_shape {
+        return Err(InvalidSlice::TooManySlices);
+    }
+
+    let mut indices = vec![];
+    let mut newshape = Vec::with_capacity(shape.len());
+    let mut span = byte_per_dtype;
+    for (i, &shape) in shape.iter().enumerate().rev() {
+        if i >= slices.len() {
+            // We are  not slicing yet, just increase the local span
+            newshape.push(shape);
+        } else {
+            let slice = &slices[i];
+            let (start, stop) = match slice {
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded) => (0, shape),
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Excluded(stop)) => (0, *stop),
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Included(stop)) => {
+                    (0, *stop + 1)
+                }
+                TensorIndexer::Narrow(Bound::Included(s), Bound::Unbounded) => (*s, shape),
+                TensorIndexer::Narrow(Bound::Included(s), Bound::Excluded(stop)) => (*s, *stop),
+                TensorIndexer::Narrow(Bound::Included(s), Bound::Included(stop)) => {
+                    (*s, *stop + 1)
+                }
+                TensorIndexer::Narrow(Bound::Excluded(s), Bound::Unbounded) => (*s + 1, shape),
+                TensorIndexer::Narrow(Bound::Excluded(s), Bound::Excluded(stop)) => {
+                    (*s + 1, *stop)
+                }
+                TensorIndexer::Narrow(Bound::Excluded(s), Bound::Included(stop)) => {
+                    (*s + 1, *stop + 1)
+                }
+            };
+            newshape.push(stop - start);
+            if indices.is_empty() {
+                if start == 0 && stop == shape {
+                    // We haven't started to slice yet, just increase the span
+                } else {
+                    let offset = start * span;
+                    let small_span = stop * span - offset;
+                    indices.push((offset, offset + small_span));
+                }
+            } else {
+                let mut newindices = vec![];
+                for n in start..stop {
+                    let offset = n * span;
+                    for (old_start, old_stop) in &indices {
+                        newindices.push((old_start + offset, old_stop + offset));
+                    }
+                }
+                indices = newindices;
+            }
+        }
+        span *= shape;
+    }
+    if indices.is_empty() {
+        indices.push((0, span));
+    }
+    // Reversing so we can pop faster while iterating on the slice
+    Ok(
+        (indices.into_iter().rev().collect(), newshape.into_iter().rev().collect())
+    )
+
+}
+
 impl<'data> SliceIterator<'data> {
     pub(crate) fn new(
         view: &'data TensorView<'data>,
         slices: Vec<TensorIndexer>,
     ) -> Result<Self, InvalidSlice> {
-        // Make sure n. axis does not exceed n. of dimensions
-        let n_slice = slices.len();
-        let n_shape = view.shape.len();
-        if n_slice > n_shape {
-            return Err(InvalidSlice::TooManySlices);
-        }
-        let mut newshape = Vec::with_capacity(view.shape.len());
-
-        // Minimum span is the span of 1 item;
-        let mut span = view.dtype.size();
-        let mut indices = vec![];
-        // Everything is row major.
-        for (i, &shape) in view.shape.iter().enumerate().rev() {
-            if i >= slices.len() {
-                // We are  not slicing yet, just increase the local span
-                newshape.push(shape);
-            } else {
-                let slice = &slices[i];
-                let (start, stop) = match slice {
-                    TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded) => (0, shape),
-                    TensorIndexer::Narrow(Bound::Unbounded, Bound::Excluded(stop)) => (0, *stop),
-                    TensorIndexer::Narrow(Bound::Unbounded, Bound::Included(stop)) => {
-                        (0, *stop + 1)
-                    }
-                    TensorIndexer::Narrow(Bound::Included(s), Bound::Unbounded) => (*s, shape),
-                    TensorIndexer::Narrow(Bound::Included(s), Bound::Excluded(stop)) => (*s, *stop),
-                    TensorIndexer::Narrow(Bound::Included(s), Bound::Included(stop)) => {
-                        (*s, *stop + 1)
-                    }
-                    TensorIndexer::Narrow(Bound::Excluded(s), Bound::Unbounded) => (*s + 1, shape),
-                    TensorIndexer::Narrow(Bound::Excluded(s), Bound::Excluded(stop)) => {
-                        (*s + 1, *stop)
-                    }
-                    TensorIndexer::Narrow(Bound::Excluded(s), Bound::Included(stop)) => {
-                        (*s + 1, *stop + 1)
-                    }
-                };
-                newshape.push(stop - start);
-                if indices.is_empty() {
-                    if start == 0 && stop == shape {
-                        // We haven't started to slice yet, just increase the span
-                    } else {
-                        let offset = start * span;
-                        let small_span = stop * span - offset;
-                        indices.push((offset, offset + small_span));
-                    }
-                } else {
-                    let mut newindices = vec![];
-                    for n in start..stop {
-                        let offset = n * span;
-                        for (old_start, old_stop) in &indices {
-                            newindices.push((old_start + offset, old_stop + offset));
-                        }
-                    }
-                    indices = newindices;
-                }
-            }
-            span *= shape;
-        }
-        if indices.is_empty() {
-            indices.push((0, view.data.len()));
-        }
-        // Reversing so we can pop faster while iterating on the slice
-        let indices = indices.into_iter().rev().collect();
-        let newshape = newshape.into_iter().rev().collect();
+        let newshape_and_indices = generate_slice_newshape_and_indices(
+            view.shape.clone(),
+            view.dtype.size(),
+            slices
+        ).unwrap();
         Ok(Self {
             view,
-            indices,
-            newshape,
+            indices: newshape_and_indices.0,
+            newshape: newshape_and_indices.1,
         })
     }
 
