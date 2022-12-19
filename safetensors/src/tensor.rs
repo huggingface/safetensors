@@ -190,7 +190,7 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn names(&self) -> Vec<&'_ String> {
-        self.metadata.tensors.iter().map(|(name, _)| name).collect()
+        self.metadata.tensors.keys().collect()
     }
 }
 
