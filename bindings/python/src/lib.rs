@@ -380,7 +380,7 @@ enum Storage {
     /// Mmap used for reading
     Mmap(Mmap),
     /// Mmap used for writing
-    MmapMut(MmapMut),
+    MmapMut(Mutex<MmapMut>),
     /// Torch specific mmap
     /// This allows us to not manage it
     /// so Pytorch can handle the whole lifecycle.
@@ -504,7 +504,7 @@ struct safe_open {
     offset: usize,
     framework: Framework,
     device: Device,
-    storage: Arc<Mutex<Storage>>,
+    storage: Arc<Storage>,
     mode: OpenMode,
 }
 
@@ -624,12 +624,12 @@ impl safe_open {
                 // TODO @thomas21: probably need to write metadata here
                 let metadata = metadata.unwrap();
                 let n = serde_json::to_string(&metadata).unwrap().as_bytes().len();
-                (n, metadata, Storage::MmapMut(buffer))
+                (n, metadata, Storage::MmapMut(Mutex::new(buffer)))
             }
         };
 
         let offset = n + 8;
-        let storage = Arc::new(Mutex::new(storage));
+        let storage = Arc::new(storage);
 
         Ok(Self {
             metadata,
@@ -684,10 +684,9 @@ impl safe_open {
             exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
         })?;
 
-        let storage = self.storage.lock().unwrap();
-
-        match &*storage {
+        match &self.storage.as_ref() {
             Storage::MmapMut(mmap_mut) => {
+                let mmap_mut = mmap_mut.lock().unwrap();
                 let data =
                     &mmap_mut[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
@@ -854,7 +853,7 @@ struct PySafeSlice {
     framework: Framework,
     offset: usize,
     device: Device,
-    storage: Arc<Mutex<Storage>>,
+    storage: Arc<Storage>,
 }
 
 #[derive(FromPyObject)]
@@ -894,9 +893,7 @@ impl PySafeSlice {
             Slice::Slices(slices) => slices,
         };
 
-        let storage = &*self.storage.lock().unwrap();
-
-        match storage {
+        match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
@@ -954,6 +951,7 @@ impl PySafeSlice {
                 )
             }
             Storage::MmapMut(mmap_mut) => {
+                let mmap_mut = mmap_mut.lock().unwrap();
                 let data = &mmap_mut[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
 
@@ -1082,14 +1080,14 @@ impl PySafeSlice {
         }
         let value_data = value_data;
 
-        let storage = &mut *self.storage.lock().unwrap();
-        match storage {
+        match &self.storage.as_ref() {
             Storage::MmapMut(mmap_mut) => {
                 // TODO @thomas21:
                 //  - Get a mutable mmap
                 //  - Get the correct slice in data, (this means applying a list of slices)
                 //  - Set the correct memory space to that value (which we need to convert to u8)
                 //  - return the success
+                let mut mmap_mut = mmap_mut.lock().unwrap();
                 let data = &mut mmap_mut[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
 
@@ -1105,7 +1103,7 @@ impl PySafeSlice {
             Storage::TorchStorage(_) => panic!("TODO never implemented"),
             Storage::Mmap(_) => panic!("Mmap is read-only"),
         }
-        Ok(());
+        Ok(())
     }
 }
 
