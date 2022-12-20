@@ -31,7 +31,7 @@ pub enum SafeTensorError {
     /// IoError
     IoError(std::io::Error),
     /// Invalid dtype
-    UnsupportedDtype(String)
+    UnsupportedDtype(String),
 }
 
 impl From<std::io::Error> for SafeTensorError {
@@ -354,7 +354,7 @@ impl Dtype {
     }
 
     /// Parse a string into a Dtype object
-    pub fn new(string: &str) -> Result<Self, SafeTensorError> {
+    pub fn from_str(string: &str) -> Result<Self, SafeTensorError> {
         let dtype = match string {
             "bool" => Dtype::BOOL,
             "int8" => Dtype::I8,
@@ -533,6 +533,20 @@ mod tests {
         assert_eq!(tensor.get_dtype(), Dtype::I32);
         // 16 bytes
         assert_eq!(tensor.get_data(), b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+    }
+
+    #[test]
+    fn test_deserialization_bool() {
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"BOOL\",\"shape\":[2,2],\"data_offsets\":[0,4]}}\x00\x00\x00\x00";
+
+        let loaded = SafeTensors::deserialize(serialized).unwrap();
+
+        assert_eq!(loaded.names(), vec!["test"]);
+        let tensor = loaded.tensor("test").unwrap();
+        assert_eq!(tensor.get_shape(), vec![2, 2]);
+        assert_eq!(tensor.get_dtype(), Dtype::BOOL);
+        // 4 bytes
+        assert_eq!(tensor.get_data(), b"\0\0\0\0");
     }
 
     #[test]

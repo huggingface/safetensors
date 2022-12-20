@@ -212,7 +212,7 @@ pub struct SliceIterator<'data> {
 pub fn generate_slice_newshape_and_indices(
     shape: Vec<usize>,
     byte_per_dtype: usize,
-    slices: Vec<TensorIndexer>
+    slices: Vec<TensorIndexer>,
 ) -> Result<(Vec<(usize, usize)>, Vec<usize>), InvalidSlice> {
     // Make sure n. axis does not exceed n. of dimensions
     let n_slice = slices.len();
@@ -233,18 +233,12 @@ pub fn generate_slice_newshape_and_indices(
             let (start, stop) = match slice {
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded) => (0, shape),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Excluded(stop)) => (0, *stop),
-                TensorIndexer::Narrow(Bound::Unbounded, Bound::Included(stop)) => {
-                    (0, *stop + 1)
-                }
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Included(stop)) => (0, *stop + 1),
                 TensorIndexer::Narrow(Bound::Included(s), Bound::Unbounded) => (*s, shape),
                 TensorIndexer::Narrow(Bound::Included(s), Bound::Excluded(stop)) => (*s, *stop),
-                TensorIndexer::Narrow(Bound::Included(s), Bound::Included(stop)) => {
-                    (*s, *stop + 1)
-                }
+                TensorIndexer::Narrow(Bound::Included(s), Bound::Included(stop)) => (*s, *stop + 1),
                 TensorIndexer::Narrow(Bound::Excluded(s), Bound::Unbounded) => (*s + 1, shape),
-                TensorIndexer::Narrow(Bound::Excluded(s), Bound::Excluded(stop)) => {
-                    (*s + 1, *stop)
-                }
+                TensorIndexer::Narrow(Bound::Excluded(s), Bound::Excluded(stop)) => (*s + 1, *stop),
                 TensorIndexer::Narrow(Bound::Excluded(s), Bound::Included(stop)) => {
                     (*s + 1, *stop + 1)
                 }
@@ -275,10 +269,10 @@ pub fn generate_slice_newshape_and_indices(
         indices.push((0, span));
     }
     // Reversing so we can pop faster while iterating on the slice
-    Ok(
-        (indices.into_iter().rev().collect(), newshape.into_iter().rev().collect())
-    )
-
+    Ok((
+        indices.into_iter().rev().collect(),
+        newshape.into_iter().rev().collect(),
+    ))
 }
 
 impl<'data> SliceIterator<'data> {
@@ -286,15 +280,12 @@ impl<'data> SliceIterator<'data> {
         view: &'data TensorView<'data>,
         slices: Vec<TensorIndexer>,
     ) -> Result<Self, InvalidSlice> {
-        let newshape_and_indices = generate_slice_newshape_and_indices(
-            view.shape.clone(),
-            view.dtype.size(),
-            slices
-        ).unwrap();
+        let (indices, newshape) =
+            generate_slice_newshape_and_indices(view.shape.clone(), view.dtype.size(), slices)?;
         Ok(Self {
             view,
-            indices: newshape_and_indices.0,
-            newshape: newshape_and_indices.1,
+            indices,
+            newshape,
         })
     }
 

@@ -14,11 +14,11 @@ use pyo3::{intern, PyErr};
 use safetensors::slice::{generate_slice_newshape_and_indices, TensorIndexer};
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
 use std::collections::{BTreeMap, HashMap};
-use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 #[repr(C)]
 enum cudaMemcpyKind {
@@ -52,7 +52,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                 "shape" => shape = value.extract()?,
                 "dtype" => {
                     let value: &str = value.extract()?;
-                    dtype = Dtype::new(value).unwrap();
+                    dtype = Dtype::from_str(value).unwrap();
                 }
                 "data" => data = value.extract()?,
                 _ => println!("Ignored unknown kwarg option {}", key),
@@ -431,40 +431,42 @@ impl Version {
 
 #[derive(PartialEq, Eq)]
 pub enum OpenMode {
-    READ,
-    WRITE
+    Read,
+    Write,
 }
 
 impl<'source> FromPyObject<'source> for OpenMode {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let name: String = ob.extract()?;
         match &name[..] {
-            "r" => Ok(OpenMode::READ),
-            "w" => Ok(OpenMode::WRITE),
+            "r" => Ok(OpenMode::Read),
+            "w" => Ok(OpenMode::Write),
             name => Err(exceptions::PyException::new_err(format!(
-                "framework {name} is invalid"
+                "mode {name} is invalid, expects 'r' or 'w'"
             ))),
         }
     }
 }
 
 struct PyTensorInfo {
-    object: TensorInfo
+    tensor_info: TensorInfo,
 }
 
 impl<'source> FromPyObject<'source> for PyTensorInfo {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let dict: &PyDict = ob.extract()?;
-        Ok(PyTensorInfo { object: TensorInfo {
-            dtype: Dtype::new(dict.get_item("dtype").unwrap().extract()?).unwrap(),
-            shape: dict.get_item("shape").unwrap().extract()?,
-            data_offsets: dict.get_item("data_offsets").unwrap().extract()?,
-        } })
+        Ok(PyTensorInfo {
+            tensor_info: TensorInfo {
+                dtype: Dtype::from_str(dict.get_item("dtype").unwrap().extract()?).unwrap(),
+                shape: dict.get_item("shape").unwrap().extract()?,
+                data_offsets: dict.get_item("data_offsets").unwrap().extract()?,
+            },
+        })
     }
 }
 
 struct PyMetadata {
-    object: Metadata
+    metadata: Metadata,
 }
 
 impl<'source> FromPyObject<'source> for PyMetadata {
@@ -474,9 +476,11 @@ impl<'source> FromPyObject<'source> for PyMetadata {
         for (key, value) in dict {
             let key: &str = key.extract()?;
             let value: PyTensorInfo = value.extract()?;
-            tensors_metadata.insert(key.to_string(), value.object);
+            tensors_metadata.insert(key.to_string(), value.tensor_info);
         }
-        Ok(PyMetadata { object: Metadata::new(None, tensors_metadata).unwrap() })
+        Ok(PyMetadata {
+            metadata: Metadata::new(None, tensors_metadata).unwrap(),
+        })
     }
 }
 
@@ -500,8 +504,8 @@ struct safe_open {
     offset: usize,
     framework: Framework,
     device: Device,
-    storage: Arc<Storage>,
-    mode: OpenMode
+    storage: Arc<Mutex<Storage>>,
+    mode: OpenMode,
 }
 
 #[pymethods]
@@ -512,17 +516,18 @@ impl safe_open {
         framework: Framework,
         device: Option<Device>,
         mode: Option<OpenMode>,
-        metadata: Option<PyMetadata>
+        metadata: Option<PyMetadata>,
     ) -> PyResult<Self> {
         let device = device.unwrap_or(Device::Cpu);
-        let mode = mode.unwrap_or(OpenMode::READ);
-        let metadata = metadata.map(|elt| elt.object);
+        let mode = mode.unwrap_or(OpenMode::Read);
+        let metadata = metadata.map(|elt| elt.metadata);
 
         // TODO @thomas21: Do with buiulder `File::options`
-        let file = match mode {
-            OpenMode::READ => File::open(&filename)?,
-            OpenMode::WRITE => File::create(&filename)?
-        };
+        let mut options = std::fs::OpenOptions::new();
+        if mode == OpenMode::Write {
+            options.write(true).create(true);
+        }
+        let file = options.open(&filename)?;
 
         if device != Device::Cpu && framework != Framework::Pytorch {
             return Err(exceptions::PyException::new_err(format!(
@@ -530,10 +535,10 @@ impl safe_open {
             )));
         }
 
-        if mode == OpenMode::WRITE && metadata.is_none() {
+        if mode == OpenMode::Write && metadata.is_none() {
             return Err(exceptions::PyException::new_err(format!(
                 "Write mode requires the user to provide metadata before opening"
-            )))
+            )));
         }
 
         let mmap_options = MmapOptions::new();
@@ -558,65 +563,73 @@ impl safe_open {
         })?;
 
         let (n, metadata, storage) = match &mode {
-            OpenMode::READ => {
+            OpenMode::Read => {
                 // SAFETY: Mmap is used to prevent allocating in Rust
                 // before making a copy within Python.
                 let buffer = unsafe { mmap_options.map(&file)? };
                 let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
-                    exceptions::PyException::new_err(format!("Error while deserializing header: {:?}", e))
+                    exceptions::PyException::new_err(format!(
+                        "Error while deserializing header: {:?}",
+                        e
+                    ))
                 })?;
                 let storage = match (&framework, &device) {
-                    (Framework::Pytorch, Device::Cpu) => Python::with_gil(|py| -> PyResult<Storage> {
-                        let module = get_module(py, &TORCH_MODULE)?;
+                    (Framework::Pytorch, Device::Cpu) => {
+                        Python::with_gil(|py| -> PyResult<Storage> {
+                            let module = get_module(py, &TORCH_MODULE)?;
 
-                        let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
-                        let version =
-                            Version::from_string(version).map_err(exceptions::PyException::new_err)?;
+                            let version: String =
+                                module.getattr(intern!(py, "__version__"))?.extract()?;
+                            let version = Version::from_string(version)
+                                .map_err(exceptions::PyException::new_err)?;
 
-                        // Untyped storage only exists for versions over 1.11.0
-                        // Same for torch.asarray which is necessary for zero-copy tensor
-                        if version >= Version::new(1, 11, 0) {
-                            // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
-                            let py_filename: PyObject = filename.into_py(py);
-                            let size: PyObject = buffer.len().into_py(py);
-                            let shared: PyObject = false.into_py(py);
-                            let kwargs = [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
-                                .into_py_dict(py);
-                            let storage = module
-                                .getattr(intern!(py, "ByteStorage"))?
-                                .getattr(intern!(py, "from_file"))?
-                                .call((py_filename,), Some(kwargs))?;
+                            // Untyped storage only exists for versions over 1.11.0
+                            // Same for torch.asarray which is necessary for zero-copy tensor
+                            if version >= Version::new(1, 11, 0) {
+                                // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
+                                let py_filename: PyObject = filename.into_py(py);
+                                let size: PyObject = buffer.len().into_py(py);
+                                let shared: PyObject = false.into_py(py);
+                                let kwargs =
+                                    [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
+                                        .into_py_dict(py);
+                                let storage = module
+                                    .getattr(intern!(py, "ByteStorage"))?
+                                    .getattr(intern!(py, "from_file"))?
+                                    .call((py_filename,), Some(kwargs))?;
 
-                            let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
-                                Ok(untyped) => untyped,
-                                Err(_) => storage.getattr(intern!(py, "_untyped"))?,
-                            };
-                            let storage = untyped.call0()?.into_py(py);
-                            let gil_storage = GILOnceCell::new();
-                            gil_storage.get_or_init(py, || storage);
+                                let untyped: &PyAny = match storage.getattr(intern!(py, "untyped"))
+                                {
+                                    Ok(untyped) => untyped,
+                                    Err(_) => storage.getattr(intern!(py, "_untyped"))?,
+                                };
+                                let storage = untyped.call0()?.into_py(py);
+                                let gil_storage = GILOnceCell::new();
+                                gil_storage.get_or_init(py, || storage);
 
-                            Ok(Storage::TorchStorage(gil_storage))
-                        } else {
-                            Ok(Storage::Mmap(buffer))
-                        }
-                    })?,
-                    _ => Storage::Mmap(buffer)
+                                Ok(Storage::TorchStorage(gil_storage))
+                            } else {
+                                Ok(Storage::Mmap(buffer))
+                            }
+                        })?
+                    }
+                    _ => Storage::Mmap(buffer),
                 };
                 (n, metadata, storage)
             }
-            OpenMode::WRITE => {
+            OpenMode::Write => {
                 // SAFETY: Mmap is used to prevent allocating in Rust
                 // before making a copy within Python.
-                let buffer = unsafe { mmap_options.map_mut(&file)? } ;
+                let buffer = unsafe { mmap_options.map_mut(&file)? };
                 // TODO @thomas21: probably need to write metadata here
                 let metadata = metadata.unwrap();
-                let n = serde_json::to_string(&metadata).unwrap().into_bytes().len();
+                let n = serde_json::to_string(&metadata).unwrap().as_bytes().len();
                 (n, metadata, Storage::MmapMut(buffer))
             }
         };
 
         let offset = n + 8;
-        let storage = Arc::new(storage);
+        let storage = Arc::new(Mutex::new(storage));
 
         Ok(Self {
             metadata,
@@ -624,7 +637,7 @@ impl safe_open {
             framework,
             device,
             storage,
-            mode
+            mode,
         })
     }
 
@@ -671,7 +684,9 @@ impl safe_open {
             exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
         })?;
 
-        match &self.storage.as_ref() {
+        let storage = self.storage.lock().unwrap();
+
+        match &*storage {
             Storage::MmapMut(mmap_mut) => {
                 let data =
                     &mmap_mut[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
@@ -696,7 +711,7 @@ impl safe_open {
                         }
                     }
                 })
-            },
+            }
             Storage::Mmap(mmap) => {
                 let data =
                     &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
@@ -839,7 +854,7 @@ struct PySafeSlice {
     framework: Framework,
     offset: usize,
     device: Device,
-    storage: Arc<Storage>,
+    storage: Arc<Mutex<Storage>>,
 }
 
 #[derive(FromPyObject)]
@@ -879,7 +894,9 @@ impl PySafeSlice {
             Slice::Slices(slices) => slices,
         };
 
-        match &self.storage.as_ref() {
+        let storage = &*self.storage.lock().unwrap();
+
+        match storage {
             Storage::Mmap(mmap) => {
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
@@ -1026,56 +1043,60 @@ impl PySafeSlice {
         }
     }
 
-    pub fn __setitem__(&mut self, slices: Slice, value: &PyDict) {
+    pub fn __setitem__(&mut self, slices: Slice, value: &PyDict) -> PyResult<()> {
         let slices: Vec<&PySlice> = match slices {
             Slice::Slice(slice) => vec![slice],
             Slice::Slices(slices) => slices,
         };
 
+        let slices: Vec<TensorIndexer> = slices
+            .into_iter()
+            .map(slice_to_indexer)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
         let mut value_data: &[u8] = &[];
+        let (indices, newshape) = generate_slice_newshape_and_indices(
+            self.info.shape.clone(),
+            self.info.dtype.size(),
+            slices,
+        )
+        .unwrap();
+
         for (k, v) in value {
             let k: &str = k.extract().unwrap();
             match k {
                 "shape" => {
                     // TODO @thomasw21 check that the value shape is the same as slices (or at least broadcastable to it)
-                    continue
-                },
+                    let shape: Vec<usize> = v.extract()?;
+                    assert!(shape == newshape);
+                }
                 "dtype" => {
                     let v: &str = v.extract().unwrap();
-                    let dtype = Dtype::new(v).unwrap();
+                    let dtype = Dtype::from_str(v).unwrap();
                     assert!(self.info.dtype == dtype);
-                },
+                }
                 "data" => value_data = v.extract().unwrap(),
                 unsupported_key => println!("Ignored unknown kwarg option {}", unsupported_key),
             };
         }
         let value_data = value_data;
 
-        match &self.storage.as_ref() {
-            Storage::MmapMut(ref mut mmap_mut) => {
+        let storage = &mut *self.storage.lock().unwrap();
+        match storage {
+            Storage::MmapMut(mmap_mut) => {
                 // TODO @thomas21:
                 //  - Get a mutable mmap
                 //  - Get the correct slice in data, (this means applying a list of slices)
                 //  - Set the correct memory space to that value (which we need to convert to u8)
                 //  - return the success
-                let data = &mut mmap_mut[self.info.data_offsets.0 + self.offset..self.info.data_offsets.1 + self.offset];
-
-                let slices: Vec<TensorIndexer> = slices
-                    .into_iter()
-                    .map(slice_to_indexer)
-                    .collect::<Result<_, _>>()
-                    .unwrap();
-
-                let newshape_and_indices = generate_slice_newshape_and_indices(
-                    self.info.shape.clone(),
-                     self.info.dtype.size(),
-                    slices,
-                ).unwrap();
+                let data = &mut mmap_mut[self.info.data_offsets.0 + self.offset
+                    ..self.info.data_offsets.1 + self.offset];
 
                 let mut offset = 0;
 
                 // ideally this
-                for (start, end) in newshape_and_indices.0 {
+                for (start, end) in indices {
                     let next_offset = offset + end - start;
                     data[start..end].copy_from_slice(&value_data[offset..next_offset]);
                     offset = next_offset;
@@ -1084,6 +1105,7 @@ impl PySafeSlice {
             Storage::TorchStorage(_) => panic!("TODO never implemented"),
             Storage::Mmap(_) => panic!("Mmap is read-only"),
         }
+        Ok(());
     }
 }
 
