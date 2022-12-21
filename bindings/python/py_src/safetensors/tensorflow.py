@@ -39,7 +39,7 @@ def save_file(
     tensors: Dict[str, tf.Tensor],
     filename: str,
     metadata: Optional[Dict[str, str]] = None,
-):
+) -> None:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 

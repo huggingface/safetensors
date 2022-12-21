@@ -25,7 +25,7 @@ def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]]
 
     ```python
     from safetensors.flax import save
-    import flax
+    from jax import numpy as jnp
 
     tensors = {"embedding": jnp.zeros((512, 1024)), "attention": jnp.zeros((256, 256))}
     byte_data = save(tensors)
@@ -39,7 +39,7 @@ def save_file(
     tensors: Dict[str, jnp.DeviceArray],
     filename: str,
     metadata: Optional[Dict[str, str]] = None,
-):
+) -> None:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
@@ -60,7 +60,7 @@ def save_file(
 
     ```python
     from safetensors.flax import save_file
-    import flax
+    from jax import numpy as jnp
 
     tensors = {"embedding": jnp.zeros((512, 1024)), "attention": jnp.zeros((256, 256))}
     save(tensors, "model.safetensors")
