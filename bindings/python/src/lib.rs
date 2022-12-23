@@ -322,9 +322,7 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
         let mut path = path.ok()?;
         path.pop();
         path.push("lib");
-        println!("Using path {path:?}");
         let paths = std::fs::read_dir(path).ok()?;
-        println!("Using paths {paths:?}");
         let cudart_paths: Vec<_> = paths
             .into_iter()
             .filter_map(|p| {
@@ -337,10 +335,8 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
                 }
             })
             .collect();
-        println!("Using cudart paths {cudart_paths:?}");
         let cudart_path = cudart_paths.get(0)?;
-        println!("Using cudart_path {cudart_path:?}");
-        unsafe { libloading::os::windows::Library::open_already_loaded(cudart_path).ok()? }
+        Library::from(libloading::os::windows::Library::open_already_loaded(cudart_path).ok()?)
     };
 
     Some(lib)
