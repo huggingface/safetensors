@@ -308,12 +308,12 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
         .ok()?
         .extract();
 
-    // SAFETY: This is unsafe because the library might run arbitrary code
-    // So it's really important to make sure we are targeting the correct
-    // library.
     #[cfg(not(target_os = "windows"))]
     let lib = {
         let path = path.ok()?;
+        // SAFETY: This is unsafe because the library might run arbitrary code
+        // So it's really important to make sure we are targeting the correct
+        // library.
         unsafe { Library::new(path).ok()? }
     };
 
