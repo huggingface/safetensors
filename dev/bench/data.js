@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1671454582720,
+  "lastUpdate": 1672129112033,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -4184,6 +4184,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04758305347474547",
             "extra": "mean: 258.4563744000093 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a104c5e153364d774569f47e4d7666ba1664ab03",
+          "message": "Making SAFETENSORS_FAST_GPU=1 work on Windows again. (#140)\n\n* Making Windows load cudart differently.\r\n\r\n* Remove unsafe.\r\n\r\n* Misplaced comment",
+          "timestamp": "2022-12-27T09:13:28+01:00",
+          "tree_id": "3bbb018a0af1dd8ad4a9c3f632a63813a0e80480",
+          "url": "https://github.com/huggingface/safetensors/commit/a104c5e153364d774569f47e4d7666ba1664ab03"
+        },
+        "date": 1672129111401,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2371303895711236,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014661077028059464",
+            "extra": "mean: 808.3222338000041 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.232427691848192,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07822849142440552",
+            "extra": "mean: 309.36500220001335 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.5228681415753,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009796546510707872",
+            "extra": "mean: 283.85961660002295 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 217.9344538593799,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002053464775600215",
+            "extra": "mean: 4.588535599998522 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.554805685488301,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09679703485883735",
+            "extra": "mean: 643.1671875999996 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.530220917920765,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012013521233173792",
+            "extra": "mean: 283.2683911999993 msec\nrounds: 5"
           }
         ]
       }
