@@ -30,6 +30,8 @@ pub enum SafeTensorError {
     InvalidOffset(String),
     /// IoError
     IoError(std::io::Error),
+    /// Invalid dtype
+    UnsupportedDtype(String),
 }
 
 impl From<std::io::Error> for SafeTensorError {
@@ -206,7 +208,8 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    fn new(
+    /// Metadata constructor
+    pub fn new(
         metadata: Option<BTreeMap<String, String>>,
         tensors: BTreeMap<String, TensorInfo>,
     ) -> Result<Self, SafeTensorError> {
@@ -348,6 +351,29 @@ impl Dtype {
             Dtype::F32 => 4,
             Dtype::F64 => 8,
         }
+    }
+
+    /// Parse a string into a Dtype object
+    pub fn from_str(string: &str) -> Result<Self, SafeTensorError> {
+        let dtype = match string {
+            "bool" => Dtype::BOOL,
+            "int8" => Dtype::I8,
+            "uint8" => Dtype::U8,
+            "int16" => Dtype::I16,
+            "uint16" => Dtype::U16,
+            "int32" => Dtype::I32,
+            "uint32" => Dtype::U32,
+            "int64" => Dtype::I64,
+            "uint64" => Dtype::U64,
+            "float16" => Dtype::F16,
+            "float32" => Dtype::F32,
+            "float64" => Dtype::F64,
+            "bfloat16" => Dtype::BF16,
+            dtype_str => {
+                return Err(SafeTensorError::UnsupportedDtype(dtype_str.to_string()));
+            }
+        };
+        Ok(dtype)
     }
 }
 
@@ -507,6 +533,20 @@ mod tests {
         assert_eq!(tensor.get_dtype(), Dtype::I32);
         // 16 bytes
         assert_eq!(tensor.get_data(), b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+    }
+
+    #[test]
+    fn test_deserialization_bool() {
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"BOOL\",\"shape\":[2,2],\"data_offsets\":[0,4]}}\x00\x00\x00\x00";
+
+        let loaded = SafeTensors::deserialize(serialized).unwrap();
+
+        assert_eq!(loaded.names(), vec!["test"]);
+        let tensor = loaded.tensor("test").unwrap();
+        assert_eq!(tensor.get_shape(), vec![2, 2]);
+        assert_eq!(tensor.get_dtype(), Dtype::BOOL);
+        // 4 bytes
+        assert_eq!(tensor.get_data(), b"\0\0\0\0");
     }
 
     #[test]

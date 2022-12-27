@@ -1,7 +1,9 @@
 #![deny(missing_docs)]
 //! Dummy doc
+extern crate core;
+
 use libloading::{Library, Symbol};
-use memmap2::{Mmap, MmapOptions};
+use memmap2::{Mmap, MmapMut, MmapOptions};
 use pyo3::exceptions;
 use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
@@ -9,14 +11,14 @@ use pyo3::types::IntoPyDict;
 use pyo3::types::PySlice;
 use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
 use pyo3::{intern, PyErr};
-use safetensors::slice::TensorIndexer;
+use safetensors::slice::{generate_slice_newshape_and_indices, TensorIndexer};
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
 use std::collections::{BTreeMap, HashMap};
-use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 #[repr(C)]
 enum cudaMemcpyKind {
@@ -50,26 +52,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                 "shape" => shape = value.extract()?,
                 "dtype" => {
                     let value: &str = value.extract()?;
-                    dtype = match value {
-                        "bool" => Dtype::BOOL,
-                        "int8" => Dtype::I8,
-                        "uint8" => Dtype::U8,
-                        "int16" => Dtype::I16,
-                        "uint16" => Dtype::U16,
-                        "int32" => Dtype::I32,
-                        "uint32" => Dtype::U32,
-                        "int64" => Dtype::I64,
-                        "uint64" => Dtype::U64,
-                        "float16" => Dtype::F16,
-                        "float32" => Dtype::F32,
-                        "float64" => Dtype::F64,
-                        "bfloat16" => Dtype::BF16,
-                        dtype_str => {
-                            return Err(exceptions::PyException::new_err(format!(
-                                "dtype {dtype_str} is not covered",
-                            )));
-                        }
-                    }
+                    dtype = Dtype::from_str(value).unwrap();
                 }
                 "data" => data = value.extract()?,
                 _ => println!("Ignored unknown kwarg option {}", key),
@@ -422,7 +405,10 @@ fn get_error_string(module: &PyModule, out: u32) -> PyResult<String> {
 }
 
 enum Storage {
+    /// Mmap used for reading
     Mmap(Mmap),
+    /// Mmap used for writing
+    MmapMut(Mutex<MmapMut>),
     /// Torch specific mmap
     /// This allows us to not manage it
     /// so Pytorch can handle the whole lifecycle.
@@ -471,6 +457,61 @@ impl Version {
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub enum OpenMode {
+    Read,
+    Write,
+}
+
+impl<'source> FromPyObject<'source> for OpenMode {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let name: String = ob.extract()?;
+        match &name[..] {
+            "r" => Ok(OpenMode::Read),
+            "w" => Ok(OpenMode::Write),
+            name => Err(exceptions::PyException::new_err(format!(
+                "mode {name} is invalid, expects 'r' or 'w'"
+            ))),
+        }
+    }
+}
+
+struct PyTensorInfo {
+    tensor_info: TensorInfo,
+}
+
+impl<'source> FromPyObject<'source> for PyTensorInfo {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let dict: &PyDict = ob.extract()?;
+        Ok(PyTensorInfo {
+            tensor_info: TensorInfo {
+                dtype: Dtype::from_str(dict.get_item("dtype").unwrap().extract()?).unwrap(),
+                shape: dict.get_item("shape").unwrap().extract()?,
+                data_offsets: dict.get_item("data_offsets").unwrap().extract()?,
+            },
+        })
+    }
+}
+
+struct PyMetadata {
+    metadata: Metadata,
+}
+
+impl<'source> FromPyObject<'source> for PyMetadata {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        let mut tensors_metadata = BTreeMap::new();
+        let dict: &PyDict = ob.extract()?;
+        for (key, value) in dict {
+            let key: &str = key.extract()?;
+            let value: PyTensorInfo = value.extract()?;
+            tensors_metadata.insert(key.to_string(), value.tensor_info);
+        }
+        Ok(PyMetadata {
+            metadata: Metadata::new(None, tensors_metadata).unwrap(),
+        })
+    }
+}
+
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
@@ -492,14 +533,29 @@ struct safe_open {
     framework: Framework,
     device: Device,
     storage: Arc<Storage>,
+    mode: OpenMode,
 }
 
 #[pymethods]
 impl safe_open {
     #[new]
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(&filename)?;
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        device: Option<Device>,
+        mode: Option<OpenMode>,
+        metadata: Option<PyMetadata>,
+    ) -> PyResult<Self> {
         let device = device.unwrap_or(Device::Cpu);
+        let mode = mode.unwrap_or(OpenMode::Read);
+        let metadata = metadata.map(|elt| elt.metadata);
+
+        // TODO @thomas21: Do with buiulder `File::options`
+        let mut options = std::fs::OpenOptions::new();
+        if mode == OpenMode::Write {
+            options.write(true).create(true);
+        }
+        let file = options.open(&filename)?;
 
         if device != Device::Cpu && framework != Framework::Pytorch {
             return Err(exceptions::PyException::new_err(format!(
@@ -507,15 +563,13 @@ impl safe_open {
             )));
         }
 
-        // SAFETY: Mmap is used to prevent allocating in Rust
-        // before making a copy within Python.
-        let buffer = unsafe { MmapOptions::new().map(&file)? };
+        if mode == OpenMode::Write && metadata.is_none() {
+            return Err(exceptions::PyException::new_err(format!(
+                "Write mode requires the user to provide metadata before opening"
+            )));
+        }
 
-        let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
-            exceptions::PyException::new_err(format!("Error while deserializing header: {:?}", e))
-        })?;
-
-        let offset = n + 8;
+        let mmap_options = MmapOptions::new();
 
         Python::with_gil(|py| -> PyResult<()> {
             match framework {
@@ -536,44 +590,73 @@ impl safe_open {
             Ok(())
         })?;
 
-        let storage = match (&framework, &device) {
-            (Framework::Pytorch, Device::Cpu) => Python::with_gil(|py| -> PyResult<Storage> {
-                let module = get_module(py, &TORCH_MODULE)?;
+        let (n, metadata, storage) = match &mode {
+            OpenMode::Read => {
+                // SAFETY: Mmap is used to prevent allocating in Rust
+                // before making a copy within Python.
+                let buffer = unsafe { mmap_options.map(&file)? };
+                let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
+                    exceptions::PyException::new_err(format!(
+                        "Error while deserializing header: {:?}",
+                        e
+                    ))
+                })?;
+                let storage = match (&framework, &device) {
+                    (Framework::Pytorch, Device::Cpu) => {
+                        Python::with_gil(|py| -> PyResult<Storage> {
+                            let module = get_module(py, &TORCH_MODULE)?;
 
-                let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
-                let version =
-                    Version::from_string(version).map_err(exceptions::PyException::new_err)?;
+                            let version: String =
+                                module.getattr(intern!(py, "__version__"))?.extract()?;
+                            let version = Version::from_string(version)
+                                .map_err(exceptions::PyException::new_err)?;
 
-                // Untyped storage only exists for versions over 1.11.0
-                // Same for torch.asarray which is necessary for zero-copy tensor
-                if version >= Version::new(1, 11, 0) {
-                    // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
-                    let py_filename: PyObject = filename.into_py(py);
-                    let size: PyObject = buffer.len().into_py(py);
-                    let shared: PyObject = false.into_py(py);
-                    let kwargs = [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
-                        .into_py_dict(py);
-                    let storage = module
-                        .getattr(intern!(py, "ByteStorage"))?
-                        .getattr(intern!(py, "from_file"))?
-                        .call((py_filename,), Some(kwargs))?;
+                            // Untyped storage only exists for versions over 1.11.0
+                            // Same for torch.asarray which is necessary for zero-copy tensor
+                            if version >= Version::new(1, 11, 0) {
+                                // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
+                                let py_filename: PyObject = filename.into_py(py);
+                                let size: PyObject = buffer.len().into_py(py);
+                                let shared: PyObject = false.into_py(py);
+                                let kwargs =
+                                    [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
+                                        .into_py_dict(py);
+                                let storage = module
+                                    .getattr(intern!(py, "ByteStorage"))?
+                                    .getattr(intern!(py, "from_file"))?
+                                    .call((py_filename,), Some(kwargs))?;
 
-                    let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
-                        Ok(untyped) => untyped,
-                        Err(_) => storage.getattr(intern!(py, "_untyped"))?,
-                    };
-                    let storage = untyped.call0()?.into_py(py);
-                    let gil_storage = GILOnceCell::new();
-                    gil_storage.get_or_init(py, || storage);
+                                let untyped: &PyAny = match storage.getattr(intern!(py, "untyped"))
+                                {
+                                    Ok(untyped) => untyped,
+                                    Err(_) => storage.getattr(intern!(py, "_untyped"))?,
+                                };
+                                let storage = untyped.call0()?.into_py(py);
+                                let gil_storage = GILOnceCell::new();
+                                gil_storage.get_or_init(py, || storage);
 
-                    Ok(Storage::TorchStorage(gil_storage))
-                } else {
-                    Ok(Storage::Mmap(buffer))
-                }
-            })?,
-            _ => Storage::Mmap(buffer),
+                                Ok(Storage::TorchStorage(gil_storage))
+                            } else {
+                                Ok(Storage::Mmap(buffer))
+                            }
+                        })?
+                    }
+                    _ => Storage::Mmap(buffer),
+                };
+                (n, metadata, storage)
+            }
+            OpenMode::Write => {
+                // SAFETY: Mmap is used to prevent allocating in Rust
+                // before making a copy within Python.
+                let buffer = unsafe { mmap_options.map_mut(&file)? };
+                // TODO @thomas21: probably need to write metadata here
+                let metadata = metadata.unwrap();
+                let n = serde_json::to_string(&metadata).unwrap().as_bytes().len();
+                (n, metadata, Storage::MmapMut(Mutex::new(buffer)))
+            }
         };
 
+        let offset = n + 8;
         let storage = Arc::new(storage);
 
         Ok(Self {
@@ -582,6 +665,7 @@ impl safe_open {
             framework,
             device,
             storage,
+            mode,
         })
     }
 
@@ -629,6 +713,32 @@ impl safe_open {
         })?;
 
         match &self.storage.as_ref() {
+            Storage::MmapMut(mmap_mut) => {
+                let mmap_mut = mmap_mut.lock().unwrap();
+                let data =
+                    &mmap_mut[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
+                        (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
+                            let module = get_module(py, &TORCH_MODULE)?;
+                            create_cuda_unsafe_tensor(module, cuda_memcpy, info, &self.device, data)
+                        }
+                        _ => {
+                            let array: PyObject =
+                                Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
+
+                            create_tensor(
+                                &self.framework,
+                                info.dtype,
+                                &info.shape,
+                                array,
+                                &self.device,
+                            )
+                        }
+                    }
+                })
+            }
             Storage::Mmap(mmap) => {
                 let data =
                     &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
@@ -868,6 +978,63 @@ impl PySafeSlice {
                     },
                 )
             }
+            Storage::MmapMut(mmap_mut) => {
+                let mmap_mut = mmap_mut.lock().unwrap();
+                let data = &mmap_mut[self.info.data_offsets.0 + self.offset
+                    ..self.info.data_offsets.1 + self.offset];
+
+                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data);
+                let slices: Vec<TensorIndexer> = slices
+                    .into_iter()
+                    .map(slice_to_indexer)
+                    .collect::<Result<_, _>>()?;
+
+                let iterator = tensor.get_sliced_data(slices.clone()).map_err(|e| {
+                    exceptions::PyException::new_err(format!(
+                        "Error during slicing {slices:?} vs {:?}:  {:?}",
+                        self.info.shape, e
+                    ))
+                })?;
+                let newshape = iterator.newshape();
+
+                let mut offset = 0;
+                let length = iterator.remaining_byte_len();
+
+                Python::with_gil(
+                    |py| match (&self.device, &self.framework, CUDA_MEMCPY.get(py)) {
+                        (Device::Cuda(_), Framework::Pytorch, Some(Some(cuda_memcpy))) => {
+                            let module = get_module(py, &TORCH_MODULE)?;
+                            create_cuda_unsafe_tensor_from_slice(
+                                module,
+                                cuda_memcpy,
+                                &newshape,
+                                self.info.dtype,
+                                &self.device,
+                                iterator,
+                            )
+                        }
+                        _ => {
+                            let array: PyObject =
+                                PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                                    for slice in iterator {
+                                        let len = slice.len();
+                                        bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                                        offset += len;
+                                    }
+                                    Ok(())
+                                })?
+                                .into_py(py);
+                            create_tensor(
+                                &self.framework,
+                                self.info.dtype,
+                                &newshape,
+                                array,
+                                &self.device,
+                            )
+                        }
+                    },
+                )
+            }
             Storage::TorchStorage(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
                 let torch = get_module(py, &TORCH_MODULE)?;
                 let dtype: PyObject = get_pydtype(torch, self.info.dtype)?;
@@ -900,6 +1067,71 @@ impl PySafeSlice {
                 Ok(tensor.into_py(py))
             }),
         }
+    }
+
+    pub fn __setitem__(&mut self, slices: Slice, value: &PyDict) -> PyResult<()> {
+        let slices: Vec<&PySlice> = match slices {
+            Slice::Slice(slice) => vec![slice],
+            Slice::Slices(slices) => slices,
+        };
+
+        let slices: Vec<TensorIndexer> = slices
+            .into_iter()
+            .map(slice_to_indexer)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let mut value_data: &[u8] = &[];
+        let (indices, newshape) = generate_slice_newshape_and_indices(
+            self.info.shape.clone(),
+            self.info.dtype.size(),
+            slices,
+        )
+        .unwrap();
+
+        for (k, v) in value {
+            let k: &str = k.extract().unwrap();
+            match k {
+                "shape" => {
+                    // TODO @thomasw21 check that the value shape is the same as slices (or at least broadcastable to it)
+                    let shape: Vec<usize> = v.extract()?;
+                    assert!(shape == newshape);
+                }
+                "dtype" => {
+                    let v: &str = v.extract().unwrap();
+                    let dtype = Dtype::from_str(v).unwrap();
+                    assert!(self.info.dtype == dtype);
+                }
+                "data" => value_data = v.extract().unwrap(),
+                unsupported_key => println!("Ignored unknown kwarg option {}", unsupported_key),
+            };
+        }
+        let value_data = value_data;
+
+        match &self.storage.as_ref() {
+            Storage::MmapMut(mmap_mut) => {
+                // TODO @thomas21:
+                //  - Get a mutable mmap
+                //  - Get the correct slice in data, (this means applying a list of slices)
+                //  - Set the correct memory space to that value (which we need to convert to u8)
+                //  - return the success
+                let mut mmap_mut = mmap_mut.lock().unwrap();
+                let data = &mut mmap_mut[self.info.data_offsets.0 + self.offset
+                    ..self.info.data_offsets.1 + self.offset];
+
+                let mut offset = 0;
+
+                // ideally this
+                for (start, end) in indices {
+                    let next_offset = offset + end - start;
+                    data[start..end].copy_from_slice(&value_data[offset..next_offset]);
+                    offset = next_offset;
+                }
+            }
+            Storage::TorchStorage(_) => panic!("TODO never implemented"),
+            Storage::Mmap(_) => panic!("Mmap is read-only"),
+        }
+        Ok(())
     }
 }
 

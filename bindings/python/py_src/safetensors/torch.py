@@ -96,6 +96,8 @@ def load_file(filename: str, device="cpu") -> Dict[str, torch.Tensor]:
     """
     result = {}
     with safe_open(filename, framework="pt", device=device) as f:
+        f2 = f
+        print(id(f2), id(f))
         for k in f.keys():
             result[k] = f.get_tensor(k)
     return result
@@ -234,10 +236,13 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
         )
 
     return {
-        k: {
-            "dtype": str(v.dtype).split(".")[-1],
+        k: _to_dict(v, k)
+        for k, v in tensors.items()
+    }
+
+def _to_dict(tensor: torch.Tensor, name: Optional[str]) -> Dict[str, Any]:
+    return {
+            "dtype": str(tensor.dtype).split(".")[-1],
             "shape": v.shape,
             "data": _tobytes(v, k),
         }
-        for k, v in tensors.items()
-    }
