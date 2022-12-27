@@ -300,17 +300,45 @@ fn find_cudart(module: &PyModule) -> Option<Library> {
     if var != "1" {
         return None;
     }
-    let path: std::path::PathBuf = module
+
+    let path: PyResult<std::path::PathBuf> = module
         .getattr(intern!(module.py(), "_C"))
         .ok()?
         .getattr(intern!(module.py(), "__file__"))
         .ok()?
-        .extract()
-        .ok()?;
-    // SAFETY: This is unsafe because the library might run arbitrary code
-    // So it's really important to make sure we are targeting the correct
-    // library.
-    let lib = unsafe { Library::new(path).ok()? };
+        .extract();
+
+    #[cfg(not(target_os = "windows"))]
+    let lib = {
+        let path = path.ok()?;
+        // SAFETY: This is unsafe because the library might run arbitrary code
+        // So it's really important to make sure we are targeting the correct
+        // library.
+        unsafe { Library::new(path).ok()? }
+    };
+
+    #[cfg(target_os = "windows")]
+    let lib = {
+        let mut path = path.ok()?;
+        path.pop();
+        path.push("lib");
+        let paths = std::fs::read_dir(path).ok()?;
+        let cudart_paths: Vec<_> = paths
+            .into_iter()
+            .filter_map(|p| {
+                let p = p.ok()?.path();
+                let filename = p.file_name()?.to_string_lossy();
+                if filename.starts_with("cudart") {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let cudart_path = cudart_paths.get(0)?;
+        Library::from(libloading::os::windows::Library::open_already_loaded(cudart_path).ok()?)
+    };
+
     Some(lib)
 }
 
