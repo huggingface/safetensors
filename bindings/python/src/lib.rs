@@ -452,14 +452,14 @@ impl Version {
         let major_str = parts.next().ok_or_else(err)?;
         let minor_str = parts.next().ok_or_else(err)?;
         let patch_str = parts.next().ok_or_else(err)?;
-        let mut patch_parts = patch_str.split('+');
-        let mut patch_str = patch_parts.next().ok_or_else(err)?;
-
-        // Alpha version
-        if patch_str.contains('a') {
-            let mut patch_parts = patch_str.split('a');
-            patch_str = patch_parts.next().ok_or_else(err)?;
-        }
+        // Patch is more complex and can be:
+        // - `1` a number
+        // - `1a0`, `1b0`, `1rc1` an alpha, beta, release candidate version
+        // - `1a0+git2323` from source with commit number
+        let patch_str: String = patch_str
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
 
         let major = major_str.parse().map_err(|_| err())?;
         let minor = minor_str.parse().map_err(|_| err())?;
