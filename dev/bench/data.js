@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1672298605967,
+  "lastUpdate": 1672407256146,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -4382,6 +4382,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011342745205001777",
             "extra": "mean: 312.5712078000106 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc891f56afc61fbbbc2e804ad8ed156a0798a75c",
+          "message": "Updating rust ergonomics. (#144)\n\n- `get_` prefix removed in a few functions.\r\n- Make error implement Error.",
+          "timestamp": "2022-12-30T14:28:44+01:00",
+          "tree_id": "aa1baae8a3825006b33fadc5f4a941ad5a7224e1",
+          "url": "https://github.com/huggingface/safetensors/commit/dc891f56afc61fbbbc2e804ad8ed156a0798a75c"
+        },
+        "date": 1672407255015,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1341784657516945,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027611115869293164",
+            "extra": "mean: 881.6954564000071 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.7456486729195295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0836491988921162",
+            "extra": "mean: 364.2126576000237 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.177408273279422,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0305407553241278",
+            "extra": "mean: 239.3828744000075 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 175.20772803533112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00018395171567083294",
+            "extra": "mean: 5.707510799970805 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3670172231598852,
+            "unit": "iter/sec",
+            "range": "stddev: 0.049910284929194505",
+            "extra": "mean: 731.5196788000094 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.6309968223649194,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015751702175088863",
+            "extra": "mean: 275.40646520001246 msec\nrounds: 5"
           }
         ]
       }
