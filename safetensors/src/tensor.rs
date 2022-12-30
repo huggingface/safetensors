@@ -38,6 +38,14 @@ impl From<std::io::Error> for SafeTensorError {
     }
 }
 
+impl std::fmt::Display for SafeTensorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for SafeTensorError {}
+
 fn prepare<'hash, 'data>(
     data: &'hash BTreeMap<String, TensorView<'data>>,
     data_info: &'hash Option<BTreeMap<String, String>>,
@@ -262,22 +270,22 @@ impl<'data> TensorView<'data> {
         Self { dtype, shape, data }
     }
     /// The current tensor dtype
-    pub fn get_dtype(&self) -> Dtype {
+    pub fn dtype(&self) -> Dtype {
         self.dtype
     }
 
     /// The current tensor shape
-    pub fn get_shape(&'data self) -> &'data [usize] {
+    pub fn shape(&'data self) -> &'data [usize] {
         &self.shape
     }
 
     /// The current tensor byte-buffer
-    pub fn get_data(&self) -> &'data [u8] {
+    pub fn data(&self) -> &'data [u8] {
         self.data
     }
 
     /// The various pieces of the data buffer according to the asked slice
-    pub fn get_sliced_data(
+    pub fn sliced_data(
         &'data self,
         slices: Vec<TensorIndexer>,
     ) -> Result<SliceIterator<'data>, InvalidSlice> {
@@ -503,10 +511,10 @@ mod tests {
 
         assert_eq!(loaded.names(), vec!["test"]);
         let tensor = loaded.tensor("test").unwrap();
-        assert_eq!(tensor.get_shape(), vec![2, 2]);
-        assert_eq!(tensor.get_dtype(), Dtype::I32);
+        assert_eq!(tensor.shape(), vec![2, 2]);
+        assert_eq!(tensor.dtype(), Dtype::I32);
         // 16 bytes
-        assert_eq!(tensor.get_data(), b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+        assert_eq!(tensor.data(), b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
     }
 
     #[test]

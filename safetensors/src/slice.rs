@@ -84,7 +84,7 @@ where
     A: Into<TensorIndexer>,
 {
     fn slice(&'data self, index: A) -> Result<SliceIterator<'data>, InvalidSlice> {
-        self.get_sliced_data(vec![index.into()])
+        self.sliced_data(vec![index.into()])
     }
 }
 
@@ -94,7 +94,7 @@ where
 {
     fn slice(&'data self, index: (A,)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
-        self.get_sliced_data(vec![idx_a])
+        self.sliced_data(vec![idx_a])
     }
 }
 
@@ -106,7 +106,7 @@ where
     fn slice(&'data self, index: (A, B)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
-        self.get_sliced_data(vec![idx_a, idx_b])
+        self.sliced_data(vec![idx_a, idx_b])
     }
 }
 
@@ -120,7 +120,7 @@ where
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         let idx_c = index.2.into();
-        self.get_sliced_data(vec![idx_a, idx_b, idx_c])
+        self.sliced_data(vec![idx_a, idx_b, idx_c])
     }
 }
 
@@ -136,7 +136,7 @@ where
 //         let idx_b = index.1.into();
 //         let idx_c = index.2.into();
 //         let idx_d = index.3.into();
-//         self.get_sliced_data(&[idx_a, idx_b, idx_c, idx_d])
+//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d])
 //     }
 // }
 //
@@ -154,7 +154,7 @@ where
 //         let idx_c = index.2.into();
 //         let idx_d = index.3.into();
 //         let idx_e = index.4.into();
-//         self.get_sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e])
+//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e])
 //     }
 // }
 //
@@ -174,7 +174,7 @@ where
 //         let idx_d = index.3.into();
 //         let idx_e = index.4.into();
 //         let idx_f = index.5.into();
-//         self.get_sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f])
+//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f])
 //     }
 // }
 //
@@ -196,7 +196,7 @@ where
 //         let idx_e = index.4.into();
 //         let idx_f = index.5.into();
 //         let idx_g = index.6.into();
-//         self.get_sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f, idx_g])
+//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f, idx_g])
 //     }
 // }
 

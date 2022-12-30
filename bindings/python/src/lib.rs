@@ -160,10 +160,10 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
     for (tensor_name, tensor) in safetensor.tensors() {
         let mut map = HashMap::new();
 
-        let pyshape: PyObject = PyList::new(py, tensor.get_shape().iter()).into();
-        let pydtype: PyObject = format!("{:?}", tensor.get_dtype()).into_py(py);
+        let pyshape: PyObject = PyList::new(py, tensor.shape().iter()).into();
+        let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_py(py);
 
-        let pydata: PyObject = PyByteArray::new(py, tensor.get_data()).into();
+        let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
 
         map.insert("shape".to_string(), pyshape);
         map.insert("dtype".to_string(), pydtype);
@@ -823,7 +823,7 @@ impl PySafeSlice {
                     .map(slice_to_indexer)
                     .collect::<Result<_, _>>()?;
 
-                let iterator = tensor.get_sliced_data(slices.clone()).map_err(|e| {
+                let iterator = tensor.sliced_data(slices.clone()).map_err(|e| {
                     exceptions::PyException::new_err(format!(
                         "Error during slicing {slices:?} vs {:?}:  {:?}",
                         self.info.shape, e
