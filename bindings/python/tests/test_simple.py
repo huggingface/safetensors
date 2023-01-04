@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
+from safetensors import safe_open
 
 
 class TestCase(unittest.TestCase):
@@ -18,7 +20,7 @@ class TestCase(unittest.TestCase):
 
         self.assertEqual(
             out,
-            b"""<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00""",
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}    \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
         )
 
         data[1, 1] = 1
@@ -26,7 +28,7 @@ class TestCase(unittest.TestCase):
 
         self.assertEqual(
             out,
-            b"""<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\00""",
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}    \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00',
         )
 
     def test_deserialization(self):
@@ -36,12 +38,40 @@ class TestCase(unittest.TestCase):
         self.assertEqual(list(out.keys()), ["test"])
         np.testing.assert_array_equal(out["test"], np.zeros((2, 2), dtype=np.int32))
 
+    def test_deserialization_metadata(self):
+        serialized = b'f\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"framework":"pt"},"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}       \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(serialized)
+            f.seek(0)
+
+            with safe_open(f.name, framework="np") as g:
+                self.assertEqual(g.metadata(), {"framework": "pt"})
+
     def test_serialization_order_invariant(self):
         data = np.zeros((2, 2), dtype=np.int32)
         out1 = save({"test1": data, "test2": data})
         out2 = save({"test2": data, "test1": data})
-
         self.assertEqual(out1, out2)
+
+    def test_serialization_forces_alignment(self):
+        data = np.zeros((2, 2), dtype=np.int32)
+        data2 = np.zeros((2, 2), dtype=np.float16)
+        out1 = save({"test1": data, "test2": data2})
+        out2 = save({"test2": data2, "test1": data})
+        self.assertEqual(out1, out2)
+        self.assertEqual(
+            out1,
+            b'|\x00\x00\x00\x00\x00\x00\x00{"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]},"test2":{"dtype":"F16","shape":[2,2],"data_offsets":[16,24]}}  \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+        )
+
+    def test_serialization_metadata(self):
+        data = np.zeros((2, 2), dtype=np.int32)
+        out1 = save({"test1": data}, metadata={"framework": "pt"})
+        self.assertEqual(
+            out1,
+            b'f\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"framework":"pt"},"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}       \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+        )
 
     def test_serialization_no_big_endian(self):
         # Big endian tensor

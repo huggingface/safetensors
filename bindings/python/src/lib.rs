@@ -11,7 +11,7 @@ use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
@@ -38,12 +38,12 @@ static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static CUDA_MEMCPY: GILOnceCell<Option<Symbol<MemcpyFn>>> = GILOnceCell::new();
 
-fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
-    let mut tensors = BTreeMap::new();
+fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, TensorView<'_>>> {
+    let mut tensors = HashMap::new();
     for (tensor_name, tensor_desc) in tensor_dict {
-        let mut shape: Vec<usize> = vec![];
-        let mut dtype = Dtype::F32;
-        let mut data: &[u8] = &[];
+        let mut shape: Option<Vec<usize>> = None;
+        let mut dtype: Option<Dtype> = None;
+        let mut data: Option<&[u8]> = None;
         for (key, value) in tensor_desc {
             let key: &str = key.extract()?;
             match key {
@@ -51,19 +51,19 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                 "dtype" => {
                     let value: &str = value.extract()?;
                     dtype = match value {
-                        "bool" => Dtype::BOOL,
-                        "int8" => Dtype::I8,
-                        "uint8" => Dtype::U8,
-                        "int16" => Dtype::I16,
-                        "uint16" => Dtype::U16,
-                        "int32" => Dtype::I32,
-                        "uint32" => Dtype::U32,
-                        "int64" => Dtype::I64,
-                        "uint64" => Dtype::U64,
-                        "float16" => Dtype::F16,
-                        "float32" => Dtype::F32,
-                        "float64" => Dtype::F64,
-                        "bfloat16" => Dtype::BF16,
+                        "bool" => Some(Dtype::BOOL),
+                        "int8" => Some(Dtype::I8),
+                        "uint8" => Some(Dtype::U8),
+                        "int16" => Some(Dtype::I16),
+                        "uint16" => Some(Dtype::U16),
+                        "int32" => Some(Dtype::I32),
+                        "uint32" => Some(Dtype::U32),
+                        "int64" => Some(Dtype::I64),
+                        "uint64" => Some(Dtype::U64),
+                        "float16" => Some(Dtype::F16),
+                        "float32" => Some(Dtype::F32),
+                        "float64" => Some(Dtype::F64),
+                        "bfloat16" => Some(Dtype::BF16),
                         dtype_str => {
                             return Err(SafetensorError::new_err(format!(
                                 "dtype {dtype_str} is not covered",
@@ -75,7 +75,18 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                 _ => println!("Ignored unknown kwarg option {key}"),
             };
         }
-        let tensor = TensorView::new(dtype, shape, data);
+        let shape = shape.ok_or_else(|| {
+            SafetensorError::new_err(format!("Missing `shape` in {tensor_desc:?}"))
+        })?;
+        let dtype = dtype.ok_or_else(|| {
+            SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
+        })?;
+        let data = data.ok_or_else(|| {
+            SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
+        })?;
+        let tensor = TensorView::new(dtype, shape, data).map_err(|e| {
+            SafetensorError::new_err(format!("Error preparing tensor view: {:?}", e))
+        })?;
         tensors.insert(tensor_name, tensor);
     }
     Ok(tensors)
@@ -100,9 +111,11 @@ fn serialize<'b>(
     tensor_dict: HashMap<String, &PyDict>,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
+    println!("Tensor dict {:?}", tensor_dict);
     let tensors = prepare(tensor_dict)?;
-    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
-    let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap)
+    println!("Tensors {:?}", tensors);
+    let metadata_map = metadata.map(|data| HashMap::from_iter(data.into_iter()));
+    let out = safetensors::tensor::serialize(&tensors, &metadata_map)
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
@@ -130,8 +143,7 @@ fn serialize_file(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
-    safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename.as_path())
+    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename.as_path())
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
     Ok(())
 }
@@ -569,7 +581,7 @@ impl Open {
     /// Returns:
     ///     (`Dict[str, str]`):
     ///         The freeform metadata.
-    pub fn metadata(&self) -> Option<BTreeMap<String, String>> {
+    pub fn metadata(&self) -> Option<HashMap<String, String>> {
         self.metadata.metadata().clone()
     }
 
@@ -579,7 +591,7 @@ impl Open {
     ///     (`List[str]`):
     ///         The name of the tensors contained in that file
     pub fn keys(&self) -> PyResult<Vec<String>> {
-        let mut keys: Vec<_> = self.metadata.tensors().keys().cloned().collect();
+        let mut keys: Vec<String> = self.metadata.tensors().keys().cloned().collect();
         keys.sort();
         Ok(keys)
     }
@@ -603,7 +615,8 @@ impl Open {
     ///
     /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        let info = self.metadata.tensors().get(name).ok_or_else(|| {
+        let tensors = self.metadata.tensors();
+        let info = tensors.get(name).ok_or_else(|| {
             SafetensorError::new_err(format!("File does not contain tensor {name}",))
         })?;
 
@@ -687,7 +700,7 @@ impl Open {
     ///
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
-        if let Some(info) = self.metadata.tensors().get(name) {
+        if let Some(&info) = self.metadata.tensors().get(name) {
             Ok(PySafeSlice {
                 info: info.clone(),
                 framework: self.framework.clone(),
@@ -745,7 +758,7 @@ impl safe_open {
     /// Returns:
     ///     (`Dict[str, str]`):
     ///         The freeform metadata.
-    pub fn metadata(&self) -> PyResult<Option<BTreeMap<String, String>>> {
+    pub fn metadata(&self) -> PyResult<Option<HashMap<String, String>>> {
         Ok(self.inner()?.metadata())
     }
 
@@ -900,7 +913,10 @@ impl PySafeSlice {
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
 
-                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data);
+                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
+                    .map_err(|e| {
+                        SafetensorError::new_err(format!("Error preparing tensor view: {:?}", e))
+                    })?;
                 let slices: Vec<TensorIndexer> = slices
                     .into_iter()
                     .map(slice_to_indexer)

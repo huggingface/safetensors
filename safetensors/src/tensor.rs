@@ -1,7 +1,7 @@
 //! Module Containing the most important structures
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -30,6 +30,8 @@ pub enum SafeTensorError {
     InvalidOffset(String),
     /// IoError
     IoError(std::io::Error),
+    /// The follow tensor cannot be created because the buffer size doesn't match shape + dtype
+    InvalidTensorView(Dtype, Vec<usize>, usize),
 }
 
 impl From<std::io::Error> for SafeTensorError {
@@ -46,13 +48,29 @@ impl std::fmt::Display for SafeTensorError {
 
 impl std::error::Error for SafeTensorError {}
 
+struct PreparedData<'hash, 'data> {
+    n: u64,
+    header_bytes: Vec<u8>,
+    tensors: Vec<&'hash TensorView<'data>>,
+    offset: usize,
+}
+
 fn prepare<'hash, 'data>(
-    data: &'hash BTreeMap<String, TensorView<'data>>,
-    data_info: &'hash Option<BTreeMap<String, String>>,
-) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
+    data: &'hash HashMap<String, TensorView<'data>>,
+    data_info: &'hash Option<HashMap<String, String>>,
+    // ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
+) -> Result<PreparedData<'hash, 'data>, SafeTensorError> {
+    // Make sure we're sorting by descending dtype alignment
+    // Then by name
+    let mut data: Vec<_> = data.iter().collect();
+    data.sort_by(|(lname, left), (rname, right)| {
+        right.dtype.cmp(&left.dtype).then(lname.cmp(rname))
+    });
+
     let mut tensors: Vec<&TensorView> = vec![];
-    let mut hmetadata = BTreeMap::new();
+    let mut hmetadata = Vec::with_capacity(data.len());
     let mut offset = 0;
+    let data: Vec<_> = data.into_iter().collect();
     for (name, tensor) in data {
         let n = tensor.data.len();
         let tensor_info = TensorInfo {
@@ -61,27 +79,41 @@ fn prepare<'hash, 'data>(
             data_offsets: (offset, offset + n),
         };
         offset += n;
-        hmetadata.insert(name.to_string(), tensor_info);
+        hmetadata.push((name.to_string(), tensor_info));
         tensors.push(tensor);
     }
 
     let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
+    let mut metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
+    // Force alignment
+    let extra = metadata_buf.len() % 8;
+    metadata_buf.extend(vec![b' '; extra]);
 
-    Ok((metadata, tensors, offset))
+    let n: u64 = metadata_buf.len() as u64;
+
+    Ok(PreparedData {
+        n,
+        header_bytes: metadata_buf,
+        tensors,
+        offset,
+    })
 }
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
 pub fn serialize(
-    data: &BTreeMap<String, TensorView>,
-    data_info: &Option<BTreeMap<String, String>>,
+    data: &HashMap<String, TensorView>,
+    data_info: &Option<HashMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
-    let (metadata, tensors, offset) = prepare(data, data_info)?;
-    let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
-    let expected_size = 8 + metadata_buf.len() + offset;
+    let PreparedData {
+        n,
+        header_bytes,
+        tensors,
+        offset,
+    } = prepare(data, data_info)?;
+    let expected_size = 8 + header_bytes.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
-    let n: u64 = metadata_buf.len() as u64;
     buffer.extend(&n.to_le_bytes().to_vec());
-    buffer.extend(&metadata_buf);
+    buffer.extend(&header_bytes);
     for tensor in tensors {
         buffer.extend(tensor.data);
     }
@@ -92,16 +124,19 @@ pub fn serialize(
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
 pub fn serialize_to_file(
-    data: &BTreeMap<String, TensorView>,
-    data_info: &Option<BTreeMap<String, String>>,
+    data: &HashMap<String, TensorView>,
+    data_info: &Option<HashMap<String, String>>,
     filename: &Path,
 ) -> Result<(), SafeTensorError> {
-    let (metadata, tensors, _) = prepare(data, data_info)?;
-    let metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
-    let n: u64 = metadata_buf.len() as u64;
+    let PreparedData {
+        n,
+        header_bytes,
+        tensors,
+        ..
+    } = prepare(data, data_info)?;
     let mut f = BufWriter::new(File::create(filename)?);
     f.write_all(n.to_le_bytes().as_ref())?;
-    f.write_all(&metadata_buf)?;
+    f.write_all(&header_bytes)?;
     for tensor in tensors {
         f.write_all(tensor.data)?;
     }
@@ -168,7 +203,8 @@ impl<'data> SafeTensors<'data> {
     /// structure.
     pub fn tensors(&self) -> Vec<(String, TensorView<'_>)> {
         let mut tensors = vec![];
-        for (name, info) in &self.metadata.tensors {
+        for (name, &index) in &self.metadata.index_map {
+            let info = &self.metadata.tensors[index];
             let tensorview = TensorView {
                 dtype: info.dtype,
                 shape: info.shape.clone(),
@@ -183,12 +219,16 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'_>, SafeTensorError> {
-        if let Some(info) = &self.metadata.tensors.get(tensor_name) {
-            Ok(TensorView {
-                dtype: info.dtype,
-                shape: info.shape.clone(),
-                data: &self.data[info.data_offsets.0..info.data_offsets.1],
-            })
+        if let Some(index) = &self.metadata.index_map.get(tensor_name) {
+            if let Some(info) = &self.metadata.tensors.get(**index) {
+                Ok(TensorView {
+                    dtype: info.dtype,
+                    shape: info.shape.clone(),
+                    data: &self.data[info.data_offsets.0..info.data_offsets.1],
+                })
+            } else {
+                Err(SafeTensorError::TensorNotFound)
+            }
         } else {
             Err(SafeTensorError::TensorNotFound)
         }
@@ -198,38 +238,107 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn names(&self) -> Vec<&'_ String> {
-        self.metadata.tensors.keys().collect()
+        self.metadata.index_map.keys().collect()
     }
 }
 
 /// The stuct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
 pub struct Metadata {
+    metadata: Option<HashMap<String, String>>,
+    tensors: Vec<TensorInfo>,
+    index_map: HashMap<String, usize>,
+}
+
+/// Helper struct used only for serialization deserialization
+#[derive(Serialize, Deserialize)]
+struct HashMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "__metadata__")]
-    metadata: Option<BTreeMap<String, String>>,
+    metadata: Option<HashMap<String, String>>,
     #[serde(flatten)]
-    tensors: BTreeMap<String, TensorInfo>,
+    tensors: HashMap<String, TensorInfo>,
+}
+
+impl<'de> Deserialize<'de> for Metadata {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hashdata: HashMetadata = HashMetadata::deserialize(deserializer)?;
+        let (metadata, tensors) = (hashdata.metadata, hashdata.tensors);
+        let mut tensors: Vec<_> = tensors.into_iter().collect();
+        // We need to sort by offsets
+        // Previous versions might have a different ordering
+        // Than we expect (Not aligned ordered, but purely name ordered,
+        // or actually any order).
+        tensors.sort_by(|(_, left), (_, right)| left.data_offsets.cmp(&right.data_offsets));
+        Metadata::new(metadata, tensors).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for Metadata {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut names = vec![""; self.index_map.len()];
+        for (name, index) in &self.index_map {
+            names[*index] = name;
+        }
+
+        let tensors: Vec<_> = names.iter().zip(self.tensors.iter()).collect();
+        let mut map = serializer.serialize_map(Some(tensors.len()))?;
+        if let Some(metadata) = &self.metadata {
+            map.serialize_entry("__metadata__", metadata)?;
+        }
+        for (name, info) in tensors {
+            println!("Info {:?}", info);
+            map.serialize_entry(&name, &info)?;
+        }
+        map.end()
+    }
 }
 
 impl Metadata {
     fn new(
-        metadata: Option<BTreeMap<String, String>>,
-        tensors: BTreeMap<String, TensorInfo>,
+        metadata: Option<HashMap<String, String>>,
+        tensors: Vec<(String, TensorInfo)>,
     ) -> Result<Self, SafeTensorError> {
-        let metadata = Self { metadata, tensors };
-        metadata.validate()?;
+        let mut index_map = HashMap::new();
+
+        let tensors: Vec<_> = tensors
+            .into_iter()
+            .enumerate()
+            .map(|(index, (k, tensor))| {
+                index_map.insert(k, index);
+                tensor
+            })
+            .collect();
+
+        let metadata = Self {
+            metadata,
+            tensors,
+            index_map,
+        };
+        // metadata.validate()?;
         Ok(metadata)
     }
 
     fn validate(&self) -> Result<(), SafeTensorError> {
-        let mut offsets: Vec<_> = self.tensors.iter().collect();
-        offsets.sort_by(|a, b| a.1.data_offsets.cmp(&b.1.data_offsets));
         let mut start = 0;
-        for (tensor_name, info) in offsets {
+        for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
             if s != start || e < s {
+                println!("S {s:?} start {start:?} e {e:?}");
+                println!("Error {:?} - {:?}", s != start, e < s);
+                let tensor_name = self
+                    .index_map
+                    .iter()
+                    .filter_map(|(name, &index)| if index == i { Some(&name[..]) } else { None })
+                    .next()
+                    .unwrap_or("no_tensor");
                 return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
             }
             start = e;
@@ -244,12 +353,15 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
-    pub fn tensors(&self) -> &BTreeMap<String, TensorInfo> {
-        &self.tensors
+    pub fn tensors(&self) -> HashMap<String, &TensorInfo> {
+        self.index_map
+            .iter()
+            .map(|(tensor_name, index)| (tensor_name.clone(), &self.tensors[*index]))
+            .collect()
     }
 
     /// Gives back the tensor metadata
-    pub fn metadata(&self) -> &Option<BTreeMap<String, String>> {
+    pub fn metadata(&self) -> &Option<HashMap<String, String>> {
         &self.metadata
     }
 }
@@ -259,15 +371,25 @@ impl Metadata {
 /// And is thus a readable view of a single tensor
 #[derive(Debug)]
 pub struct TensorView<'data> {
-    pub(crate) dtype: Dtype,
-    pub(crate) shape: Vec<usize>,
-    pub(crate) data: &'data [u8],
+    dtype: Dtype,
+    shape: Vec<usize>,
+    data: &'data [u8],
 }
 
 impl<'data> TensorView<'data> {
     /// Create new tensor view
-    pub fn new(dtype: Dtype, shape: Vec<usize>, data: &'data [u8]) -> Self {
-        Self { dtype, shape, data }
+    pub fn new(
+        dtype: Dtype,
+        shape: Vec<usize>,
+        data: &'data [u8],
+    ) -> Result<Self, SafeTensorError> {
+        let n = data.len();
+        let n_elements: usize = shape.iter().product();
+        if n != n_elements * dtype.size() {
+            Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
+        } else {
+            Ok(Self { dtype, shape, data })
+        }
     }
     /// The current tensor dtype
     pub fn dtype(&self) -> Dtype {
@@ -306,8 +428,8 @@ pub struct TensorInfo {
     pub data_offsets: (usize, usize),
 }
 
-/// The various available dtypes
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+/// The various available dtypes. They MUST be in increasing alignment order
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[non_exhaustive]
 pub enum Dtype {
     /// Boolan type
@@ -320,22 +442,22 @@ pub enum Dtype {
     I16,
     /// Unsigned integer (16-bit)
     U16,
-    /// Signed integer (32-bit)
-    I32,
-    /// Unsigned integer (32-bit)
-    U32,
-    /// Signed integer (64-bit)
-    I64,
-    /// Unsigned integer (64-bit)
-    U64,
     /// Half-precision floating point
     F16,
     /// Brain floating point
     BF16,
+    /// Signed integer (32-bit)
+    I32,
+    /// Unsigned integer (32-bit)
+    U32,
     /// Floating point (32-bit)
     F32,
     /// Floating point (64-bit)
     F64,
+    /// Signed integer (64-bit)
+    I64,
+    /// Unsigned integer (64-bit)
+    U64,
 }
 
 impl Dtype {
@@ -359,21 +481,6 @@ impl Dtype {
     }
 }
 
-// /// A struct representing a Tensor, the byte-buffer is not owned
-// /// but dtype a shape are.
-// pub struct Tensor<'data> {
-//     shape: Vec<usize>,
-//     dtype: Dtype,
-//     data: &'data [u8],
-// }
-//
-// impl<'a> Tensor<'a> {
-//     /// Simple Tensor creation.
-//     pub fn new(data: &'a [u8], dtype: Dtype, shape: Vec<usize>) -> Self {
-//         Self { data, dtype, shape }
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,11 +493,49 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 2, 3];
-        let attn_0 = TensorView::new(Dtype::F32, shape, &data);
-        let metadata: BTreeMap<String, TensorView> =
+        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
+        let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
         let out = serialize(&metadata, &None).unwrap();
+        assert_eq!(
+            out,
+            [
+                64, 0, 0, 0, 0, 0, 0, 0, 123, 34, 97, 116, 116, 110, 46, 48, 34, 58, 123, 34, 100,
+                116, 121, 112, 101, 34, 58, 34, 70, 51, 50, 34, 44, 34, 115, 104, 97, 112, 101, 34,
+                58, 91, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102, 115,
+                101, 116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 0, 0, 0, 0, 0, 0, 128, 63,
+                0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0, 160, 64
+            ]
+        );
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_serialization_forced_alignement() {
+        let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let shape = vec![1, 2, 3];
+        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
+        let metadata: HashMap<String, TensorView> =
+            // Smaller string to force misalignment compared to previous test.
+            [("attn0".to_string(), attn_0)].into_iter().collect();
+
+        let out = serialize(&metadata, &None).unwrap();
+        assert_eq!(
+            out,
+            [
+                70, 0, 0, 0, 0, 0, 0, 0, 123, 34, 97, 116, 116, 110, 48, 34, 58, 123, 34, 100, 116,
+                121, 112, 101, 34, 58, 34, 70, 51, 50, 34, 44, 34, 115, 104, 97, 112, 101, 34, 58,
+                91, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102, 115, 101,
+                // All the 32 are forcing alignement of the tensor data for casting to f32, f64
+                // etc..
+                116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 32, 32, 32, 32, 32, 32, 32, 0,
+                0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0, 160, 64
+            ]
+        );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
     }
 
@@ -405,7 +550,7 @@ mod tests {
             shape: vec![1, 2, 3],
             data: &data,
         };
-        let metadata: BTreeMap<String, TensorView> =
+        let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
         let out = serialize(&metadata, &None).unwrap();
@@ -482,12 +627,12 @@ mod tests {
             .sum::<usize>()
             * dtype.size(); // 4
         let all_data = vec![0; n];
-        let mut metadata: BTreeMap<String, TensorView> = BTreeMap::new();
+        let mut metadata: HashMap<String, TensorView> = HashMap::new();
         let mut offset = 0;
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
             let buffer = &all_data[offset..offset + n * dtype.size()];
-            let tensor = TensorView::new(dtype, shape, buffer);
+            let tensor = TensorView::new(dtype, shape, buffer).unwrap();
             metadata.insert(name, tensor);
             offset += n;
         }
@@ -519,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_json_attack() {
-        let mut tensors = BTreeMap::new();
+        let mut tensors = HashMap::new();
         let dtype = Dtype::F32;
         let shape = vec![2, 2];
         let data_offsets = (0, 16);
@@ -534,7 +679,7 @@ mod tests {
             );
         }
 
-        let metadata = Metadata {
+        let metadata = HashMetadata {
             metadata: None,
             tensors,
         };
@@ -555,7 +700,8 @@ mod tests {
             Err(SafeTensorError::InvalidOffset(_)) => {
                 // Yes we have the correct error, name of the tensor is random though
             }
-            _ => panic!("This should not be able to be deserialized"),
+            Err(err) => panic!("Unexpected error {err:?}"),
+            Ok(_) => panic!("This should not be able to be deserialized"),
         }
     }
 

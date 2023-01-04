@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use safetensors::tensor::*;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 // Returns a sample data of size 2_MB
 fn get_sample_data() -> (Vec<u8>, Vec<usize>, Dtype) {
@@ -16,7 +16,7 @@ pub fn bench_serialize(c: &mut Criterion) {
     let (data, shape, dtype) = get_sample_data();
     let n_layers = 5;
 
-    let mut metadata: BTreeMap<String, TensorView> = BTreeMap::new();
+    let mut metadata: HashMap<String, TensorView> = HashMap::new();
     // 2_MB x 5 = 10_MB
     for i in 0..n_layers {
         let tensor = TensorView::new(dtype, shape.clone(), &data[..]);
@@ -34,7 +34,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
     let (data, shape, dtype) = get_sample_data();
     let n_layers = 5;
 
-    let mut metadata: BTreeMap<String, TensorView> = BTreeMap::new();
+    let mut metadata: HashMap<String, TensorView> = HashMap::new();
     // 2_MB x 5 = 10_MB
     for i in 0..n_layers {
         let tensor = TensorView::new(dtype, shape.clone(), &data[..]);
