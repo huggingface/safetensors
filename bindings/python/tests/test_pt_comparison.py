@@ -27,7 +27,8 @@ class TorchTestCase(unittest.TestCase):
         binary = save(data)
         self.assertEqual(
             binary,
-            b'<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+            # Spaces are for forcing the alignment.
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}    \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
         )
         reloaded = load(binary)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))

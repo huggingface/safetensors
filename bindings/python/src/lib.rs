@@ -11,7 +11,7 @@ use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
@@ -38,8 +38,8 @@ static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static CUDA_MEMCPY: GILOnceCell<Option<Symbol<MemcpyFn>>> = GILOnceCell::new();
 
-fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, TensorView<'_>>> {
-    let mut tensors = BTreeMap::new();
+fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, TensorView<'_>>> {
+    let mut tensors = HashMap::new();
     for (tensor_name, tensor_desc) in tensor_dict {
         let mut shape: Vec<usize> = vec![];
         let mut dtype = Dtype::F32;
@@ -101,7 +101,7 @@ fn serialize<'a, 'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
+    let metadata_btreemap = metadata.map(|data| HashMap::from_iter(data.into_iter()));
     let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap).map_err(|e| {
         exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
     })?;
@@ -131,7 +131,7 @@ fn serialize_file(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
+    let metadata_btreemap = metadata.map(|data| HashMap::from_iter(data.into_iter()));
     safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename.as_path())
         .map_err(|e| {
             exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
@@ -591,7 +591,7 @@ impl safe_open {
     /// Returns:
     ///     (`Dict[str, str]`):
     ///         The freeform metadata.
-    pub fn metadata(&self) -> Option<BTreeMap<String, String>> {
+    pub fn metadata(&self) -> Option<HashMap<String, String>> {
         self.metadata.metadata().clone()
     }
 
@@ -601,7 +601,7 @@ impl safe_open {
     ///     (`List[str]`):
     ///         The name of the tensors contained in that file
     pub fn keys(&self) -> PyResult<Vec<String>> {
-        let mut keys: Vec<_> = self.metadata.tensors().keys().cloned().collect();
+        let mut keys: Vec<String> = self.metadata.tensors().keys().cloned().collect();
         keys.sort();
         Ok(keys)
     }
@@ -625,7 +625,8 @@ impl safe_open {
     ///
     /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        let info = self.metadata.tensors().get(name).ok_or_else(|| {
+        let tensors = self.metadata.tensors();
+        let info = tensors.get(name).ok_or_else(|| {
             exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
         })?;
 
@@ -707,7 +708,7 @@ impl safe_open {
     ///
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
-        if let Some(info) = self.metadata.tensors().get(name) {
+        if let Some(&info) = self.metadata.tensors().get(name) {
             Ok(PySafeSlice {
                 info: info.clone(),
                 framework: self.framework.clone(),
