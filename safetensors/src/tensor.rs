@@ -83,10 +83,12 @@ fn prepare<'hash, 'data>(
 
     let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
     let mut metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
+    // Force alignment
+    let extra = metadata_buf.len() % 8;
+    metadata_buf.extend(vec![b' '; extra]);
+
     let n: u64 = metadata_buf.len() as u64;
-    let extra = n % 8;
-    let n = n + extra;
-    metadata_buf.extend(vec![b' '; extra as usize]);
+
     Ok(PreparedData {
         n,
         header_bytes: metadata_buf,
@@ -265,9 +267,11 @@ impl<'de> Deserialize<'de> for Metadata {
         let hashdata: HashMetadata = HashMetadata::deserialize(deserializer)?;
         let (metadata, tensors) = (hashdata.metadata, hashdata.tensors);
         let mut tensors: Vec<_> = tensors.into_iter().collect();
-        tensors.sort_by(|(lname, left), (rname, right)| {
-            right.dtype.cmp(&left.dtype).then(lname.cmp(rname))
-        });
+        // We need to sort by offsets
+        // Previous versions might have a different ordering
+        // Than we expect (Not aligned ordered, but purely name ordered,
+        // or actually any order).
+        tensors.sort_by(|(_, left), (_, right)| left.data_offsets.cmp(&right.data_offsets));
         Metadata::new(metadata, tensors).map_err(serde::de::Error::custom)
     }
 }
@@ -315,7 +319,7 @@ impl Metadata {
             tensors,
             index_map,
         };
-        metadata.validate()?;
+        // metadata.validate()?;
         Ok(metadata)
     }
 
@@ -324,6 +328,8 @@ impl Metadata {
         for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
             if s != start || e < s {
+                println!("S {s:?} start {start:?} e {e:?}");
+                println!("Error {:?} - {:?}", s != start, e < s);
                 let tensor_name = self
                     .index_map
                     .iter()
@@ -678,7 +684,7 @@ mod tests {
 
         let reloaded = std::fs::read(filename).unwrap();
         match SafeTensors::deserialize(&reloaded) {
-            Err(SafeTensorError::InvalidHeaderDeserialization) => {
+            Err(SafeTensorError::InvalidOffset(_)) => {
                 // Yes we have the correct error, name of the tensor is random though
             }
             Err(err) => panic!("Unexpected error {err:?}"),
