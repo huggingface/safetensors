@@ -1,0 +1,66 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "safetensors format header",
+	"description": "Describes the structure of all the tensors and their metadata",
+	"$defs": {
+		"size_t": {
+			"type": "integer",
+			"minimum": 0,
+			"maximum": 281474976710655,
+			"description": "A natural integer no more than 48 bits (current CPU limitation, not all 64 bits are used)"
+		},
+		"Tensor": {
+			"title": "Tensor",
+			"description": "Describes the structure of one tensor",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"dtype": {
+					"type": "string",
+					"pattern": "([UIF])(8|16|32|64|128|256)",
+					"description": "Type of the array. U - unsigned int, I - signed int, F - IEEE 754 floating-point. Number is the count of bits."
+				},
+				"shape": {
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/size_t",
+						"description": "Size of each dimension."
+					}
+				},
+				"data_offsets": {
+					"type": "array",
+					"prefixItems": [
+						{
+							"$ref": "#/$defs/size_t",
+							"description": "Start offset of the array. "
+						},
+						{
+							"$ref": "#/$defs/size_t",
+							"description": "End offset of the array. Equal to the previous item + array size."
+						}
+					]
+				}
+			},
+			"required": [
+				"data_offsets",
+				"dtype",
+				"shape"
+			]
+		},
+		"Metadata": {
+			"type": "object",
+			"additionalProperties": {"type": "string"},
+			"title": "Metadata"
+		}
+	},
+	"type": "object",
+	"properties": {
+		"__metadata__": {
+			"description": "Arbitrary metadata",
+			"$ref": "#/$defs/Metadata"
+		}
+	},
+	"additionalProperties": {
+		"$ref": "#/$defs/Tensor"
+	}
+}
