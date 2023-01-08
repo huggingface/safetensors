@@ -165,4 +165,6 @@ def _byte_order(tensor: np.ndarray) -> str:
             return "<"
         else:
             return ">"
+    elif byteorder == "|":
+        return "<"
     return byteorder
