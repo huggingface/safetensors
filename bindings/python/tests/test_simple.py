@@ -71,9 +71,13 @@ class ReadmeTestCase(unittest.TestCase):
         tensors = {"a": np.zeros((2, 2)), "b": np.zeros((2, 3), dtype=np.uint8)}
 
         save_file(tensors, "./out.safetensors")
+        out = save(tensors)
 
         # Now loading
         loaded = load_file("./out.safetensors")
+        self.assertTensorEqual(tensors, loaded, np.allclose)
+
+        loaded = load(out)
         self.assertTensorEqual(tensors, loaded, np.allclose)
 
     def test_torch_example(self):
