@@ -1,4 +1,5 @@
-from typing import Dict, Optional
+import os
+from typing import Dict, Optional, Union
 
 import numpy as np
 import tensorflow as tf
@@ -37,7 +38,7 @@ def save(tensors: Dict[str, tf.Tensor], metadata: Optional[Dict[str, str]] = Non
 
 def save_file(
     tensors: Dict[str, tf.Tensor],
-    filename: str,
+    filename: Union[str, os.PathLike],
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
     """
@@ -97,7 +98,7 @@ def load(data: bytes) -> Dict[str, tf.Tensor]:
     return _np2tf(flat)
 
 
-def load_file(filename: str) -> Dict[str, tf.Tensor]:
+def load_file(filename: Union[str, os.PathLike]) -> Dict[str, tf.Tensor]:
     """
     Loads a safetensors file into tensorflow format.
 

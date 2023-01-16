@@ -1,6 +1,7 @@
+import os
 import sys
 from collections import defaultdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import torch
 
@@ -39,7 +40,7 @@ def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = 
 
 def save_file(
     tensors: Dict[str, torch.Tensor],
-    filename: str,
+    filename: Union[str, os.PathLike],
     metadata: Optional[Dict[str, str]] = None,
 ):
     """
@@ -71,7 +72,7 @@ def save_file(
     serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
-def load_file(filename: str, device="cpu") -> Dict[str, torch.Tensor]:
+def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
 

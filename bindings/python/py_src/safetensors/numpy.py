@@ -1,5 +1,6 @@
+import os
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import numpy as np
 
@@ -40,7 +41,9 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     return result
 
 
-def save_file(tensor_dict: Dict[str, np.ndarray], filename: str, metadata: Optional[Dict[str, str]] = None) -> None:
+def save_file(
+    tensor_dict: Dict[str, np.ndarray], filename: Union[str, os.PathLike], metadata: Optional[Dict[str, str]] = None
+) -> None:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
@@ -101,7 +104,7 @@ def load(data: bytes) -> Dict[str, np.ndarray]:
     return _view2np(flat)
 
 
-def load_file(filename: str) -> Dict[str, np.ndarray]:
+def load_file(filename: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
     """
     Loads a safetensors file into numpy format.
 
