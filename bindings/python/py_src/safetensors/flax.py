@@ -1,4 +1,5 @@
-from typing import Dict, Optional
+import os
+from typing import Dict, Optional, Union
 
 import numpy as np
 
@@ -37,7 +38,7 @@ def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]]
 
 def save_file(
     tensors: Dict[str, jnp.DeviceArray],
-    filename: str,
+    filename: Union[str, os.PathLike],
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
     """
@@ -97,7 +98,7 @@ def load(data: bytes) -> Dict[str, jnp.DeviceArray]:
     return _np2jnp(flat)
 
 
-def load_file(filename: str) -> Dict[str, jnp.DeviceArray]:
+def load_file(filename: Union[str, os.PathLike]) -> Dict[str, jnp.DeviceArray]:
     """
     Loads a safetensors file into flax format.
 
