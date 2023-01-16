@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1673861969837,
+  "lastUpdate": 1673873228588,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -4514,6 +4514,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011275060470258925",
             "extra": "mean: 261.9193606000067 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "02e57076007ecf318ff3a01865e1be07874cb979",
+          "message": "Fix byte order detection for `np.uint8` and other types for which byte order is not defined. (#160)\n\n* Fix byte order detection for `np.uint8` and other types for which byte order is not defined.\r\n\r\n* Fixing np.uint8 endianness for `save`.\r\n\r\nCo-authored-by: KOLANICH <kolan_n@mail.ru>",
+          "timestamp": "2023-01-16T13:42:22+01:00",
+          "tree_id": "b17fdd027bce9f0435ecc0ee58c809d204c7a089",
+          "url": "https://github.com/huggingface/safetensors/commit/02e57076007ecf318ff3a01865e1be07874cb979"
+        },
+        "date": 1673873228073,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.3005023887805756,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034029487385492205",
+            "extra": "mean: 768.9336126000171 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.3847954451097904,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06631660413546979",
+            "extra": "mean: 295.43882820001954 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.363074771498253,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02985854970954602",
+            "extra": "mean: 229.1961638000089 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 213.29179887868105,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005053952973302503",
+            "extra": "mean: 4.6884128000101555 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.6664924882047836,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04789959972952724",
+            "extra": "mean: 600.0627108000003 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.055408984828815,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016126474924252725",
+            "extra": "mean: 246.58425420000185 msec\nrounds: 5"
           }
         ]
       }
