@@ -42,7 +42,9 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     return result
 
 
-def save_file(tensor_dict: Dict[str, np.ndarray], filename: Union[str, os.PathLike], metadata: Optional[Dict[str, str]] = None) -> None:
+def save_file(
+    tensor_dict: Dict[str, np.ndarray], filename: Union[str, os.PathLike], metadata: Optional[Dict[str, str]] = None
+) -> None:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
