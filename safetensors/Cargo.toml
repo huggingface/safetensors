@@ -1,6 +1,6 @@
 [package]
 name = "safetensors"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 homepage = "https://github.com/huggingface/safetensors"
 repository = "https://github.com/huggingface/safetensors"
