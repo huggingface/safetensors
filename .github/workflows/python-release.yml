@@ -121,7 +121,7 @@ jobs:
     runs-on: macos-arm64
     strategy:
       matrix:
-        python: ["3.9.13", "3.10.6", "3.11.0"]
+        python: ["3.8.16", "3.9.13", "3.10.6", "3.11.0"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
