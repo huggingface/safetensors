@@ -47,7 +47,7 @@ with safe_open("model.safetensors", framework="pt", device="cpu") as f:
        tensors[key] = f.get_tensor(key)
 ```
 
-[Python documentation](https://github.com/huggingface/safetensors/tree/main/bindings/python)
+[Python documentation](https://huggingface.co/docs/safetensors/index)
 
 
 ### Format
