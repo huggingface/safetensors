@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1673883919127,
+  "lastUpdate": 1673946483093,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -4712,6 +4712,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02032911439279166",
             "extra": "mean: 190.2697915000052 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "24695242+thomasw21@users.noreply.github.com",
+            "name": "Thomas Wang",
+            "username": "thomasw21"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af4b32fb09810d0c407e7b3d277730f1409a8a1d",
+          "message": "Update README.md (#163)\n\n* Update README.md\r\n\r\nLink to huggingface.co documentation\r\n\r\n* Make rust doc match\r\n\r\n* Why is the documentation at three different places?",
+          "timestamp": "2023-01-17T10:02:28+01:00",
+          "tree_id": "50c5465352ab3a28d91c87dab71b95abe99fdbec",
+          "url": "https://github.com/huggingface/safetensors/commit/af4b32fb09810d0c407e7b3d277730f1409a8a1d"
+        },
+        "date": 1673946481488,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1181854015024812,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014381519296053967",
+            "extra": "mean: 894.3060772000081 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.076768797321842,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07734033519590326",
+            "extra": "mean: 325.01629660000617 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 5.757422985577982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023423467748034544",
+            "extra": "mean: 173.68881920000376 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 190.9353007713981,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003143112245726478",
+            "extra": "mean: 5.237376200000199 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3338433569740271,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02516575608568927",
+            "extra": "mean: 749.7132214000089 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 2.8666265406604854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008915174303975995",
+            "extra": "mean: 348.84209219998183 msec\nrounds: 5"
           }
         ]
       }
