@@ -2,7 +2,7 @@
 //! Dummy doc
 use libloading::{Library, Symbol};
 use memmap2::{Mmap, MmapOptions};
-use pyo3::exceptions;
+use pyo3::exceptions::PyException;
 use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
@@ -65,7 +65,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                         "float64" => Dtype::F64,
                         "bfloat16" => Dtype::BF16,
                         dtype_str => {
-                            return Err(exceptions::PyException::new_err(format!(
+                            return Err(SafetensorError::new_err(format!(
                                 "dtype {dtype_str} is not covered",
                             )));
                         }
@@ -102,9 +102,8 @@ fn serialize<'a, 'b>(
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
     let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
-    let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap).map_err(|e| {
-        exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
-    })?;
+    let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap)
+        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {:?}", e)))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
@@ -133,9 +132,7 @@ fn serialize_file(
     let tensors = prepare(tensor_dict)?;
     let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
     safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename.as_path())
-        .map_err(|e| {
-            exceptions::PyException::new_err(format!("Error while serializing: {:?}", e))
-        })?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {:?}", e)))?;
     Ok(())
 }
 
@@ -152,9 +149,8 @@ fn serialize_file(
 #[pyfunction]
 #[pyo3(text_signature = "(bytes)")]
 fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
-    let safetensor = SafeTensors::deserialize(bytes).map_err(|e| {
-        exceptions::PyException::new_err(format!("Error while deserializing: {:?}", e))
-    })?;
+    let safetensor = SafeTensors::deserialize(bytes)
+        .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {:?}", e)))?;
     let mut items = vec![];
 
     for (tensor_name, tensor) in safetensor.tensors() {
@@ -217,7 +213,7 @@ impl<'source> FromPyObject<'source> for Framework {
 
             "jax" => Ok(Framework::Flax),
             "flax" => Ok(Framework::Flax),
-            name => Err(exceptions::PyException::new_err(format!(
+            name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
             ))),
         }
@@ -244,21 +240,19 @@ impl<'source> FromPyObject<'source> for Device {
                         let device: usize = tokens[1].parse()?;
                         Ok(Device::Cuda(device))
                     } else {
-                        Err(exceptions::PyException::new_err(format!(
+                        Err(SafetensorError::new_err(format!(
                             "device {name} is invalid"
                         )))
                     }
                 }
-                name => Err(exceptions::PyException::new_err(format!(
+                name => Err(SafetensorError::new_err(format!(
                     "device {name} is invalid"
                 ))),
             }
         } else if let Ok(number) = ob.extract::<usize>() {
             Ok(Device::Cuda(number))
         } else {
-            Err(exceptions::PyException::new_err(format!(
-                "device {ob} is invalid"
-            )))
+            Err(SafetensorError::new_err(format!("device {ob} is invalid")))
         }
     }
 }
@@ -503,7 +497,7 @@ impl safe_open {
         let device = device.unwrap_or(Device::Cpu);
 
         if device != Device::Cpu && framework != Framework::Pytorch {
-            return Err(exceptions::PyException::new_err(format!(
+            return Err(SafetensorError::new_err(format!(
                 "Device {device:?} is not support for framework {framework:?}",
             )));
         }
@@ -513,7 +507,7 @@ impl safe_open {
         let buffer = unsafe { MmapOptions::new().map(&file)? };
 
         let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
-            exceptions::PyException::new_err(format!("Error while deserializing header: {:?}", e))
+            SafetensorError::new_err(format!("Error while deserializing header: {:?}", e))
         })?;
 
         let offset = n + 8;
@@ -542,8 +536,7 @@ impl safe_open {
                 let module = get_module(py, &TORCH_MODULE)?;
 
                 let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
-                let version =
-                    Version::from_string(&version).map_err(exceptions::PyException::new_err)?;
+                let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
 
                 // Untyped storage only exists for versions over 1.11.0
                 // Same for torch.asarray which is necessary for zero-copy tensor
@@ -626,7 +619,7 @@ impl safe_open {
     /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
         let info = self.metadata.tensors().get(name).ok_or_else(|| {
-            exceptions::PyException::new_err(format!("File does not contain tensor {name}",))
+            SafetensorError::new_err(format!("File does not contain tensor {name}",))
         })?;
 
         match &self.storage.as_ref() {
@@ -716,7 +709,7 @@ impl safe_open {
                 storage: self.storage.clone(),
             })
         } else {
-            Err(exceptions::PyException::new_err(format!(
+            Err(SafetensorError::new_err(format!(
                 "File does not contain tensor {name}",
             )))
         }
@@ -824,7 +817,7 @@ impl PySafeSlice {
                     .collect::<Result<_, _>>()?;
 
                 let iterator = tensor.sliced_data(slices.clone()).map_err(|e| {
-                    exceptions::PyException::new_err(format!(
+                    SafetensorError::new_err(format!(
                         "Error during slicing {slices:?} vs {:?}:  {:?}",
                         self.info.shape, e
                     ))
@@ -923,7 +916,7 @@ fn get_module<'a>(
 ) -> PyResult<&'a PyModule> {
     let module: &PyModule = cell
         .get(py)
-        .ok_or_else(|| exceptions::PyException::new_err("Could not find module"))?
+        .ok_or_else(|| SafetensorError::new_err("Could not find module"))?
         .as_ref(py);
     Ok(module)
 }
@@ -940,9 +933,7 @@ fn create_tensor(
             Framework::Pytorch => TORCH_MODULE.get(py),
             _ => NUMPY_MODULE.get(py),
         }
-        .ok_or_else(|| {
-            exceptions::PyException::new_err(format!("Could not find module {framework:?}",))
-        })?
+        .ok_or_else(|| SafetensorError::new_err(format!("Could not find module {framework:?}",)))?
         .as_ref(py);
         let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
         let dtype: PyObject = get_pydtype(module, dtype)?;
@@ -1011,7 +1002,7 @@ fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
             Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
             Dtype::BOOL => module.getattr(intern!(py, "bool"))?.into(),
             dtype => {
-                return Err(exceptions::PyException::new_err(format!(
+                return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {:?}",
                     dtype
                 )))
@@ -1020,13 +1011,22 @@ fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
         Ok(dtype)
     })
 }
+
+pyo3::create_exception!(
+    safetensors_rust,
+    SafetensorError,
+    PyException,
+    "Custom Python Exception for Safetensor errors."
+);
+
 /// A Python module implemented in Rust.
 #[pymodule]
-fn safetensors_rust(_py: Python, m: &PyModule) -> PyResult<()> {
+fn safetensors_rust(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
+    m.add("SafetensorError", py.get_type::<SafetensorError>())?;
     Ok(())
 }
 
