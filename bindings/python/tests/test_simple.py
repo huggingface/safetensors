@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from safetensors.numpy import load, load_file, save, save_file
+from safetensors.safetensors_rust import SafetensorError, serialize
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
 
@@ -94,3 +95,9 @@ class ReadmeTestCase(unittest.TestCase):
         # Now loading
         loaded = load_file_pt("./out.safetensors")
         self.assertTensorEqual(tensors2, loaded, torch.allclose)
+
+    def test_exception(self):
+        flattened = {"test": {"dtype": "float32", "shape": [1]}}
+
+        with self.assertRaises(SafetensorError):
+            serialize(flattened)
