@@ -10,7 +10,7 @@ from safetensors import deserialize, safe_open, serialize, serialize_file
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, torch.Tensor]`):
@@ -44,7 +44,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, torch.Tensor]`):
@@ -66,7 +66,7 @@ def save_file(
     import torch
 
     tensors = {"embedding": torch.zeros((512, 1024)), "attention": torch.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
     serialize_file(_flatten(tensors), filename, metadata=metadata)
