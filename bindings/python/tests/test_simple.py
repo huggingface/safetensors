@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from safetensors import safe_open
 from safetensors.numpy import load, load_file, save, save_file
 from safetensors.safetensors_rust import SafetensorError, serialize
 from safetensors.torch import load_file as load_file_pt
@@ -57,6 +58,20 @@ class TestCase(unittest.TestCase):
         save_file_pt(tensors, Path("./out.safetensors"))
         load_file_pt(Path("./out.safetensors"))
         os.remove(Path("./out.safetensors"))
+
+
+class WindowsTestCase(unittest.TestCase):
+    def test_get_correctly_dropped(self):
+        tensors = {
+            "a": torch.zeros((2, 2)),
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+        save_file_pt(tensors, "./out.safetensors")
+        with safe_open("./out.safetensors", framework="pt"):
+            pass
+
+        with open("./out.safetensors", "w") as g:
+            g.write("something")
 
 
 class ReadmeTestCase(unittest.TestCase):
