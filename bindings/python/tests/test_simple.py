@@ -67,7 +67,7 @@ class WindowsTestCase(unittest.TestCase):
             "b": torch.zeros((2, 3), dtype=torch.uint8),
         }
         save_file_pt(tensors, "./out.safetensors")
-        with safe_open("./out.safetensors", framework="pt"):
+        with safe_open("./out.safetensors", framework="pt") as f:
             pass
 
         with open("./out.safetensors", "w") as g:
