@@ -59,7 +59,7 @@ setup(
     author_email="",
     url="https://github.com/huggingface/safetensors",
     license="Apache License 2.0",
-    rust_extensions=[RustExtension("safetensors.safetensors_rust", binding=Binding.PyO3, debug=False)],
+    rust_extensions=[RustExtension("safetensors._safetensors_rust", binding=Binding.PyO3, debug=False)],
     extras_require=extras,
     classifiers=[
         "Development Status :: 5 - Production/Stable",

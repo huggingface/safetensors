@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Union
 
 import torch
 
-from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
+from safetensors import deserialize, safe_open, serialize, serialize_file
 
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:

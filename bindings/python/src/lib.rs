@@ -1021,7 +1021,7 @@ pyo3::create_exception!(
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn safetensors_rust(py: Python, m: &PyModule) -> PyResult<()> {
+fn _safetensors_rust(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
