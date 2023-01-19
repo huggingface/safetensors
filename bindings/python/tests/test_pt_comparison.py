@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from safetensors.safetensors_rust import safe_open
+from safetensors import safe_open
 from safetensors.torch import load, load_file, save, save_file
 
 

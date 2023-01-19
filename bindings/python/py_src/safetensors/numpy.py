@@ -4,7 +4,7 @@ from typing import Dict, Optional, Union
 
 import numpy as np
 
-from .safetensors_rust import deserialize, safe_open, serialize, serialize_file
+from safetensors import deserialize, safe_open, serialize, serialize_file
 
 
 def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
