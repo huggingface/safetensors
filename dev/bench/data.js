@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1673975489447,
+  "lastUpdate": 1674135359573,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -4976,6 +4976,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007147328569720978",
             "extra": "mean: 176.1256702000196 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4042652348df70ddac5ade96698296365a42073",
+          "message": "Fixing the fact that the context manager wasn't properly cleaning up after itself. (#166)\n\n* Adding failing test for windows.\r\n\r\n* This should fail.\r\n\r\n* Fixing Windows issue by actually dropping the rust resources.\r\n\r\n* Making the rust module private.",
+          "timestamp": "2023-01-19T14:30:56+01:00",
+          "tree_id": "169e0f5af0623fd9897c78ece59ed44fc4428f71",
+          "url": "https://github.com/huggingface/safetensors/commit/a4042652348df70ddac5ade96698296365a42073"
+        },
+        "date": 1674135359012,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.427040932471809,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01525198702415532",
+            "extra": "mean: 700.7507473999908 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.4709517478256693,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0927009310552714",
+            "extra": "mean: 288.10541679999915 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.99142557441404,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02334475898722056",
+            "extra": "mean: 200.34356620000153 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 216.49074051706475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00019798116268080103",
+            "extra": "mean: 4.619135200016444 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.2281325339023152,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0633636376122456",
+            "extra": "mean: 448.80633660001195 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.579982911716987,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020595025337002682",
+            "extra": "mean: 218.3414260000177 msec\nrounds: 5"
           }
         ]
       }
