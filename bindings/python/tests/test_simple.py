@@ -69,6 +69,9 @@ class WindowsTestCase(unittest.TestCase):
         with safe_open("./out.safetensors", framework="pt") as f:
             pass
 
+        with self.assertRaises(SafetensorError):
+            print(f.keys())
+
         with open("./out.safetensors", "w") as g:
             g.write("something")
 
