@@ -644,7 +644,9 @@ impl Open {
                     let start = (info.data_offsets.0 + self.offset) as isize;
                     let stop = (info.data_offsets.1 + self.offset) as isize;
                     let slice = pyslice_new(py, start, stop, 1);
-                    let storage: &PyObject = storage.get(py)?;
+                    let storage: &PyObject = storage
+                        .get(py)
+                        .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                     let storage: &PyAny = storage.as_ref(py);
 
                     let storage_slice = storage
@@ -825,7 +827,7 @@ impl safe_open {
     }
 
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
-        if let Some(inner) = self.inner {
+        if let Some(inner) = &self.inner {
             if let (Device::Cuda(_), Framework::Pytorch) = (&inner.device, &inner.framework) {
                 Python::with_gil(|py| -> PyResult<()> {
                     let module = get_module(py, &TORCH_MODULE)?;
@@ -960,7 +962,9 @@ impl PySafeSlice {
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
                 let slice = pyslice_new(py, start, stop, 1);
-                let storage: &PyObject = storage.get(py)?;
+                let storage: &PyObject = storage
+                    .get(py)
+                    .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                 let storage: &PyAny = storage.as_ref(py);
 
                 let storage_slice = storage
