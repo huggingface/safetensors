@@ -644,7 +644,7 @@ impl Open {
                     let start = (info.data_offsets.0 + self.offset) as isize;
                     let stop = (info.data_offsets.1 + self.offset) as isize;
                     let slice = pyslice_new(py, start, stop, 1);
-                    let storage: &PyObject = storage.get(py).unwrap();
+                    let storage: &PyObject = storage.get(py)?;
                     let storage: &PyAny = storage.as_ref(py);
 
                     let storage_slice = storage
@@ -825,20 +825,21 @@ impl safe_open {
     }
 
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
-        let inner = self.inner().unwrap();
-        if let (Device::Cuda(_), Framework::Pytorch) = (&inner.device, &inner.framework) {
-            Python::with_gil(|py| -> PyResult<()> {
-                let module = get_module(py, &TORCH_MODULE)?;
-                let device: PyObject = inner.device.clone().into_py(py);
-                let torch_device = module
-                    .getattr(intern!(py, "cuda"))?
-                    .getattr(intern!(py, "device"))?;
-                let none = py.None();
-                let lock = torch_device.call1((device,))?;
-                lock.call_method1(intern!(py, "__exit__"), (&none, &none, &none))?;
-                Ok(())
-            })
-            .ok();
+        if let Some(inner) = self.inner {
+            if let (Device::Cuda(_), Framework::Pytorch) = (&inner.device, &inner.framework) {
+                Python::with_gil(|py| -> PyResult<()> {
+                    let module = get_module(py, &TORCH_MODULE)?;
+                    let device: PyObject = inner.device.clone().into_py(py);
+                    let torch_device = module
+                        .getattr(intern!(py, "cuda"))?
+                        .getattr(intern!(py, "device"))?;
+                    let none = py.None();
+                    let lock = torch_device.call1((device,))?;
+                    lock.call_method1(intern!(py, "__exit__"), (&none, &none, &none))?;
+                    Ok(())
+                })
+                .ok();
+            }
         }
         self.inner = None;
     }
@@ -959,7 +960,7 @@ impl PySafeSlice {
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
                 let slice = pyslice_new(py, start, stop, 1);
-                let storage: &PyObject = storage.get(py).unwrap();
+                let storage: &PyObject = storage.get(py)?;
                 let storage: &PyAny = storage.as_ref(py);
 
                 let storage_slice = storage
