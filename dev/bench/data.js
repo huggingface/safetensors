@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1674209517485,
+  "lastUpdate": 1674223815503,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5108,6 +5108,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.011773647756242747",
             "extra": "mean: 167.24785133331466 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a98326ad6ec0ee702a92c8bad15033aecbebaa02",
+          "message": "Better error messages on outdated context manager. (#168)\n\n* Better error messages on outdated context manager.\r\n\r\n* Clippy.\r\n\r\n* Remove unwrap.\r\n\r\n* Fix.",
+          "timestamp": "2023-01-20T15:05:24+01:00",
+          "tree_id": "d3a98444262fcb5e26b30140a16ba621410c66ae",
+          "url": "https://github.com/huggingface/safetensors/commit/a98326ad6ec0ee702a92c8bad15033aecbebaa02"
+        },
+        "date": 1674223814479,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.3903651210287353,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016515687979899604",
+            "extra": "mean: 719.235533799997 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.9290521528735693,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06727934653203052",
+            "extra": "mean: 254.51431059998413 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 5.746788789820479,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02189928209110637",
+            "extra": "mean: 174.01022320001402 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 227.86190157108797,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00007546302697308547",
+            "extra": "mean: 4.388623078737986 msec\nrounds: 127"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.001474898861815,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08699507182480477",
+            "extra": "mean: 499.6315470000013 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.066735401218483,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010818505771205932",
+            "extra": "mean: 245.89748320000808 msec\nrounds: 5"
           }
         ]
       }
