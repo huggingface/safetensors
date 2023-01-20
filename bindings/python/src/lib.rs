@@ -723,7 +723,7 @@ impl safe_open {
         let inner = self
             .inner
             .as_ref()
-            .ok_or_else(|| SafetensorError::new_err(format!("File is closed",)))?;
+            .ok_or_else(|| SafetensorError::new_err("File is closed".to_string()))?;
         Ok(inner)
     }
 }
