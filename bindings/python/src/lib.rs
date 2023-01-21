@@ -35,6 +35,7 @@ type MemcpyFn = unsafe extern "C" fn(
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static PADDLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static CUDA_MEMCPY: GILOnceCell<Option<Symbol<MemcpyFn>>> = GILOnceCell::new();
 
@@ -195,6 +196,7 @@ enum Framework {
     Numpy,
     Tensorflow,
     Flax,
+    Paddle,
 }
 
 impl<'source> FromPyObject<'source> for Framework {
@@ -213,6 +215,9 @@ impl<'source> FromPyObject<'source> for Framework {
 
             "jax" => Ok(Framework::Flax),
             "flax" => Ok(Framework::Flax),
+
+            "pd" => Ok(Framework::Paddle),
+            "paddle" => Ok(Framework::Paddle),
             name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
             ))),
@@ -1057,6 +1062,14 @@ fn create_tensor(
                 module
                     .getattr(intern!(py, "convert_to_tensor"))?
                     .call1((tensor,))?
+            }
+            Framework::Paddle => {
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "paddle"))?;
+                    Ok(PADDLE_MODULE.get_or_init(py, || module.into()))
+                })?
+                .as_ref(py);
+                module.getattr(intern!(py, "to_tensor"))?.call1((tensor,))?
             }
             Framework::Pytorch => {
                 if device != &Device::Cpu {

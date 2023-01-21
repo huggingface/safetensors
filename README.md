@@ -70,17 +70,17 @@ formats.
 Let's take a look at alternatives and why this format is deemed interesting.
 This is my very personal and probably biased view:
 
-| Format                  | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16
-| ----------------------- | --- | --- | --- | --- | --- | --- | --- |
-| pickle (PyTorch)        | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 | 🗸 |
-| H5 (Tensorflow)         | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ | ✗ |
-| SavedModel (Tensorflow) | 🗸 | ✗ | ✗ | 🗸 | 🗸 | ✗ | 🗸 |
-| MsgPack (flax)          | 🗸 | 🗸 | ✗ | 🗸 | ✗ | ✗ | 🗸 |
-| Protobuf (ONNX)         | 🗸 | ✗ | ✗ | ✗ | ✗ | ✗ | 🗸 |
-| Cap'n'Proto             | 🗸 | 🗸 | ~ | 🗸 | 🗸 | ~ | ✗ |
-| Arrow                   | ? | ? | ? | ? | ? | ? | ✗ |
-| Numpy (npy,npz)         | 🗸 | ? | ? | ✗ | 🗸 | ✗ | ✗ |
-| SafeTensors             | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ | 🗸 |
+| Format                         | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16
+| ------------------------------ | --- | --- | --- | --- | --- | --- | --- |
+| pickle (PyTorch/PaddlePaddle)  | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 | 🗸 |
+| H5 (Tensorflow)                | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ | ✗ |
+| SavedModel (Tensorflow)        | 🗸 | ✗ | ✗ | 🗸 | 🗸 | ✗ | 🗸 |
+| MsgPack (flax)                 | 🗸 | 🗸 | ✗ | 🗸 | ✗ | ✗ | 🗸 |
+| Protobuf (ONNX)                | 🗸 | ✗ | ✗ | ✗ | ✗ | ✗ | 🗸 |
+| Cap'n'Proto                    | 🗸 | 🗸 | ~ | 🗸 | 🗸 | ~ | ✗ |
+| Arrow                          | ? | ? | ? | ? | ? | ? | ✗ |
+| Numpy (npy,npz)                | 🗸 | ? | ? | ✗ | 🗸 | ✗ | ✗ |
+| SafeTensors                    | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ | 🗸 |
 
 - Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
 - Zero-copy: Does reading the file require more memory than the original file ?
