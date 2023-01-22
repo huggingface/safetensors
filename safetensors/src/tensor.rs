@@ -294,7 +294,6 @@ impl Serialize for Metadata {
             map.serialize_entry("__metadata__", metadata)?;
         }
         for (name, info) in tensors {
-            println!("Info {:?}", info);
             map.serialize_entry(&name, &info)?;
         }
         map.end()
@@ -331,8 +330,6 @@ impl Metadata {
         for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
             if s != start || e < s {
-                println!("S {s:?} start {start:?} e {e:?}");
-                println!("Error {:?} - {:?}", s != start, e < s);
                 let tensor_name = self
                     .index_map
                     .iter()

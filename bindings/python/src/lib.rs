@@ -111,9 +111,7 @@ fn serialize<'b>(
     tensor_dict: HashMap<String, &PyDict>,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
-    println!("Tensor dict {:?}", tensor_dict);
     let tensors = prepare(tensor_dict)?;
-    println!("Tensors {:?}", tensors);
     let metadata_map = metadata.map(|data| HashMap::from_iter(data.into_iter()));
     let out = safetensors::tensor::serialize(&tensors, &metadata_map)
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
