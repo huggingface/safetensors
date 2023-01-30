@@ -40,7 +40,7 @@ impl From<std::io::Error> for SafeTensorError {
 
 impl std::fmt::Display for SafeTensorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -458,19 +458,19 @@ mod tests {
         tensors_desc.push(("wte".to_string(), vec![50257, 768]));
         tensors_desc.push(("wpe".to_string(), vec![1024, 768]));
         for i in 0..n_heads {
-            tensors_desc.push((format!("h.{}.ln_1.weight", i), vec![768]));
-            tensors_desc.push((format!("h.{}.ln_1.bias", i), vec![768]));
-            tensors_desc.push((format!("h.{}.attn.bias", i), vec![1, 1, 1024, 1024]));
-            tensors_desc.push((format!("h.{}.attn.c_attn.weight", i), vec![768, 2304]));
-            tensors_desc.push((format!("h.{}.attn.c_attn.bias", i), vec![2304]));
-            tensors_desc.push((format!("h.{}.attn.c_proj.weight", i), vec![768, 768]));
-            tensors_desc.push((format!("h.{}.attn.c_proj.bias", i), vec![768]));
-            tensors_desc.push((format!("h.{}.ln_2.weight", i), vec![768]));
-            tensors_desc.push((format!("h.{}.ln_2.bias", i), vec![768]));
-            tensors_desc.push((format!("h.{}.mlp.c_fc.weight", i), vec![768, 3072]));
-            tensors_desc.push((format!("h.{}.mlp.c_fc.bias", i), vec![3072]));
-            tensors_desc.push((format!("h.{}.mlp.c_proj.weight", i), vec![3072, 768]));
-            tensors_desc.push((format!("h.{}.mlp.c_proj.bias", i), vec![768]));
+            tensors_desc.push((format!("h.{i}.ln_1.weight"), vec![768]));
+            tensors_desc.push((format!("h.{i}.ln_1.bias"), vec![768]));
+            tensors_desc.push((format!("h.{i}.attn.bias"), vec![1, 1, 1024, 1024]));
+            tensors_desc.push((format!("h.{i}.attn.c_attn.weight"), vec![768, 2304]));
+            tensors_desc.push((format!("h.{i}.attn.c_attn.bias"), vec![2304]));
+            tensors_desc.push((format!("h.{i}.attn.c_proj.weight"), vec![768, 768]));
+            tensors_desc.push((format!("h.{i}.attn.c_proj.bias"), vec![768]));
+            tensors_desc.push((format!("h.{i}.ln_2.weight"), vec![768]));
+            tensors_desc.push((format!("h.{i}.ln_2.bias"), vec![768]));
+            tensors_desc.push((format!("h.{i}.mlp.c_fc.weight"), vec![768, 3072]));
+            tensors_desc.push((format!("h.{i}.mlp.c_fc.bias"), vec![3072]));
+            tensors_desc.push((format!("h.{i}.mlp.c_proj.weight"), vec![3072, 768]));
+            tensors_desc.push((format!("h.{i}.mlp.c_proj.bias"), vec![768]));
         }
         tensors_desc.push(("ln_f.weight".to_string(), vec![768]));
         tensors_desc.push(("ln_f.bias".to_string(), vec![768]));
@@ -492,7 +492,7 @@ mod tests {
             offset += n;
         }
 
-        let filename = format!("./out_{}.bin", model_id);
+        let filename = format!("./out_{model_id}.bin");
 
         let out = serialize(&metadata, &None).unwrap();
 
