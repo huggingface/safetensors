@@ -20,7 +20,7 @@ pub fn bench_serialize(c: &mut Criterion) {
     // 2_MB x 5 = 10_MB
     for i in 0..n_layers {
         let tensor = TensorView::new(dtype, shape.clone(), &data[..]);
-        metadata.insert(format!("weight{}", i), tensor);
+        metadata.insert(format!("weight{i}"), tensor);
     }
 
     c.bench_function("Serlialize 10_MB", |b| {
@@ -38,7 +38,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
     // 2_MB x 5 = 10_MB
     for i in 0..n_layers {
         let tensor = TensorView::new(dtype, shape.clone(), &data[..]);
-        metadata.insert(format!("weight{}", i), tensor);
+        metadata.insert(format!("weight{i}"), tensor);
     }
 
     let out = serialize(&metadata, &None).unwrap();
