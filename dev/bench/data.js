@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1674223815503,
+  "lastUpdate": 1675083884709,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5174,6 +5174,72 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010818505771205932",
             "extra": "mean: 245.89748320000808 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9a761ac0e01413d0d88bc4f12c950669ec2ead0",
+          "message": "Clippy fix. (#171)\n\n* Clippy fix.\r\n\r\n* And tests.",
+          "timestamp": "2023-01-30T13:59:40+01:00",
+          "tree_id": "d23f493fc5e8ebb9d2b3faf35751c7ff9ca13478",
+          "url": "https://github.com/huggingface/safetensors/commit/f9a761ac0e01413d0d88bc4f12c950669ec2ead0"
+        },
+        "date": 1675083883778,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.4308576340936112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009107754105040831",
+            "extra": "mean: 698.8815492000072 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.631252021926557,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08798092198824208",
+            "extra": "mean: 275.38710999999694 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.9020364682282853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01299414534617922",
+            "extra": "mean: 256.27643620000526 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 229.02546960208434,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00019521601003369277",
+            "extra": "mean: 4.366326599995318 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.7053930079329263,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03566858910572391",
+            "extra": "mean: 586.3751026000045 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 5.069334422426101,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04841518427397529",
+            "extra": "mean: 197.2645552000131 msec\nrounds: 5"
           }
         ]
       }
