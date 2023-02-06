@@ -107,7 +107,7 @@ necessary)? This is becoming increasingly important in the ML world.
 ### Notes
 
 - Zero-copy: No format is really zero-copy in ML, it needs to go from disk to RAM/GPU RAM (that takes time). Also
-   In PyTorch/numpy, you need a mutable buffer, and we don't really want to mutate a mmaped file, so 1 copy will be necessary if you modify an array (copy-on-write). That being said, zero-copy is achievable in Rust if it's wanted and safety can be guaranteed by some other means.
+   In PyTorch/numpy, you need a mutable buffer, and we don't really want to mutate a mmaped file, so 1 copy is really necessary to use the thing freely in user code. That being said, zero-copy is achievable in Rust if it's wanted and safety can be guaranteed by some other means.
    SafeTensors is not zero-copy for the header. The choice of JSON is pretty arbitrary, but since deserialization is <<< of the time required to load the actual tensor data and is readable I went that way, (also space is <<< to the tensor data).
 
 - Endianness: Little-endian. This can be modified later, but it feels really unecessary at the

@@ -2,7 +2,7 @@
 //! Dummy doc
 use libloading::{Library, Symbol};
 use memmap2::{Mmap, MmapOptions};
-use pyo3::exceptions::PyException;
+use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
@@ -476,7 +476,9 @@ struct Open {
 
 impl Open {
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(&filename)?;
+        let file = File::open(&filename).map_err(|_| {
+            PyFileNotFoundError::new_err(format!("No such file or directory: {filename:?}"))
+        })?;
         let device = device.unwrap_or(Device::Cpu);
 
         if device != Device::Cpu && framework != Framework::Pytorch {
