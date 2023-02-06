@@ -2,7 +2,7 @@
 //! Dummy doc
 use libloading::{Library, Symbol};
 use memmap2::{Mmap, MmapOptions};
-use pyo3::exceptions::PyException;
+use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::once_cell::GILOnceCell;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
@@ -73,7 +73,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
                     }
                 }
                 "data" => data = value.extract()?,
-                _ => println!("Ignored unknown kwarg option {}", key),
+                _ => println!("Ignored unknown kwarg option {key}"),
             };
         }
         let tensor = TensorView::new(dtype, shape, data);
@@ -96,15 +96,15 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<BTreeMap<String, T
 ///         The serialized content.
 #[pyfunction]
 #[pyo3(text_signature = "(tensor_dict, metadata=None)")]
-fn serialize<'a, 'b>(
+fn serialize<'b>(
     py: Python<'b>,
-    tensor_dict: HashMap<String, &'a PyDict>,
+    tensor_dict: HashMap<String, &PyDict>,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
     let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
     let out = safetensors::tensor::serialize(&tensors, &metadata_btreemap)
-        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {:?}", e)))?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
@@ -133,7 +133,7 @@ fn serialize_file(
     let tensors = prepare(tensor_dict)?;
     let metadata_btreemap = metadata.map(|data| BTreeMap::from_iter(data.into_iter()));
     safetensors::tensor::serialize_to_file(&tensors, &metadata_btreemap, filename.as_path())
-        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {:?}", e)))?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
     Ok(())
 }
 
@@ -151,7 +151,7 @@ fn serialize_file(
 #[pyo3(text_signature = "(bytes)")]
 fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let safetensor = SafeTensors::deserialize(bytes)
-        .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {:?}", e)))?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e:?}")))?;
     let mut items = vec![];
 
     for (tensor_name, tensor) in safetensor.tensors() {
@@ -379,7 +379,7 @@ fn check_cuda(cuda_memcpy: &Symbol<MemcpyFn>, dst: usize, src: &[u8], module: &P
     if out != 0 {
         let string = match get_error_string(module, out) {
             Ok(string) => string,
-            Err(_) => format!("{}", out),
+            Err(_) => format!("{out}"),
         };
         println!(
                 "We tried to set your tensor fast, but there was a cuda error, This could have corrupted your GPU ram, aborting to prevent further errors {string:?}"
@@ -481,7 +481,9 @@ struct Open {
 
 impl Open {
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(&filename)?;
+        let file = File::open(&filename).map_err(|_| {
+            PyFileNotFoundError::new_err(format!("No such file or directory: {filename:?}"))
+        })?;
         let device = device.unwrap_or(Device::Cpu);
 
         if device != Device::Cpu && framework != Framework::Pytorch {
@@ -495,7 +497,7 @@ impl Open {
         let buffer = unsafe { MmapOptions::new().map(&file)? };
 
         let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
-            SafetensorError::new_err(format!("Error while deserializing header: {:?}", e))
+            SafetensorError::new_err(format!("Error while deserializing header: {e:?}"))
         })?;
 
         let offset = n + 8;
@@ -1106,8 +1108,7 @@ fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
             Dtype::BOOL => module.getattr(intern!(py, "bool"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
-                    "Dtype not understood: {:?}",
-                    dtype
+                    "Dtype not understood: {dtype:?}"
                 )))
             }
         };
