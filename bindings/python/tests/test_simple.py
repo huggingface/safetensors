@@ -76,6 +76,14 @@ class WindowsTestCase(unittest.TestCase):
             g.write("something")
 
 
+class ErrorsTestCase(unittest.TestCase):
+    def test_file_not_found(self):
+        with self.assertRaises(FileNotFoundError) as ctx:
+            with safe_open("notafile", framework="pt"):
+                pass
+        self.assertEqual(str(ctx.exception), 'No such file or directory: "notafile"')
+
+
 class ReadmeTestCase(unittest.TestCase):
     def assertTensorEqual(self, tensors1, tensors2, equality_fn):
         self.assertEqual(tensors1.keys(), tensors2.keys(), "tensor keys don't match")
