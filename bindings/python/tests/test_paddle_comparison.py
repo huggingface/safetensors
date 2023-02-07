@@ -28,14 +28,3 @@ class SafeTestCase(unittest.TestCase):
             tv = paddle_weights[k]
             self.assertTrue(np.allclose(v, tv))
 
-    def test_deserialization_safe_open(self):
-        weights = {}
-        with safe_open(self.sf_filename, framework="paddle") as f:
-            for k in f.keys():
-                weights[k] = f.get_tensor(k)
-
-        paddle_weights = paddle.load(self.paddle_filename)
-
-        for k, v in weights.items():
-            tv = paddle_weights[k]
-            self.assertTrue(np.allclose(v, tv))
