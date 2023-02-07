@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1675681837880,
+  "lastUpdate": 1675781427755,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5372,6 +5372,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02584184039063614",
             "extra": "mean: 186.39481879999948 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50394665+JunnYu@users.noreply.github.com",
+            "name": "yujun",
+            "username": "JunnYu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c4e244ece49351ef67c8c132bf50b621133499d1",
+          "message": "Add PaddlePaddle backend (#176)\n\n* add paddle backend\r\n\r\n* add paddle ace\r\n\r\n* update docs\r\n\r\n* Some modifications.\r\n\r\n* Consistency.\r\n\r\n* Showing Paddle format.\r\n\r\n* donot modify lib.rs\r\n\r\n* remove test_deserialization_safe_open test\r\n\r\n* rm unused import\r\n\r\n* make style\r\n\r\n* Style.\r\n\r\n---------\r\n\r\nCo-authored-by: Nicolas Patry <patry.nicolas@protonmail.com>",
+          "timestamp": "2023-02-07T15:44:54+01:00",
+          "tree_id": "fc0ac6a930691de94aed0d7276a58fcbdd48c4bb",
+          "url": "https://github.com/huggingface/safetensors/commit/c4e244ece49351ef67c8c132bf50b621133499d1"
+        },
+        "date": 1675781427158,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2568768559194343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01389275859280193",
+            "extra": "mean: 795.6228928000087 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.425738293672138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.060917175575213166",
+            "extra": "mean: 291.9078791999823 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.045770588369551,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01983406137667159",
+            "extra": "mean: 488.8133624000261 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.8236579347012523,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00943189364966999",
+            "extra": "mean: 548.3484490000137 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.611124580606059,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010627947331834624",
+            "extra": "mean: 276.9220439999799 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 214.80321801636018,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000984439488488414",
+            "extra": "mean: 4.655423737291666 msec\nrounds: 118"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3300055505627013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1509880278271563",
+            "extra": "mean: 751.8765614000017 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.6143546898352135,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028816278168650965",
+            "extra": "mean: 276.67456180001864 msec\nrounds: 5"
           }
         ]
       }
