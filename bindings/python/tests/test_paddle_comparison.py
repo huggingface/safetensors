@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 import paddle
-from safetensors import safe_open
 from safetensors.paddle import load_file, save_file
 
 
