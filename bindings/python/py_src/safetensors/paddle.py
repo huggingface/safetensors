@@ -67,7 +67,7 @@ def save_file(
     import paddle
 
     tensors = {"embedding": paddle.zeros((512, 1024)), "attention": paddle.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
     np_tensors = _paddle2np(tensors)
