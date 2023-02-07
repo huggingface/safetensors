@@ -37,7 +37,7 @@ extras["torch"] = deps_list("torch")
 extras["numpy"] = deps_list("numpy")
 extras["tensorflow"] = deps_list("tensorflow")
 extras["jax"] = deps_list("jax", "flax")
-extras["paddlepaddle-gpu"] = deps_list("paddlepaddle-gpu")
+extras["paddlepaddle"] = deps_list("paddlepaddle")
 extras["quality"] = deps_list("black", "isort", "flake8", "click")
 extras["testing"] = (
     deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark", "h5py") + extras["numpy"]
@@ -47,7 +47,7 @@ extras["all"] = (
     + extras["numpy"]
     + extras["tensorflow"]
     + extras["jax"]
-    + extras["paddlepaddle-gpu"]
+    + extras["paddlepaddle"]
     + extras["quality"]
     + extras["testing"]
 )

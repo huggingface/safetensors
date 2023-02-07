@@ -7,9 +7,6 @@ import paddle
 from safetensors import numpy
 
 
-np.bool = bool
-
-
 def save(tensors: Dict[str, paddle.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.

@@ -60,7 +60,7 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install -U pip
-          pip install .[numpy,tensorflow]
+          pip install .[numpy,tensorflow,paddle]
           pip install ${{ matrix.torch_version }}
 
       - name: Install (jax, flax)

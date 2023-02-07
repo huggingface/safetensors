@@ -33,7 +33,7 @@ def test_paddle_paddle_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
     with tempfile.NamedTemporaryFile() as f:
-        paddle.save(weights, f)
+        paddle.save(weights, f.name)
         result = benchmark(paddle.load, f.name)
 
     for k, v in weights.items():
