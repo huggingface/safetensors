@@ -21,7 +21,7 @@ _deps = [
     "pytest-benchmark",
     "tensorflow",
     "torch",
-    "paddlepaddle-gpu",
+    "paddlepaddle",
 ]
 
 
