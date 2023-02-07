@@ -9,6 +9,14 @@ python torch_ace_create.py
 python torch_ace_get_pwned.py
 ```
 
+# PaddlePaddle Arbitrary code execution
+
+Try it out. This will create a seemingly innocuous `paddle_ace.pdparams` file.
+```
+python paddle_ace_create.py
+python paddle_ace_get_pwned.py
+```
+
 # Tensorflow (Keras) Arbitrary Code execution (does not affect `transformers`)
 
 Try it out. This will create a seemingly innocuous `tf_ace.h5` file.

@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
-from safetensors import safe_open, SafetensorError, serialize
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
 

@@ -79,6 +79,7 @@
 //!| Cap'n'Proto             | 🗸 | 🗸 | ~ | 🗸 | 🗸 | ~ | ✗ |
 //!| Arrow                   | ? | ? | ? | ? | ? | ? | ✗ |
 //!| Numpy (npy,npz)         | 🗸 | ? | ? | ✗ | 🗸 | ✗ | ✗ |
+//!| pdparams (Paddle)       | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 | 🗸 |
 //!| SafeTensors             | 🗸 | 🗸 | 🗸 | 🗸 | 🗸 | ✗ | 🗸 |
 //!
 //!- Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
