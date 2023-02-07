@@ -26,4 +26,3 @@ class SafeTestCase(unittest.TestCase):
         for k, v in weights.items():
             tv = paddle_weights[k]
             self.assertTrue(np.allclose(v, tv))
-
