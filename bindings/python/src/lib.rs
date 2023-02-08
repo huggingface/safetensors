@@ -84,9 +84,8 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
         let data = data.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
         })?;
-        let tensor = TensorView::new(dtype, shape, data).map_err(|e| {
-            SafetensorError::new_err(format!("Error preparing tensor view: {e:?}"))
-        })?;
+        let tensor = TensorView::new(dtype, shape, data)
+            .map_err(|e| SafetensorError::new_err(format!("Error preparing tensor view: {e:?}")))?;
         tensors.insert(tensor_name, tensor);
     }
     Ok(tensors)
