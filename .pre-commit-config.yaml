@@ -40,7 +40,7 @@ repos:
         name: "Python (black)"
         args: ["--line-length", "119", "--target-version", "py35"]
         types: ["python"]
-  - repo: https://gitlab.com/pycqa/flake8
+  - repo: https://github.com/pycqa/flake8
     rev: 3.8.3
     hooks:
       - id: flake8
