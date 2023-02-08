@@ -57,12 +57,14 @@ struct PreparedData {
 
 /// The trait necessary to enable safetensors to serialize a tensor
 pub trait View {
+    /// The return type of Data. Has to be able to become a &[u8]
+    type Data: AsRef<[u8]>;
     /// The `Dtype` of the tensor
     fn dtype(&self) -> Dtype;
     /// The shape of the tensor
     fn shape(&self) -> &[usize];
     /// The data of the tensor
-    fn data(&self) -> &[u8];
+    fn data(&self) -> Self::Data;
     /// The length of the data, in bytes.
     /// This is necessary as this might be faster to get than `data().len()`
     /// for instance for tensors residing in GPU.
@@ -137,7 +139,7 @@ pub fn serialize<
     buffer.extend(&n.to_le_bytes().to_vec());
     buffer.extend(&header_bytes);
     for tensor in tensors {
-        buffer.extend(tensor.data());
+        buffer.extend(tensor.data().as_ref());
     }
     Ok(buffer)
 }
@@ -164,7 +166,7 @@ pub fn serialize_to_file<
     f.write_all(n.to_le_bytes().as_ref())?;
     f.write_all(&header_bytes)?;
     for tensor in tensors {
-        f.write_all(tensor.data())?;
+        f.write_all(tensor.data().as_ref())?;
     }
     f.flush()?;
     Ok(())
@@ -400,13 +402,15 @@ pub struct TensorView<'data> {
 }
 
 impl<'data> View for &TensorView<'data> {
+    type Data = &'data [u8];
+
     fn dtype(&self) -> Dtype {
         self.dtype
     }
     fn shape(&self) -> &[usize] {
         &self.shape
     }
-    fn data(&self) -> &[u8] {
+    fn data(&self) -> Self::Data {
         self.data
     }
     fn data_len(&self) -> usize {
