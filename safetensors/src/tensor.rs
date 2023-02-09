@@ -111,8 +111,8 @@ struct PreparedData {
 /// use safetensors::tensor::{View, Dtype};
 ///
 /// # type MyDtype = Dtype;
-/// # type GpuVec<T> = Vec<T>;
-/// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: GpuVec<u8> }
+/// # type OpaqueGpu = Vec<u8>;
+/// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: OpaqueGpu }
 ///
 /// impl View for Tensor{
 ///     type Data = Vec<u8>;
