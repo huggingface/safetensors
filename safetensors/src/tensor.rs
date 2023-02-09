@@ -56,6 +56,84 @@ struct PreparedData {
 }
 
 /// The trait necessary to enable safetensors to serialize a tensor
+/// If you have an owned tensor like this:
+///
+/// ```rust
+/// use safetensors::tensor::{View, Dtype};
+/// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: Vec<u8>}
+///
+/// # type MyDtype = Dtype;
+/// impl<'data> View for &'data Tensor{
+///    type Data = &'data [u8];
+///    fn dtype(&self) -> Dtype{
+///        self.dtype.into()
+///    }
+///    fn shape(&self) -> &[usize]{
+///         &self.shape
+///    }
+///    fn data(&self) -> Self::Data{
+///        &self.data
+///    }
+///    fn data_len(&self) -> usize{
+///        self.data.len()
+///    }
+/// }
+/// ```
+///
+/// For a borrowed tensor:
+///
+/// ```rust
+/// use safetensors::tensor::{View, Dtype};
+/// struct Tensor<'data>{ dtype: MyDtype, shape: Vec<usize>, data: &'data[u8]}
+///
+/// # type MyDtype = Dtype;
+/// impl<'data> View for Tensor<'data>{
+///    type Data = &'data [u8];
+///    fn dtype(&self) -> Dtype{
+///        self.dtype.into()
+///    }
+///    fn shape(&self) -> &[usize]{
+///         &self.shape
+///    }
+///    fn data(&self) -> Self::Data{
+///        self.data
+///    }
+///    fn data_len(&self) -> usize{
+///        self.data.len()
+///    }
+/// }
+/// ```
+///
+/// Now if you have some unknown buffer that could be on GPU for instance,
+/// you can implement the trait to return an owned local buffer containing the data
+/// on CPU (needed to write on disk)
+/// ```rust
+/// use safetensors::tensor::{View, Dtype};
+///
+/// # type MyDtype = Dtype;
+/// # type GpuVec<T> = Vec<T>;
+/// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: GpuVec<u8> }
+///
+/// impl View for Tensor{
+///     type Data = Vec<u8>;
+///    fn dtype(&self) -> Dtype{
+///        self.dtype.into()
+///    }
+///    fn shape(&self) -> &[usize]{
+///         &self.shape
+///    }
+///    fn data(&self) -> Self::Data{
+///        // This copies data from GPU to CPU.
+///        let data: Vec<u8> = self.data.to_vec();
+///        data
+///    }
+///    fn data_len(&self) -> usize{
+///        let n: usize = self.shape.iter().product();
+///        let bytes_per_element = self.dtype.size();
+///        n * bytes_per_element
+///    }
+/// }
+/// ```
 pub trait View {
     /// The return type of Data. Has to be able to become a &[u8]
     type Data: AsRef<[u8]>;
