@@ -1,6 +1,7 @@
 //! Module Containing the most important structures
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -60,19 +61,19 @@ struct PreparedData {
 ///
 /// ```rust
 /// use safetensors::tensor::{View, Dtype};
+/// use std::borrow::Cow;
 /// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: Vec<u8>}
 ///
 /// # type MyDtype = Dtype;
 /// impl<'data> View for &'data Tensor{
-///    type Data = &'data [u8];
 ///    fn dtype(&self) -> Dtype{
 ///        self.dtype.into()
 ///    }
 ///    fn shape(&self) -> &[usize]{
 ///         &self.shape
 ///    }
-///    fn data(&self) -> Self::Data{
-///        &self.data
+///    fn data(&self) -> Cow<[u8]>{
+///        (&self.data).into()
 ///    }
 ///    fn data_len(&self) -> usize{
 ///        self.data.len()
@@ -84,19 +85,19 @@ struct PreparedData {
 ///
 /// ```rust
 /// use safetensors::tensor::{View, Dtype};
+/// use std::borrow::Cow;
 /// struct Tensor<'data>{ dtype: MyDtype, shape: Vec<usize>, data: &'data[u8]}
 ///
 /// # type MyDtype = Dtype;
 /// impl<'data> View for Tensor<'data>{
-///    type Data = &'data [u8];
 ///    fn dtype(&self) -> Dtype{
 ///        self.dtype.into()
 ///    }
 ///    fn shape(&self) -> &[usize]{
 ///         &self.shape
 ///    }
-///    fn data(&self) -> Self::Data{
-///        self.data
+///    fn data(&self) -> Cow<[u8]>{
+///        self.data.into()
 ///    }
 ///    fn data_len(&self) -> usize{
 ///        self.data.len()
@@ -109,23 +110,23 @@ struct PreparedData {
 /// on CPU (needed to write on disk)
 /// ```rust
 /// use safetensors::tensor::{View, Dtype};
+/// use std::borrow::Cow;
 ///
 /// # type MyDtype = Dtype;
 /// # type OpaqueGpu = Vec<u8>;
 /// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: OpaqueGpu }
 ///
 /// impl View for Tensor{
-///     type Data = Vec<u8>;
 ///    fn dtype(&self) -> Dtype{
 ///        self.dtype.into()
 ///    }
 ///    fn shape(&self) -> &[usize]{
 ///         &self.shape
 ///    }
-///    fn data(&self) -> Self::Data{
+///    fn data(&self) -> Cow<[u8]>{
 ///        // This copies data from GPU to CPU.
 ///        let data: Vec<u8> = self.data.to_vec();
-///        data
+///        data.into()
 ///    }
 ///    fn data_len(&self) -> usize{
 ///        let n: usize = self.shape.iter().product();
@@ -135,14 +136,12 @@ struct PreparedData {
 /// }
 /// ```
 pub trait View {
-    /// The return type of Data. Has to be able to become a &[u8]
-    type Data: AsRef<[u8]>;
     /// The `Dtype` of the tensor
     fn dtype(&self) -> Dtype;
     /// The shape of the tensor
     fn shape(&self) -> &[usize];
     /// The data of the tensor
-    fn data(&self) -> Self::Data;
+    fn data(&self) -> Cow<[u8]>;
     /// The length of the data, in bytes.
     /// This is necessary as this might be faster to get than `data().len()`
     /// for instance for tensors residing in GPU.
@@ -480,17 +479,18 @@ pub struct TensorView<'data> {
 }
 
 impl<'data> View for &TensorView<'data> {
-    type Data = &'data [u8];
-
     fn dtype(&self) -> Dtype {
         self.dtype
     }
+
     fn shape(&self) -> &[usize] {
         &self.shape
     }
-    fn data(&self) -> Self::Data {
-        self.data
+
+    fn data(&self) -> Cow<[u8]> {
+        self.data.into()
     }
+
     fn data_len(&self) -> usize {
         self.data.len()
     }
