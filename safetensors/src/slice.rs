@@ -215,17 +215,17 @@ impl<'data> SliceIterator<'data> {
     ) -> Result<Self, InvalidSlice> {
         // Make sure n. axis does not exceed n. of dimensions
         let n_slice = slices.len();
-        let n_shape = view.shape.len();
+        let n_shape = view.shape().len();
         if n_slice > n_shape {
             return Err(InvalidSlice::TooManySlices);
         }
-        let mut newshape = Vec::with_capacity(view.shape.len());
+        let mut newshape = Vec::with_capacity(view.shape().len());
 
         // Minimum span is the span of 1 item;
-        let mut span = view.dtype.size();
+        let mut span = view.dtype().size();
         let mut indices = vec![];
         // Everything is row major.
-        for (i, &shape) in view.shape.iter().enumerate().rev() {
+        for (i, &shape) in view.shape().iter().enumerate().rev() {
             if i >= slices.len() {
                 // We are  not slicing yet, just increase the local span
                 newshape.push(shape);
@@ -273,7 +273,7 @@ impl<'data> SliceIterator<'data> {
             span *= shape;
         }
         if indices.is_empty() {
-            indices.push((0, view.data.len()));
+            indices.push((0, view.data().len()));
         }
         // Reversing so we can pop faster while iterating on the slice
         let indices = indices.into_iter().rev().collect();
@@ -307,7 +307,7 @@ impl<'data> Iterator for SliceIterator<'data> {
         // here actually to remove the need to get all the indices
         // upfront.
         let (start, stop) = self.indices.pop()?;
-        Some(&self.view.data[start..stop])
+        Some(&self.view.data()[start..stop])
     }
 }
 
@@ -323,11 +323,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView {
-            dtype: Dtype::F32,
-            shape: vec![1, 2, 3],
-            data: &data,
-        };
+        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3], &data).unwrap();
 
         let iterator = SliceIterator::new(
             &attn_0,
@@ -356,11 +352,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView {
-            dtype: Dtype::F32,
-            shape: vec![1, 2, 3],
-            data: &data,
-        };
+        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3], &data).unwrap();
 
         let mut iterator = SliceIterator::new(
             &attn_0,
@@ -423,11 +415,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView {
-            dtype: Dtype::F32,
-            shape: vec![1, 2, 3],
-            data: &data,
-        };
+        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3], &data).unwrap();
 
         let mut iterator = SliceIterator::new(
             &attn_0,
@@ -484,11 +472,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView {
-            dtype: Dtype::F32,
-            shape: vec![2, 3],
-            data: &data,
-        };
+        let attn_0 = TensorView::new(Dtype::F32, vec![2, 3], &data).unwrap();
 
         let mut iterator = SliceIterator::new(
             &attn_0,
