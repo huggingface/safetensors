@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1675851099240,
+  "lastUpdate": 1676989856072,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5532,6 +5532,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.052711528936954244",
             "extra": "mean: 281.0726260000024 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c5b3a6b9c9be653b91ce8355225b8cad074f8b0",
+          "message": "[Major Change] Enforcing tensor alignment (#148)\n\n* [Major Change] Enforcing tensor alignment\r\n\r\n- Now the header will automatically align itself to 8 bytes (f64) with\r\n  appending extra spaces as necessary.\r\n- This will allow extra fast memory mapping by reinterpreting bytes as\r\n  f32/f64 etc.. Unaligned bytes do not allow for this. https://www.reddit.com/r/rust/comments/tanaxm/mutating_a_buffer_of_u8s_as_f32s_in_place/\r\n- This does not change contiguousness of tensors\r\n- This does not change the actual spec (we're just putting extra valid bytes\r\n  in the header and using a different serialization ordering)\r\n- Readers should still be able to read old files, they would just need\r\n  to be copied before being cast as their final destination when using\r\n  mmap\r\n- This has no effect for GPU since copy is already necessary (*I think*,\r\n  depends on the cuda API actually if it allows filling f32 addresses\r\n  from raw unaligned bytes).\r\n\r\nThis change will only be interesting if things like https://github.com/Narsil/fast_gpt2\r\nactually pick up. And even with the copy, load times are still vastly\r\nsuperior to `pytorch`.\r\n\r\nWe need to be able to read old files.\r\n\r\n* Fixup.\r\n\r\n* Clippy fix.\r\n\r\n* Cargo fmt (clippy --fix broke it ? :( )",
+          "timestamp": "2023-02-21T15:23:56+01:00",
+          "tree_id": "4ea554c9d19f3f89f35d5072545a10e2c4c4356a",
+          "url": "https://github.com/huggingface/safetensors/commit/0c5b3a6b9c9be653b91ce8355225b8cad074f8b0"
+        },
+        "date": 1676989854869,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.0880325300906046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027575222551317807",
+            "extra": "mean: 919.0901671999882 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.045821197644565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0728577698029528",
+            "extra": "mean: 328.3186816000011 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.8361150631998868,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022123201682182805",
+            "extra": "mean: 544.6281771999907 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.6059027862952038,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011073198802285416",
+            "extra": "mean: 622.7026993999971 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.179166400684258,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01658308981899354",
+            "extra": "mean: 314.54786380000996 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 98.10854765020046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00026469830903379547",
+            "extra": "mean: 10.192791800011491 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.2168850699580498,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11252141101178768",
+            "extra": "mean: 821.7702926000015 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.5049990553749684,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012751864052489511",
+            "extra": "mean: 285.30678159997933 msec\nrounds: 5"
           }
         ]
       }
