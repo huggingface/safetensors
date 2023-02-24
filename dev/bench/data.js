@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1676989856072,
+  "lastUpdate": 1677233922262,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5612,6 +5612,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012751864052489511",
             "extra": "mean: 285.30678159997933 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "fdwr@hotmail.com",
+            "name": "Dwayne Robinson",
+            "username": "fdwr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "120c4da5128ee5730f66e972a058a5dcd20fa358",
+          "message": "README.md proposed clarity (#181)\n\n* README.md proposed clarity\r\n\r\nI had to look via a hex editor at an existing .safetensors file to figure it out (maybe this will accelerate others slightly to adopt it 😅), because parentheses \"(...)\" are not legal JSON, and it wasn't clear to me whether the offsets were file relative or byte buffer relative.\r\n\r\n* Update other readme.\r\n\r\n---------\r\n\r\nCo-authored-by: Nicolas Patry <patry.nicolas@protonmail.com>",
+          "timestamp": "2023-02-24T11:12:57+01:00",
+          "tree_id": "ad78f432b64e24e4f939ccfb5e574e9b2255d7cf",
+          "url": "https://github.com/huggingface/safetensors/commit/120c4da5128ee5730f66e972a058a5dcd20fa358"
+        },
+        "date": 1677233921694,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1935044565462292,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04919540841759859",
+            "extra": "mean: 837.8686770000058 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.172753268075411,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07223332719511172",
+            "extra": "mean: 315.1836640000056 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.0213827535629125,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017590214596932097",
+            "extra": "mean: 494.7108598 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.8809788815891215,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010412294273531587",
+            "extra": "mean: 531.6380793999997 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.806925511074714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009920869257562222",
+            "extra": "mean: 262.67916120000336 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 127.82199978699423,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00022754525358795126",
+            "extra": "mean: 7.823379399997065 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.671979170927584,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09355006132925571",
+            "extra": "mean: 598.0935751999937 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.016255653181784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022384494744178075",
+            "extra": "mean: 331.53688379999267 msec\nrounds: 5"
           }
         ]
       }
