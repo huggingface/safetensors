@@ -1,6 +1,7 @@
 //! Module Containing the most important structures
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -48,34 +49,125 @@ impl std::fmt::Display for SafeTensorError {
 
 impl std::error::Error for SafeTensorError {}
 
-struct PreparedData<'hash, 'data> {
+struct PreparedData {
     n: u64,
     header_bytes: Vec<u8>,
-    tensors: Vec<&'hash TensorView<'data>>,
     offset: usize,
 }
 
-fn prepare<'hash, 'data>(
-    data: &'hash HashMap<String, TensorView<'data>>,
-    data_info: &'hash Option<HashMap<String, String>>,
+/// The trait necessary to enable safetensors to serialize a tensor
+/// If you have an owned tensor like this:
+///
+/// ```rust
+/// use safetensors::tensor::{View, Dtype};
+/// use std::borrow::Cow;
+/// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: Vec<u8>}
+///
+/// # type MyDtype = Dtype;
+/// impl<'data> View for &'data Tensor{
+///    fn dtype(&self) -> Dtype{
+///        self.dtype.into()
+///    }
+///    fn shape(&self) -> &[usize]{
+///         &self.shape
+///    }
+///    fn data(&self) -> Cow<[u8]>{
+///        (&self.data).into()
+///    }
+///    fn data_len(&self) -> usize{
+///        self.data.len()
+///    }
+/// }
+/// ```
+///
+/// For a borrowed tensor:
+///
+/// ```rust
+/// use safetensors::tensor::{View, Dtype};
+/// use std::borrow::Cow;
+/// struct Tensor<'data>{ dtype: MyDtype, shape: Vec<usize>, data: &'data[u8]}
+///
+/// # type MyDtype = Dtype;
+/// impl<'data> View for Tensor<'data>{
+///    fn dtype(&self) -> Dtype{
+///        self.dtype.into()
+///    }
+///    fn shape(&self) -> &[usize]{
+///         &self.shape
+///    }
+///    fn data(&self) -> Cow<[u8]>{
+///        self.data.into()
+///    }
+///    fn data_len(&self) -> usize{
+///        self.data.len()
+///    }
+/// }
+/// ```
+///
+/// Now if you have some unknown buffer that could be on GPU for instance,
+/// you can implement the trait to return an owned local buffer containing the data
+/// on CPU (needed to write on disk)
+/// ```rust
+/// use safetensors::tensor::{View, Dtype};
+/// use std::borrow::Cow;
+///
+/// # type MyDtype = Dtype;
+/// # type OpaqueGpu = Vec<u8>;
+/// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: OpaqueGpu }
+///
+/// impl View for Tensor{
+///    fn dtype(&self) -> Dtype{
+///        self.dtype.into()
+///    }
+///    fn shape(&self) -> &[usize]{
+///         &self.shape
+///    }
+///    fn data(&self) -> Cow<[u8]>{
+///        // This copies data from GPU to CPU.
+///        let data: Vec<u8> = self.data.to_vec();
+///        data.into()
+///    }
+///    fn data_len(&self) -> usize{
+///        let n: usize = self.shape.iter().product();
+///        let bytes_per_element = self.dtype.size();
+///        n * bytes_per_element
+///    }
+/// }
+/// ```
+pub trait View {
+    /// The `Dtype` of the tensor
+    fn dtype(&self) -> Dtype;
+    /// The shape of the tensor
+    fn shape(&self) -> &[usize];
+    /// The data of the tensor
+    fn data(&self) -> Cow<[u8]>;
+    /// The length of the data, in bytes.
+    /// This is necessary as this might be faster to get than `data().len()`
+    /// for instance for tensors residing in GPU.
+    fn data_len(&self) -> usize;
+}
+
+fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Item = (S, V)>>(
+    data: I,
+    data_info: &Option<HashMap<String, String>>,
     // ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
-) -> Result<PreparedData<'hash, 'data>, SafeTensorError> {
+) -> Result<(PreparedData, Vec<V>), SafeTensorError> {
     // Make sure we're sorting by descending dtype alignment
     // Then by name
-    let mut data: Vec<_> = data.iter().collect();
+    let mut data: Vec<_> = data.into_iter().collect();
     data.sort_by(|(lname, left), (rname, right)| {
-        right.dtype.cmp(&left.dtype).then(lname.cmp(rname))
+        right.dtype().cmp(&left.dtype()).then(lname.cmp(rname))
     });
 
-    let mut tensors: Vec<&TensorView> = vec![];
+    let mut tensors: Vec<V> = Vec::with_capacity(data.len());
     let mut hmetadata = Vec::with_capacity(data.len());
     let mut offset = 0;
     let data: Vec<_> = data.into_iter().collect();
     for (name, tensor) in data {
-        let n = tensor.data.len();
+        let n = tensor.data_len();
         let tensor_info = TensorInfo {
-            dtype: tensor.dtype,
-            shape: tensor.shape.to_vec(),
+            dtype: tensor.dtype(),
+            shape: tensor.shape().to_vec(),
             data_offsets: (offset, offset + n),
         };
         offset += n;
@@ -91,31 +183,39 @@ fn prepare<'hash, 'data>(
 
     let n: u64 = metadata_buf.len() as u64;
 
-    Ok(PreparedData {
-        n,
-        header_bytes: metadata_buf,
+    Ok((
+        PreparedData {
+            n,
+            header_bytes: metadata_buf,
+            offset,
+        },
         tensors,
-        offset,
-    })
+    ))
 }
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
-pub fn serialize(
-    data: &HashMap<String, TensorView>,
+pub fn serialize<
+    S: AsRef<str> + Ord + std::fmt::Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+>(
+    data: I,
     data_info: &Option<HashMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
-    let PreparedData {
-        n,
-        header_bytes,
+    let (
+        PreparedData {
+            n,
+            header_bytes,
+            offset,
+        },
         tensors,
-        offset,
-    } = prepare(data, data_info)?;
+    ) = prepare(data, data_info)?;
     let expected_size = 8 + header_bytes.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
     buffer.extend(&n.to_le_bytes().to_vec());
     buffer.extend(&header_bytes);
     for tensor in tensors {
-        buffer.extend(tensor.data);
+        buffer.extend(tensor.data().as_ref());
     }
     Ok(buffer)
 }
@@ -123,22 +223,26 @@ pub fn serialize(
 /// Serialize to a regular file the dictionnary of tensors.
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
-pub fn serialize_to_file(
-    data: &HashMap<String, TensorView>,
+pub fn serialize_to_file<
+    S: AsRef<str> + Ord + std::fmt::Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+>(
+    data: I,
     data_info: &Option<HashMap<String, String>>,
     filename: &Path,
 ) -> Result<(), SafeTensorError> {
-    let PreparedData {
-        n,
-        header_bytes,
+    let (
+        PreparedData {
+            n, header_bytes, ..
+        },
         tensors,
-        ..
-    } = prepare(data, data_info)?;
+    ) = prepare(data, data_info)?;
     let mut f = BufWriter::new(File::create(filename)?);
     f.write_all(n.to_le_bytes().as_ref())?;
     f.write_all(&header_bytes)?;
     for tensor in tensors {
-        f.write_all(tensor.data)?;
+        f.write_all(tensor.data().as_ref())?;
     }
     f.flush()?;
     Ok(())
@@ -371,6 +475,24 @@ pub struct TensorView<'data> {
     dtype: Dtype,
     shape: Vec<usize>,
     data: &'data [u8],
+}
+
+impl<'data> View for &TensorView<'data> {
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn data(&self) -> Cow<[u8]> {
+        self.data.into()
+    }
+
+    fn data_len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 impl<'data> TensorView<'data> {
