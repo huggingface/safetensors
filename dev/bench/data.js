@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1677233922262,
+  "lastUpdate": 1677247396029,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5692,6 +5692,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.022384494744178075",
             "extra": "mean: 331.53688379999267 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "960cd17702430a2f033fa4dc5361119a6dac8b55",
+          "message": "Better Rust API (tch-rs) (#179)\n\n* Implementing a trait API for the Rust (should make tch-rs interaction\r\neasier).\r\n\r\n* Companion type.\r\n\r\n* Re-export major formats + 3rd example in the trait doc.\r\n\r\n* Even clearer OpaqueGPU type.\r\n\r\n* Moving to `Cow<[u8]>`. Feels simpler.\r\n\r\n* Fixes.",
+          "timestamp": "2023-02-24T14:56:51+01:00",
+          "tree_id": "55feb684b8f87a659099c990c3660e4c04c113c4",
+          "url": "https://github.com/huggingface/safetensors/commit/960cd17702430a2f033fa4dc5361119a6dac8b55"
+        },
+        "date": 1677247394544,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.0347768715381531,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007376250504844249",
+            "extra": "mean: 966.3919125999996 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.6542077982746073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08267021704527966",
+            "extra": "mean: 376.760252400004 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.7191263493138516,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027732195687078513",
+            "extra": "mean: 581.6908107999893 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.543859894926997,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01919518388100529",
+            "extra": "mean: 647.7271695999889 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 2.9246202486917094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014880281278605603",
+            "extra": "mean: 341.9247337999991 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 71.77757141250999,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005970634714562729",
+            "extra": "mean: 13.93192859999317 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.117735911740744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12867491021926386",
+            "extra": "mean: 894.6657162000065 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.2014823857185393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006539923847096835",
+            "extra": "mean: 312.35530280000603 msec\nrounds: 5"
           }
         ]
       }
