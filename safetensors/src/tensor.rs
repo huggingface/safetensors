@@ -52,7 +52,6 @@ impl std::error::Error for SafeTensorError {}
 struct PreparedData {
     n: u64,
     header_bytes: Vec<u8>,
-    // tensors: Vec<&'data TensorView<'data>>,
     offset: usize,
 }
 
@@ -160,7 +159,7 @@ fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Ite
         right.dtype().cmp(&left.dtype()).then(lname.cmp(rname))
     });
 
-    let mut tensors: Vec<V> = vec![];
+    let mut tensors: Vec<V> = Vec::with_capacity(data.len());
     let mut hmetadata = Vec::with_capacity(data.len());
     let mut offset = 0;
     let data: Vec<_> = data.into_iter().collect();
