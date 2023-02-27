@@ -10,7 +10,6 @@ from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
-from safetensors import safe_open
 
 
 class TestCase(unittest.TestCase):
@@ -45,7 +44,7 @@ class TestCase(unittest.TestCase):
             f.write(serialized)
             f.seek(0)
 
-            with safe_open(f.name, framework="np") as g:
+            with safe_open(f.name, framework="np", device="cpu") as g:
                 self.assertEqual(g.metadata(), {"framework": "pt"})
 
     def test_serialization_order_invariant(self):
@@ -85,8 +84,22 @@ class TestCase(unittest.TestCase):
             "b": torch.zeros((2, 3), dtype=torch.uint8),
         }
         save_file_pt(tensors, Path("./out.safetensors"))
-        load_file_pt(Path("./out.safetensors"))
+        load_file_pt(Path("./out.safetensors"), device="cpu")
         os.remove(Path("./out.safetensors"))
+
+    def test_no_default(self):
+        tensors = {
+            "a": torch.zeros((2, 2)),
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+        save_file_pt(tensors, Path("./out.safetensors"))
+        with self.assertWarns(UserWarning) as ctx:
+            with safe_open("./out.safetensors", framework="pt"):
+                pass
+        self.assertEqual(
+            str(ctx.warning),
+            """Deprecated load without device specified. Please user `load_file(..., device="cpu")` or `safe_open(..., device="cpu")` to make sure you want to load on "cpu". Try to load on the device where the weights are needed directly as it could cause performance issues.""",
+        )
 
 
 class WindowsTestCase(unittest.TestCase):
@@ -96,7 +109,7 @@ class WindowsTestCase(unittest.TestCase):
             "b": torch.zeros((2, 3), dtype=torch.uint8),
         }
         save_file_pt(tensors, "./out.safetensors")
-        with safe_open("./out.safetensors", framework="pt") as f:
+        with safe_open("./out.safetensors", framework="pt", device="cpu") as f:
             pass
 
         with self.assertRaises(SafetensorError):
@@ -130,7 +143,7 @@ class ReadmeTestCase(unittest.TestCase):
         out = save(tensors)
 
         # Now loading
-        loaded = load_file("./out.safetensors")
+        loaded = load_file("./out.safetensors", device="cpu")
         self.assertTensorEqual(tensors, loaded, np.allclose)
 
         loaded = load(out)
@@ -148,7 +161,7 @@ class ReadmeTestCase(unittest.TestCase):
         save_file_pt(tensors, "./out.safetensors")
 
         # Now loading
-        loaded = load_file_pt("./out.safetensors")
+        loaded = load_file_pt("./out.safetensors", device="cpu")
         self.assertTensorEqual(tensors2, loaded, torch.allclose)
 
     def test_exception(self):

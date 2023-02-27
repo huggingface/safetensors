@@ -71,13 +71,21 @@ def save_file(
     return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 
-def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
+def load(data: bytes, device: str = None) -> Dict[str, paddle.Tensor]:
     """
     Loads a safetensors file into paddle format from pure bytes.
 
     Args:
         data (`bytes`):
             The content of a safetensors file
+        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
+            The device where the tensors need to be located after load.
+            available options are all regular paddle device locations
+
+            Note: In future versions, the default will be removed. The device
+            is required to be set to the real final device to get the best
+            load performance. Default will be removed in version >= 0.5.
+
 
     Returns:
         `Dict[str, paddle.Tensor]`: dictionary that contains name as key, value as `paddle.Tensor` on cpu
@@ -98,7 +106,7 @@ def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
     return _np2paddle(flat, device)
 
 
-def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, paddle.Tensor]:
+def load_file(filename: Union[str, os.PathLike], device: str = None) -> Dict[str, paddle.Tensor]:
     """
     Loads a safetensors file into paddle format.
 
@@ -108,6 +116,10 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, padd
         device (`Dict[str, any]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular paddle device locations
+
+            Note: In future versions, the default will be removed. The device
+            is required to be set to the real final device to get the best
+            load performance. Default will be removed in version >= 0.5.
 
     Returns:
         `Dict[str, paddle.Tensor]`: dictionary that contains name as key, value as `paddle.Tensor`
@@ -121,7 +133,7 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, padd
     loaded = load_file(file_path)
     ```
     """
-    flat = numpy.load_file(filename)
+    flat = numpy.load_file(filename, device=device)
     output = _np2paddle(flat, device)
     return output
 

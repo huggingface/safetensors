@@ -32,7 +32,7 @@ class LoadTestCase(unittest.TestCase):
         save_file(data, self.sf_filename)
 
     def test_deserialization_safe(self):
-        weights = load_file(self.sf_filename)
+        weights = load_file(self.sf_filename, device="cpu")
 
         with open(self.flax_filename, "rb") as f:
             data = f.read()
@@ -44,7 +44,7 @@ class LoadTestCase(unittest.TestCase):
 
     def test_deserialization_safe_open(self):
         weights = {}
-        with safe_open(self.sf_filename, framework="flax") as f:
+        with safe_open(self.sf_filename, framework="flax", device="cpu") as f:
             for k in f.keys():
                 weights[k] = f.get_tensor(k)
 

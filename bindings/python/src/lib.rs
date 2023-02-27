@@ -488,7 +488,19 @@ impl Open {
         let file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!("No such file or directory: {filename:?}"))
         })?;
-        let device = device.unwrap_or(Device::Cpu);
+        let device = device.unwrap_or_else(|| {
+            Python::with_gil(|py| -> PyResult<()>{
+                let warnings = PyModule::import(py, "warnings")?;
+                let builtins = PyModule::import(py, "builtins")?;
+                let warning = r#"Deprecated load without device specified. Please user `load_file(..., device="cpu")` or `safe_open(..., device="cpu")` to make sure you want to load on "cpu". Try to load on the device where the weights are needed directly as it could cause performance issues."#;
+                let user_warning = builtins.getattr("UserWarning")?;
+                 warnings
+                    .getattr("warn")?
+                    .call1((warning, user_warning))?;
+                Ok(())
+            }).ok();
+            Device::Cpu
+        });
 
         if device != Device::Cpu && framework != Framework::Pytorch {
             return Err(SafetensorError::new_err(format!(

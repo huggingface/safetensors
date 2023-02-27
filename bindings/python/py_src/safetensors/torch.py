@@ -72,7 +72,7 @@ def save_file(
     serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
-def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torch.Tensor]:
+def load_file(filename: Union[str, os.PathLike], device: str = None) -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
 
@@ -82,6 +82,10 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torc
         device (`Dict[str, any]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations
+
+            Note: In future versions, the default will be removed. The device
+            is required to be set to the real final device to get the best
+            load performance. Default will be removed in version >= 0.5.
 
     Returns:
         `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`

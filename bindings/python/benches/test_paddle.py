@@ -46,7 +46,7 @@ def test_paddle_sf_load(benchmark):
     weights = create_gpt2(12)
     with tempfile.NamedTemporaryFile() as f:
         save_file(weights, f.name)
-        result = benchmark(load_file, f.name)
+        result = benchmark(load_file, f.name, device="cpu")
 
     for k, v in weights.items():
         tv = result[k]

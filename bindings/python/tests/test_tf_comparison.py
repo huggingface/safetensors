@@ -42,7 +42,7 @@ class SafeTestCase(unittest.TestCase):
         save_file(data, self.sf_filename)
 
     def test_deserialization_safe(self):
-        weights = load_file(self.sf_filename)
+        weights = load_file(self.sf_filename, device="cpu")
 
         with h5py.File(self.tf_filename, "r") as f:
             tf_weights = _load(f)
@@ -53,7 +53,7 @@ class SafeTestCase(unittest.TestCase):
 
     def test_deserialization_safe_open(self):
         weights = {}
-        with safe_open(self.sf_filename, framework="tf") as f:
+        with safe_open(self.sf_filename, framework="tf", device="cpu") as f:
             for k in f.keys():
                 weights[k] = f.get_tensor(k)
 

@@ -20,7 +20,7 @@ class SafeTestCase(unittest.TestCase):
         save_file(data, self.sf_filename)
 
     def test_deserialization_safe(self):
-        weights = load_file(self.sf_filename)
+        weights = load_file(self.sf_filename, device="cpu")
 
         paddle_weights = paddle.load(self.paddle_filename)
         for k, v in weights.items():

@@ -15,7 +15,7 @@ class TorchTestCase(unittest.TestCase):
         }
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
         save_file(data, local)
-        reloaded = load_file(local)
+        reloaded = load_file(local, device="cpu")
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
@@ -40,7 +40,7 @@ class TorchTestCase(unittest.TestCase):
         }
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
         save_file(data, local)
-        reloaded = load_file(local)
+        reloaded = load_file(local, device="cpu")
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
 
     def test_sparse(self):
@@ -90,7 +90,7 @@ class LoadTestCase(unittest.TestCase):
 
     def test_deserialization_safe(self):
         tweights = torch.load(self.pt_filename)
-        weights = load_file(self.sf_filename)
+        weights = load_file(self.sf_filename, device="cpu")
 
         for k, v in weights.items():
             tv = tweights[k]
@@ -153,7 +153,7 @@ class SliceTestCase(unittest.TestCase):
             save_file(data, "./tests/data/out.safetensors")
 
     def test_deserialization_slice(self):
-        with safe_open(self.local, framework="pt") as f:
+        with safe_open(self.local, framework="pt", device="cpu") as f:
             tensor = f.get_slice("test")[:, :, 1:2]
 
         self.assertEqual(
@@ -165,7 +165,7 @@ class SliceTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(tensor, self.tensor[:, :, 1:2]))
 
     def test_deserialization_metadata(self):
-        with safe_open(self.local, framework="pt") as f:
+        with safe_open(self.local, framework="pt", device="cpu") as f:
             metadata = f.metadata()
         self.assertEqual(metadata, None)
 
@@ -175,6 +175,6 @@ class SliceTestCase(unittest.TestCase):
         local = "./tests/data/out_safe_pt_mmap2.safetensors"
         # Need to copy since that call mutates the tensors to numpy
         save_file(data, local, metadata={"Something": "more"})
-        with safe_open(local, framework="pt") as f:
+        with safe_open(local, framework="pt", device="cpu") as f:
             metadata = f.metadata()
         self.assertEqual(metadata, {"Something": "more"})
