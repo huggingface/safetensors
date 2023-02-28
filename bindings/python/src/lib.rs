@@ -476,7 +476,7 @@ impl Open {
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
                     let stop = (info.data_offsets.1 + self.offset) as isize;
-                    let slice = pyslice_new(py, start, stop, 1);
+                    let slice = PySlice::new(py, start, stop, 1);
                     let storage: &PyObject = storage
                         .get(py)
                         .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
@@ -750,7 +750,7 @@ impl PySafeSlice {
 
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
-                let slice = pyslice_new(py, start, stop, 1);
+                let slice = PySlice::new(py, start, stop, 1);
                 let storage: &PyObject = storage
                     .get(py)
                     .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
@@ -781,19 +781,6 @@ impl PySafeSlice {
             }),
         }
     }
-}
-
-// TODO Remove this once https://github.com/PyO3/pyo3/issues/2768 is released
-fn pyslice_new(py: Python<'_>, start: isize, stop: isize, step: isize) -> &PySlice {
-    let slice: &PySlice = unsafe {
-        let ptr = pyo3::ffi::PySlice_New(
-            pyo3::ffi::PyLong_FromSsize_t(start),
-            pyo3::ffi::PyLong_FromSsize_t(stop),
-            pyo3::ffi::PyLong_FromSsize_t(step),
-        );
-        py.from_owned_ptr(ptr)
-    };
-    slice
 }
 
 fn get_module<'a>(
