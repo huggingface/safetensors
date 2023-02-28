@@ -1,3 +1,4 @@
+import os
 import tempfile
 
 import numpy as np
@@ -32,9 +33,10 @@ def create_gpt2(n_layers: int):
 def test_paddle_paddle_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         paddle.save(weights, f.name)
         result = benchmark(paddle.load, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]
@@ -44,9 +46,10 @@ def test_paddle_paddle_load(benchmark):
 def test_paddle_sf_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]

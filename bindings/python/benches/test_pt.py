@@ -1,3 +1,4 @@
+import os
 import tempfile
 
 import pytest
@@ -32,9 +33,10 @@ def create_gpt2(n_layers: int):
 def test_pt_pt_load_cpu(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         torch.save(weights, f)
         result = benchmark(torch.load, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]
@@ -44,9 +46,10 @@ def test_pt_pt_load_cpu(benchmark):
 def test_pt_sf_load_cpu(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]
@@ -57,9 +60,10 @@ def test_pt_sf_load_cpu(benchmark):
 def test_pt_pt_load_gpu(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         torch.save(weights, f)
         result = benchmark(torch.load, f.name, map_location="cuda:0")
+    os.unlink(f.name)
 
     for k, v in weights.items():
         v = v.cuda()
@@ -71,9 +75,10 @@ def test_pt_pt_load_gpu(benchmark):
 def test_pt_sf_load_gpu(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name, device="cuda:0")
+    os.unlink(f.name)
 
     for k, v in weights.items():
         v = v.cuda()
@@ -85,9 +90,10 @@ def test_pt_sf_load_gpu(benchmark):
 def test_pt_pt_load_mps(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         torch.save(weights, f)
         result = benchmark(torch.load, f.name, map_location="mps")
+    os.unlink(f.name)
 
     for k, v in weights.items():
         v = v.to(device="mps")
@@ -99,9 +105,10 @@ def test_pt_pt_load_mps(benchmark):
 def test_pt_sf_load_mps(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name, device="mps")
+    os.unlink(f.name)
 
     for k, v in weights.items():
         v = v.to(device="mps")
