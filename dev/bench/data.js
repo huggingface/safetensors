@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1677247396029,
+  "lastUpdate": 1677597939461,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -5772,6 +5772,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006539923847096835",
             "extra": "mean: 312.35530280000603 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "488d945cc55ae48af70e13b5a351226ef5cc7758",
+          "message": "Faster GPU Loads ?? (#184)\n\n* Faster GPU Loads ??\r\n\r\nBeats my expectations. I wonder what I did do to not see this perf\r\nbottleneck/improvements.\r\n\r\n* Pyslice still not fixed on PyO3.\r\n\r\n* Upgrade PyO3.\r\n\r\n* Using newer pyo3.\r\n\r\n* Make benches Windows friendly.",
+          "timestamp": "2023-02-28T16:19:40+01:00",
+          "tree_id": "1e9d436c693d720cb052c0bf22073d844ee0dc43",
+          "url": "https://github.com/huggingface/safetensors/commit/488d945cc55ae48af70e13b5a351226ef5cc7758"
+        },
+        "date": 1677597938459,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1717156701031601,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01793298919979068",
+            "extra": "mean: 853.449369600014 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.121841519767719,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07016782915511098",
+            "extra": "mean: 320.32375559999764 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.9061937249318666,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015215503277082917",
+            "extra": "mean: 524.6056510000017 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.7952959945905926,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009951468286315417",
+            "extra": "mean: 557.0112131999963 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 5.157883925591575,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03769848981263098",
+            "extra": "mean: 193.8779574000023 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 126.93718843279679,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00021989960550117336",
+            "extra": "mean: 7.877911999992193 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.2578404667934968,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06474215387057632",
+            "extra": "mean: 795.0133791999974 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.7017190804877242,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0191132427524157",
+            "extra": "mean: 270.14475660001835 msec\nrounds: 5"
           }
         ]
       }
