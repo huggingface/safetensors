@@ -1,3 +1,4 @@
+import os
 import tempfile
 
 import h5py
@@ -54,9 +55,10 @@ def create_gpt2(n_layers: int):
 def test_tf_tf_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         _save(f.name, weights)
         result = benchmark(_load, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]
@@ -66,9 +68,10 @@ def test_tf_tf_load(benchmark):
 def test_tf_sf_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]

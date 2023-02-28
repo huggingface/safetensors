@@ -1,3 +1,4 @@
+import os
 import tempfile
 
 import jax.numpy as jnp
@@ -38,10 +39,11 @@ def load(filename):
 def test_flax_flax_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         serialized = msgpack_serialize(weights)
         f.write(serialized)
         result = benchmark(load, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]
@@ -51,9 +53,10 @@ def test_flax_flax_load(benchmark):
 def test_flax_sf_load(benchmark):
     # benchmark something
     weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
+    os.unlink(f.name)
 
     for k, v in weights.items():
         tv = result[k]
