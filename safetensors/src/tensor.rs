@@ -293,6 +293,23 @@ impl<'data> SafeTensors<'data> {
     }
     /// Given a byte-buffer representing the whole safetensor file
     /// parses it and returns the Deserialized form (No Tensor allocation).
+    ///
+    /// ```
+    /// use safetensors::SafeTensors;
+    /// use memmap2::MmapOptions;
+    /// use std::fs::File;
+    ///
+    /// let filename = "model.safetensors";
+    /// # use std::io::Write;
+    /// # let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    /// # File::create(filename).unwrap().write(serialized).unwrap();
+    /// let file = File::open(filename).unwrap();
+    /// let buffer = unsafe { MmapOptions::new().map(&file).unwrap() };
+    /// let tensors = SafeTensors::deserialize(&buffer).unwrap();
+    /// let tensor = tensors
+    ///         .tensor("test")
+    ///         .unwrap();
+    /// ```
     pub fn deserialize<'in_data>(buffer: &'in_data [u8]) -> Result<Self, SafeTensorError>
     where
         'in_data: 'data,
