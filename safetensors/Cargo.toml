@@ -6,7 +6,7 @@ homepage = "https://github.com/huggingface/safetensors"
 repository = "https://github.com/huggingface/safetensors"
 documentation = "https://docs.rs/safetensors/"
 license = "Apache-2.0"
-keywords = ["safetensors", "huggingface", "Tensors", "Pytorch", "Tensorflow", "PaddlePaddle"]
+keywords = ["safetensors", "huggingface", "Tensors", "Pytorch", "Tensorflow"]
 readme = "./README.md"
 description = """
 Provides functions to read and write safetensors which aim to be safer than
