@@ -190,13 +190,10 @@ def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discuss
     except Exception:
         return None
     for discussion in discussions:
-        if (
-            discussion.status == "open"
-            and discussion.is_pull_request
-            and discussion.title == pr_title
-            and discussion.target_branch == "main"
-        ):
-            return discussion
+        if discussion.status == "open" and discussion.is_pull_request and discussion.title == pr_title:
+            details = api.get_discussion_details(repo_id=model_id, discussion_num=discussion.num)
+            if details.target_branch == "refs/heads/main":
+                return discussion
 
 
 def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["CommitOperationAdd"]:
