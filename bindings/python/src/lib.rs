@@ -809,7 +809,15 @@ fn create_tensor(
         .ok_or_else(|| SafetensorError::new_err(format!("Could not find module {framework:?}",)))?
         .as_ref(py);
         let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
-        let dtype: PyObject = get_pydtype(module, dtype)?;
+        let mut dtype: PyObject = get_pydtype(module, dtype)?;
+        if framework != &Framework::Pytorch {
+            dtype = module
+                .getattr(intern!(py, "dtype"))?
+                .call1((dtype,))?
+                .getattr(intern!(py, "newbyteorder"))?
+                .call1(("<",))?
+                .into();
+        }
         let kwargs = [
             (intern!(py, "buffer"), array),
             (intern!(py, "dtype"), dtype),
