@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1678704091313,
+  "lastUpdate": 1678704112522,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -6252,6 +6252,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.032962877208004164",
             "extra": "mean: 178.84711400000697 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "454924be76cb1c3c8c270dd775fc4c8280ae3ebd",
+          "message": "Nicer error when failed to find tensor in Rust. (#191)\n\nCo-authored-by: Ubuntu <ubuntu@ip-172-31-34-94.eu-west-3.compute.internal>",
+          "timestamp": "2023-03-13T11:35:40+01:00",
+          "tree_id": "b753a0935b50e6b514d711435bff39a80c03b152",
+          "url": "https://github.com/huggingface/safetensors/commit/454924be76cb1c3c8c270dd775fc4c8280ae3ebd"
+        },
+        "date": 1678704111641,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.4490670116837148,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017338337719444163",
+            "extra": "mean: 690.0992100000053 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.786336610108969,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07184989769850851",
+            "extra": "mean: 264.1075274000059 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.7248986637707553,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0225253294435177",
+            "extra": "mean: 366.9861244000117 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.1118246495429878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01045600992111197",
+            "extra": "mean: 473.5241632000111 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.776424674409221,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010769971131204406",
+            "extra": "mean: 209.3616183999984 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 132.13460816781665,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00018665785168716368",
+            "extra": "mean: 7.568040000012388 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.0019505051819344,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05826375745625648",
+            "extra": "mean: 499.5128487999864 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.474659296957983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0494718031109325",
+            "extra": "mean: 223.48070179998558 msec\nrounds: 5"
           }
         ]
       }
