@@ -24,7 +24,7 @@ pub enum SafeTensorError {
     /// The header length is invalid
     InvalidHeaderLength,
     /// The tensor name was not found in the archive
-    TensorNotFound,
+    TensorNotFound(String),
     /// Invalid information between shape, dtype and the proposed offsets in the file
     TensorInvalidInfo,
     /// The offsets declared for tensor with name `String` in the header are invalid
@@ -348,10 +348,10 @@ impl<'data> SafeTensors<'data> {
                     data: &self.data[info.data_offsets.0..info.data_offsets.1],
                 })
             } else {
-                Err(SafeTensorError::TensorNotFound)
+                Err(SafeTensorError::TensorNotFound(tensor_name.to_string()))
             }
         } else {
-            Err(SafeTensorError::TensorNotFound)
+            Err(SafeTensorError::TensorNotFound(tensor_name.to_string()))
         }
     }
 
