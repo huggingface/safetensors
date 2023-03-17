@@ -577,9 +577,11 @@ pub struct TensorInfo {
 pub enum Dtype {
     /// Boolan type
     BOOL,
-    /// Unsigned int4
+    /// Quantized int4 format
+    /// Description <https://github.com/ggerganov/ggml/pull/27>
     Q4_0,
-    /// Signed int4
+    /// Quantized int4 format (more precise, but more computation than Q4_0.
+    /// Description <https://github.com/ggerganov/ggml/pull/27>
     Q4_1,
     /// Unsigned byte
     U8,
