@@ -17,7 +17,7 @@ from transformers.pipelines.base import infer_framework_load_model
 
 
 COMMIT_DESCRIPTION = """
-This is an automated PR create with https://huggingface.co/spaces/safetensors/convert
+This is an automated PR created with https://huggingface.co/spaces/safetensors/convert
 
 This new file is equivalent to `pytorch_model.bin` but safe in the sense that
 no arbitrary code can be put into it.
