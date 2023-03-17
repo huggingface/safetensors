@@ -371,10 +371,15 @@ impl Open {
                     let py_filename: PyObject = filename.into_py(py);
                     let size: PyObject = buffer.len().into_py(py);
                     let shared: PyObject = false.into_py(py);
-                    let kwargs = [(intern!(py, "shared"), shared), (intern!(py, "size"), size)]
-                        .into_py_dict(py);
+                    let (size_name, storage_name) = if version >= Version::new(2, 0, 0) {
+                        (intern!(py, "nbytes"), intern!(py, "UntypedStorage"))
+                    } else {
+                        (intern!(py, "size"), intern!(py, "ByteStorage"))
+                    };
+                    let kwargs =
+                        [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py);
                     let storage = module
-                        .getattr(intern!(py, "ByteStorage"))?
+                        .getattr(storage_name)?
                         .getattr(intern!(py, "from_file"))?
                         .call((py_filename,), Some(kwargs))?;
 
