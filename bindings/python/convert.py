@@ -28,6 +28,8 @@ https://colab.research.google.com/github/huggingface/notebooks/blob/main/safeten
 The widgets on your model page will run using this model even if this is not merged
 making sure the file actually works.
 
+If you find any issues: please report here: https://huggingface.co/spaces/safetensors/convert/discussions
+
 Feel free to ignore this PR.
 """
 
