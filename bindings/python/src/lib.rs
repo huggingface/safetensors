@@ -37,8 +37,10 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
                     dtype = match value {
                         "bool" => Some(Dtype::BOOL),
                         "int8" => Some(Dtype::I8),
-                        "uint8" => Some(Dtype::U8),
+                        "q4_0" => Some(Dtype::Q4_0),
+                        "q4_1" => Some(Dtype::Q4_1),
                         "int16" => Some(Dtype::I16),
+                        "uint8" => Some(Dtype::U8),
                         "uint16" => Some(Dtype::U16),
                         "int32" => Some(Dtype::I32),
                         "uint32" => Some(Dtype::U32),
@@ -874,6 +876,11 @@ fn get_pydtype(module: &PyModule, dtype: Dtype) -> PyResult<PyObject> {
             Dtype::U8 => module.getattr(intern!(py, "uint8"))?.into(),
             Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
             Dtype::BOOL => module.getattr(intern!(py, "bool"))?.into(),
+            Dtype::Q4_1 | Dtype::Q4_0 => {
+                return Err(SafetensorError::new_err(format!(
+                    "Dtype not supported by framework: {dtype:?}"
+                )))
+            }
             dtype => {
                 return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {dtype:?}"

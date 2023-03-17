@@ -27,6 +27,9 @@ pub enum SafeTensorError {
     TensorNotFound(String),
     /// Invalid information between shape, dtype and the proposed offsets in the file
     TensorInvalidInfo,
+    /// Invalid information between shape, dtype and the proposed offsets in the file
+    /// The total number of bytes for the buffer is not an integer
+    QuantizationMisaligned,
     /// The offsets declared for tensor with name `String` in the header are invalid
     InvalidOffset(String),
     /// IoError
@@ -461,7 +464,11 @@ impl Metadata {
             }
             start = e;
             let nelements: usize = info.shape.iter().product();
-            let nbytes = nelements * info.dtype.size();
+            let nbits = nelements * info.dtype.nbits();
+            if !nbits % 8 == 0 {
+                return Err(SafeTensorError::QuantizationMisaligned);
+            }
+            let nbytes = nbits / 8;
             if (e - s) != nbytes {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
@@ -570,6 +577,10 @@ pub struct TensorInfo {
 pub enum Dtype {
     /// Boolan type
     BOOL,
+    /// Unsigned int4
+    Q4_0,
+    /// Signed int4
+    Q4_1,
     /// Unsigned byte
     U8,
     /// Signed byte
@@ -601,18 +612,42 @@ impl Dtype {
     pub fn size(&self) -> usize {
         match self {
             Dtype::BOOL => 1,
+            Dtype::Q4_0 => 1,
+            Dtype::Q4_1 => 1,
             Dtype::U8 => 1,
             Dtype::I8 => 1,
             Dtype::I16 => 2,
             Dtype::U16 => 2,
-            Dtype::I32 => 4,
-            Dtype::U32 => 4,
-            Dtype::I64 => 8,
-            Dtype::U64 => 8,
             Dtype::F16 => 2,
             Dtype::BF16 => 2,
+            Dtype::I32 => 4,
+            Dtype::U32 => 4,
             Dtype::F32 => 4,
+            Dtype::I64 => 8,
+            Dtype::U64 => 8,
             Dtype::F64 => 8,
+        }
+    }
+
+    /// Gives out the size (in bits) of 1 element of this dtype.
+    /// This is important for sub-byte types like q4_0 and q4_1
+    pub fn nbits(&self) -> usize {
+        match self {
+            Dtype::Q4_0 => 4,
+            Dtype::Q4_1 => 4,
+            Dtype::BOOL => 8,
+            Dtype::U8 => 8,
+            Dtype::I8 => 8,
+            Dtype::I16 => 16,
+            Dtype::U16 => 16,
+            Dtype::F16 => 16,
+            Dtype::BF16 => 16,
+            Dtype::I32 => 32,
+            Dtype::U32 => 32,
+            Dtype::F32 => 32,
+            Dtype::I64 => 64,
+            Dtype::U64 => 64,
+            Dtype::F64 => 64,
         }
     }
 }
