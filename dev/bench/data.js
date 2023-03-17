@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1678704112522,
+  "lastUpdate": 1679046614583,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -6332,6 +6332,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0494718031109325",
             "extra": "mean: 223.48070179998558 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7488c1dace4d66c46404f90fc960f0c112d48e90",
+          "message": "Adding commit description to convertion PR. (#198)\n\n* Adding commit description to convertion PR.\r\n\r\n* Update bindings/python/convert.py\r\n\r\nCo-authored-by: Omar Sanseviero <osanseviero@gmail.com>\r\n\r\n* Adding suggestion for reporting issues.\r\n\r\n---------\r\n\r\nCo-authored-by: Omar Sanseviero <osanseviero@gmail.com>",
+          "timestamp": "2023-03-17T10:42:34+01:00",
+          "tree_id": "122389d6cdc3ddbb495fd83b4d405af933cbcc35",
+          "url": "https://github.com/huggingface/safetensors/commit/7488c1dace4d66c46404f90fc960f0c112d48e90"
+        },
+        "date": 1679046613406,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 0.9968782283764324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03269275984958283",
+            "extra": "mean: 1.0031315476000031 sec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.645688531018759,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08012695602204807",
+            "extra": "mean: 377.9734418000203 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.6791981970467718,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02455539006171132",
+            "extra": "mean: 595.5223164000017 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.536879182787286,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011057098209039183",
+            "extra": "mean: 650.6692336000015 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 2.883756834748849,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010223616716361874",
+            "extra": "mean: 346.7698759999962 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 73.88401046723757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005700337551865725",
+            "extra": "mean: 13.53472819999979 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.0965583497053262,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13066130782418442",
+            "extra": "mean: 911.9441753999922 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 2.4996726841098607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02803149294636537",
+            "extra": "mean: 400.0523774000044 msec\nrounds: 5"
           }
         ]
       }
