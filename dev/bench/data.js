@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679046614583,
+  "lastUpdate": 1679065341989,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -6412,6 +6412,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02803149294636537",
             "extra": "mean: 400.0523774000044 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c1d366813e46c6f9f2c71aa8b89e0c916a92b2f",
+          "message": "Python 2.0 added a warning on ByteStorage, so using UntypedStorage (#196)\n\n* Python 2.0 added a warning on ByteStorage, so using UntypedStorage\r\n\r\ndirectly for that version.\r\n\r\nSmall error in their docs, `size` got renamed `nbytes`.\r\n\r\n* Remove unused work.",
+          "timestamp": "2023-03-17T15:56:06+01:00",
+          "tree_id": "4aa95791bb3bb59b85d3d9a413e76b3e56bdce4f",
+          "url": "https://github.com/huggingface/safetensors/commit/5c1d366813e46c6f9f2c71aa8b89e0c916a92b2f"
+        },
+        "date": 1679065341061,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.400383545895966,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013773270659666922",
+            "extra": "mean: 714.0900812000041 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.7482269565247375,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07838767554610884",
+            "extra": "mean: 266.7928093999876 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.791593928243963,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01738755399406334",
+            "extra": "mean: 358.218288799992 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.1750434570636847,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010156308481155545",
+            "extra": "mean: 459.76092880001715 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.965503988346744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04935867930623112",
+            "extra": "mean: 201.38942639998731 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 130.93416208692736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00016200664259860846",
+            "extra": "mean: 7.637426200017217 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.072763108585412,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05190212820065316",
+            "extra": "mean: 482.4477992000084 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.116191996090944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00926254566557272",
+            "extra": "mean: 242.94299219999402 msec\nrounds: 5"
           }
         ]
       }
