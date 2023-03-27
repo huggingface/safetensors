@@ -20,7 +20,7 @@ _deps = [
     "pytest",
     "pytest-benchmark",
     "tensorflow",
-    "torch",
+    "torch>=1.10",
     "paddlepaddle",
 ]
 
