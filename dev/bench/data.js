@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679906255161,
+  "lastUpdate": 1679992036137,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -6572,6 +6572,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.020875716340514418",
             "extra": "mean: 181.4657840000109 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "nickkolok@mail.ru",
+            "name": "nickkolok",
+            "username": "nickkolok"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3f178ae840ee63c84f8c04c9a6622174afcf741",
+          "message": "Minor improvements for README (#201)\n\n* Use `s for code\r\n\r\n* Fix typos in README\r\n\r\n* All readmes.\r\n\r\n* Adding Rust cache and latest ubuntu for python tests.\r\n\r\n---------\r\n\r\nCo-authored-by: Nicolas Patry <patry.nicolas@protonmail.com>",
+          "timestamp": "2023-03-28T10:20:42+02:00",
+          "tree_id": "666ce62d8b2e5e2b0bb583d2b8c361bfb6b076b7",
+          "url": "https://github.com/huggingface/safetensors/commit/a3f178ae840ee63c84f8c04c9a6622174afcf741"
+        },
+        "date": 1679992035460,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2436472199258686,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017399423395646905",
+            "extra": "mean: 804.0865480000093 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.4096958588800015,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06421916087185138",
+            "extra": "mean: 293.28129000000445 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.1182055059122638,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020132660349338763",
+            "extra": "mean: 472.097724799994 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.8525374505756262,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010303374997704964",
+            "extra": "mean: 539.8001534000173 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.702827595494817,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009929890957780888",
+            "extra": "mean: 270.06388339999603 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 125.73616165101376,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004144179540179656",
+            "extra": "mean: 7.953161499995077 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.67586017077762,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08388227764623506",
+            "extra": "mean: 596.7084948000092 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.8625297660641182,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02832503267765318",
+            "extra": "mean: 258.89768120000554 msec\nrounds: 5"
           }
         ]
       }
