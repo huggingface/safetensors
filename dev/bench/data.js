@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1680010038134,
+  "lastUpdate": 1680011095822,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -7212,6 +7212,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01110339103209852",
             "extra": "mean: 177.24638499999892 msec\nrounds: 6"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8375de6d25673c78de9947bded483ca3359fea82",
+          "message": "Zero width shape are OK (0-rank tensors). They are simply a scalar. (#208)\n\n* Zero width shape are OK (0-rank tensors). They are simply a scalar.\r\n\r\nReasosn for support is that both torch and numpy support them, and\r\nthey flow naturally from the definition that an empty product has\r\nlength 1.\r\n\r\n* not allowed -> allowed",
+          "timestamp": "2023-03-28T15:32:41+02:00",
+          "tree_id": "5d90363abe6164bfec88e0eab2788fa4c95fd3fa",
+          "url": "https://github.com/huggingface/safetensors/commit/8375de6d25673c78de9947bded483ca3359fea82"
+        },
+        "date": 1680011093532,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2872687575924218,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014502141046900374",
+            "extra": "mean: 776.8385537999848 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.3776600847284155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05610539139703431",
+            "extra": "mean: 296.0629473999916 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.132778773542722,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01736996801466173",
+            "extra": "mean: 468.8718832000177 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.9770419702230366,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013575482170632395",
+            "extra": "mean: 505.8061564000014 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.6092245253388633,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03456927267460218",
+            "extra": "mean: 277.0678280000084 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 85.28969266727529,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0011558255264619995",
+            "extra": "mean: 11.7247462000023 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.6147054741126459,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0721822850410305",
+            "extra": "mean: 619.3079890000035 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.3537049242547408,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03603619920309045",
+            "extra": "mean: 298.1776938000053 msec\nrounds: 5"
           }
         ]
       }
