@@ -300,7 +300,23 @@ if __name__ == "__main__":
         action="store_true",
         help="Create the PR even if it already exists of if the model was already converted.",
     )
+    parser.add_argument(
+        "-y",
+        action="store_true",
+        help="Ignore safety prompt",
+    )
     args = parser.parse_args()
     model_id = args.model_id
     api = HfApi()
-    convert(api, model_id, force=args.force)
+    if args.y:
+        txt = "y"
+    else:
+        txt = input(
+            "This conversion script will unpickle a pickled file, which is inherently unsafe. If you do not trust this file, we invite you to use"
+            " https://huggingface.co/spaces/safetensors/convert or google colab or other hosted solution to avoid potential issues with this file."
+            " Continue [Y/n] ?"
+        )
+    if txt.lower() in {"", "y"}:
+        convert(api, model_id, force=args.force)
+    else:
+        print(f"Answer was `{txt}` aborting.")
