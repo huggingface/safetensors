@@ -42,7 +42,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run Audit
-        run: cargo audit -D warnings -f ./bindings/python/Cargo.lock
+        run: cargo audit -D warnings
 
       - name: Install
         run: |
