@@ -7,7 +7,7 @@ Python
 Rust
 [![Crates.io](https://img.shields.io/crates/v/safetensors.svg)](https://crates.io/crates/safetensors)
 [![Documentation](https://docs.rs/safetensors/badge.svg)](https://docs.rs/safetensors/)
-[![Codecov](https://codecov.io/github/Narsil/safetensors/coverage.svg?branch=main)](https://codecov.io/gh/Narsil/safetensors)
+[![Codecov](https://codecov.io/github/huggingface/safetensors/coverage.svg?branch=main)](https://codecov.io/gh/huggingface/safetensors)
 [![Dependency status](https://deps.rs/repo/github/huggingface/safetensors/status.svg?path=safetensors)](https://deps.rs/repo/github/huggingface/safetensors?path=safetensors)
 
 # {{crate}}
