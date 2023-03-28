@@ -13,6 +13,9 @@ jobs:
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
         torch_version: [torch==1.10, torch]
+    defaults:
+      run:
+        working-directory: ./bindings/python
     steps:
       - name: Checkout repository
         uses: actions/checkout@v1
@@ -24,40 +27,24 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Install Python
         uses: actions/setup-python@v2
         with:
           python-version: 3.7
           architecture: "x64"
 
-
-      - name: Cache Cargo Registry
-        uses: actions/cache@v1
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Lint with RustFmt
-        uses: actions-rs/cargo@v1
-        with:
-          toolchain: stable
-          command: fmt
-          args: --manifest-path ./bindings/python/Cargo.toml -- --check
+        run: cargo fmt -- --check
 
       - name: Lint with Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --manifest-path ./bindings/python/Cargo.toml --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run Audit
-        uses: actions-rs/cargo@v1
-        with:
-          command: audit
-          args: -D warnings -f ./bindings/python/Cargo.lock
+        run: cargo audit -D warnings -f ./bindings/python/Cargo.lock
 
       - name: Install
-        working-directory: ./bindings/python
         run: |
           pip install -U pip
           pip install .[numpy,tensorflow,paddlepaddle]
@@ -65,19 +52,16 @@ jobs:
 
       - name: Install (jax, flax)
         if: matrix.os != 'windows-latest'
-        working-directory: ./bindings/python
         run: |
           pip install .[jax]
         shell: bash
 
       - name: Check style
-        working-directory: ./bindings/python
         run: |
           pip install .[quality]
           black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
       - name: Run tests
-        working-directory: ./bindings/python
         run: |
           cargo test
           pip install .[testing]
