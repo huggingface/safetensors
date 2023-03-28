@@ -27,41 +27,24 @@ jobs:
 
       - name: Install cargo-llvm-cov for Ubuntu
         if: matrix.os == 'ubuntu-latest'
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
 
       - name: Install cargo-readme for Ubuntu
         if: matrix.os == 'ubuntu-latest'
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-readme
+        run: cargo install cargo-readme
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-targets --verbose
+        run: cargo build --all-targets --verbose
 
       - name: Lint with Clippy
         uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run Tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose
+        run: cargo test --verbose
 
       - name: Run Audit
-        uses: actions-rs/cargo@v1
-        with:
-          command: audit
-          args: -D warnings -f ./safetensors/Cargo.lock --ignore RUSTSEC-2021-0145
+        run: cargo audit -D warnings -f ./safetensors/Cargo.lock --ignore RUSTSEC-2021-0145
 
       - name: Coverage report
         if: matrix.os == 'ubuntu-latest'
