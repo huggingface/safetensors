@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1680011683648,
+  "lastUpdate": 1680012101690,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -7532,6 +7532,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0071365164996436735",
             "extra": "mean: 153.71641914285712 msec\nrounds: 7"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db4f5f4ad1aa2f920c30b2cfa836880a614e4e00",
+          "message": "Overspecify a bit the format. (#215)\n\n* Updating the README to overspecify JSON.\r\n\r\n* Overspecify a bit the format.\r\n\r\n* Stop being annoying.\r\n\r\n* Fixing python cache + gh action.\r\n\r\n* Fix audit.\r\n\r\n* Fixing rust cache for python directory ?",
+          "timestamp": "2023-03-28T15:53:50+02:00",
+          "tree_id": "9a059727033d46d4cfeebba32c1739dbe6b0db7c",
+          "url": "https://github.com/huggingface/safetensors/commit/db4f5f4ad1aa2f920c30b2cfa836880a614e4e00"
+        },
+        "date": 1680012100885,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2001083774671706,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03386934609043146",
+            "extra": "mean: 833.2580780000058 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.0599314807779585,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0794316566780917",
+            "extra": "mean: 326.80470340001193 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.1177536179071645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01852752736912275",
+            "extra": "mean: 472.198461399978 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.8435865528358717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009758007788386034",
+            "extra": "mean: 542.4209666000024 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.7340827990009102,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010517011342373959",
+            "extra": "mean: 267.8033813999946 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 126.0678863968912,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00016780483787380383",
+            "extra": "mean: 7.93223420000686 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.7379336936411942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02793086674843835",
+            "extra": "mean: 575.3959449999911 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.2013373845592135,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009994868608272948",
+            "extra": "mean: 312.36945059999925 msec\nrounds: 5"
           }
         ]
       }
