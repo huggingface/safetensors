@@ -31,6 +31,8 @@ pub enum SafeTensorError {
     InvalidOffset(String),
     /// IoError
     IoError(std::io::Error),
+    /// JSON error
+    JsonError(serde_json::Error),
     /// The follow tensor cannot be created because the buffer size doesn't match shape + dtype
     InvalidTensorView(Dtype, Vec<usize>, usize),
 }
@@ -38,6 +40,12 @@ pub enum SafeTensorError {
 impl From<std::io::Error> for SafeTensorError {
     fn from(error: std::io::Error) -> SafeTensorError {
         SafeTensorError::IoError(error)
+    }
+}
+
+impl From<serde_json::Error> for SafeTensorError {
+    fn from(error: serde_json::Error) -> SafeTensorError {
+        SafeTensorError::JsonError(error)
     }
 }
 
@@ -176,7 +184,7 @@ fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Ite
     }
 
     let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
-    let mut metadata_buf = serde_json::to_string(&metadata).unwrap().into_bytes();
+    let mut metadata_buf = serde_json::to_string(&metadata)?.into_bytes();
     // Force alignment
     let extra = metadata_buf.len() % 8;
     metadata_buf.extend(vec![b' '; extra]);
