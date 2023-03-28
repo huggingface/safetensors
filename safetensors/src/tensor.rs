@@ -35,6 +35,10 @@ pub enum SafeTensorError {
     JsonError(serde_json::Error),
     /// The follow tensor cannot be created because the buffer size doesn't match shape + dtype
     InvalidTensorView(Dtype, Vec<usize>, usize),
+    /// The metadata is invalid because the data offsets of the tensor does not
+    /// fully cover the buffer part of the file. The last offset **must** be
+    /// the end of the file.
+    MetadataIncompleteBuffer,
 }
 
 impl From<std::io::Error> for SafeTensorError {
@@ -297,7 +301,10 @@ impl<'data> SafeTensors<'data> {
             std::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
-        metadata.validate()?;
+        let buffer_end = metadata.validate()?;
+        if buffer_end + 8 + n != buffer_len {
+            return Err(SafeTensorError::MetadataIncompleteBuffer);
+        }
         Ok((n, metadata))
     }
     /// Given a byte-buffer representing the whole safetensor file
@@ -455,7 +462,7 @@ impl Metadata {
         Ok(metadata)
     }
 
-    fn validate(&self) -> Result<(), SafeTensorError> {
+    fn validate(&self) -> Result<usize, SafeTensorError> {
         let mut start = 0;
         for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
@@ -475,8 +482,7 @@ impl Metadata {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
         }
-
-        Ok(())
+        Ok(start)
     }
 
     /// Gives back the tensor metadata
@@ -973,6 +979,28 @@ mod tests {
             }
             Err(err) => panic!("Unexpected error {err:?}"),
             Ok(_) => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_metadata_incomplete_buffer() {
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00extra_bogus_data_for_polyglot_file";
+
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::MetadataIncompleteBuffer) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+
+        // Missing data in the buffer
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"; // <--- missing 2 bytes
+
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::MetadataIncompleteBuffer) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
         }
     }
 
