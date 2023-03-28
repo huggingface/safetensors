@@ -20,6 +20,8 @@ jobs:
           components: rustfmt, clippy
           override: true
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Install cargo-readme for Ubuntu
         if: matrix.os == 'ubuntu-latest'
         uses: actions-rs/cargo@v1
