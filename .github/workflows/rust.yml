@@ -51,6 +51,7 @@ jobs:
         run: cargo llvm-cov --release --lcov --output-path lcov.info
 
       - name: Upload to codecov.io
+        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
