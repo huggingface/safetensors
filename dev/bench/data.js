@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679999567199,
+  "lastUpdate": 1679999583281,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -6732,6 +6732,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0071861187830230665",
             "extra": "mean: 232.8001876000144 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba5ed42013185b8542901998d93b3b77c2e1196b",
+          "message": "More badges. (#210)\n\n* More badges.\r\n\r\n* Update action to create codecov.\r\n\r\n* Update readmes.\r\n\r\n* Fix doc link.\r\n\r\n* Two lines for Python and Rust.\r\n\r\n* Doc link.\r\n\r\n* Fix badge label.\r\n\r\n* Use simpler run to get default working-dir.\r\n\r\n* Fix ?\r\n\r\n* Audit.\r\n\r\n* Ignore criterion issue.\r\n\r\n* Better command line ?\r\n\r\n* codecov token.\r\n\r\n* Working dir.\r\n\r\n* Specify file.\r\n\r\n* Fixing upload only on ubuntu.\r\n\r\n* Code coverage only on linux.\r\n\r\n* Fix codecov link.",
+          "timestamp": "2023-03-28T12:24:44+02:00",
+          "tree_id": "2727ae5497c0c8dce19a4561b1c952848a93c5ef",
+          "url": "https://github.com/huggingface/safetensors/commit/ba5ed42013185b8542901998d93b3b77c2e1196b"
+        },
+        "date": 1679999582016,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1434870785192026,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035284906032149725",
+            "extra": "mean: 874.5179711999754 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.837245479950206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06783637320022129",
+            "extra": "mean: 352.45452220001425 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.8851239722843398,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02103772474974068",
+            "extra": "mean: 530.469091000009 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.644242958035541,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012321207975665592",
+            "extra": "mean: 608.1826259999616 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.098210979895401,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009477282900591643",
+            "extra": "mean: 322.76691500001107 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 62.21215712466327,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001570442803684191",
+            "extra": "mean: 16.07402871429388 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3876848567990454,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11329632998394429",
+            "extra": "mean: 720.6247117999737 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.5965573761424174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017996640387714164",
+            "extra": "mean: 278.04366660002415 msec\nrounds: 5"
           }
         ]
       }
