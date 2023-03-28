@@ -66,9 +66,22 @@ with safe_open("model.safetensors", framework="pt", device="cpu") as f:
 
 - 8 bytes: `N`, a u64 int, containing the size of the header
 - N bytes: a JSON utf-8 string representing the header.
-  - The header is a dict like `{"TENSOR_NAME": {"dtype": "float16", "shape": [1, 16, 256], "offsets": [BEGIN, END]}, "NEXT_TENSOR_NAME": {...}, ...}`, where offsets point to the tensor data relative to the beginning of the byte buffer, with `BEGIN` as the starting offset and `END` as the one-past offset (so total tensor byte size = `END - BEGIN`).
-  - A special key `__metadata__` is allowed to contain free form text map.
+  - The header is a dict like `{"TENSOR_NAME": {"dtype": "F16", "shape": [1, 16, 256], "offsets": [BEGIN, END]}, "NEXT_TENSOR_NAME": {...}, ...}`, where offsets point to the tensor data relative to the beginning of the byte buffer, with `BEGIN` as the starting offset and `END` as the one-past offset (so total tensor byte size = `END - BEGIN`).
+  - A special key `__metadata__` is allowed to contain free form text-to-text map.
 - Rest of the file: byte-buffer.
+
+Notes:
+ - Duplicate keys are disallowed. Not all parsers may respect this.
+ - In general the subset of JSON is implicitly decided by `serde_json` for
+ this library. Anything obscure might be modified at a later time, that odd ways
+ to represent integer, newlines and escapes in utf-8 strings. This would only
+ be done for safety concerns
+ - Tensor values are not checked against, in particular NaN and +/-Inf could
+ be in the file
+ - Empty tensors (tensors with 1 dimension being 0) are not allowed.
+ They are not storing any data in the databuffer, yet retaining size in the header.
+ This might be relaxed at a later time if good use cases are found.
+ - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
 
 
 ### Yet another format ?
@@ -114,13 +127,14 @@ necessary)? This is becoming increasingly important in the ML world.
 - MsgPack: No layout control to enable lazy loading (important for loading specific parts in distributed setting)
 - Protobuf: Hard 2Go max file size limit
 - Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
-- Numpy (npz): No `bfloat16` support. Vulnerable to zip bombs (DOS).
+- Numpy (npz): No `bfloat16` support. Vulnerable to zip bombs (DOS). Not zero-copy.
 - Arrow: No `bfloat16` support. Seem to require decoding [link](https://arrow.apache.org/docs/python/parquet.html#reading-parquet-and-memory-mapping)
 
 ### Notes
 
-- Zero-copy: No format is really zero-copy in ML, it needs to go from disk to RAM/GPU RAM (that takes time). Also
-   in PyTorch/numpy, you need a mutable buffer, and we don't really want to mutate a mmaped file, so 1 copy is really necessary to use the thing freely in user code. That being said, zero-copy is achievable in Rust if it's wanted and safety can be guaranteed by some other means.
+- Zero-copy: No format is really zero-copy in ML, it needs to go from disk to RAM/GPU RAM (that takes time). On CPU, if the file is already in cache, then it can
+truly be zero-copy, whereas on GPU there is not such disk cache, so a copy is always required
+but you can bypass allocating all the tensors on CPU at any given point.
    SafeTensors is not zero-copy for the header. The choice of JSON is pretty arbitrary, but since deserialization is <<< of the time required to load the actual tensor data and is readable I went that way, (also space is <<< to the tensor data).
 
 - Endianness: Little-endian. This can be modified later, but it feels really unnecessary at the
@@ -141,11 +155,11 @@ on the size of the header of 100MB to prevent parsing extremely large JSON.
 
 - Faster load: PyTorch seems to be the fastest file to load out in the major
 ML formats. However, it does seem to have an extra copy on CPU, which we
-can bypass in this lib [link](https://github.com/huggingface/safetensors/pull/33).
+can bypass in this lib by using `torch.UntypedStorage.from_file`.
 Currently, CPU loading times are extremely fast with this lib compared to pickle.
-GPU loading times can be sped up but are still hidden behind an environment variable
-(`SAFETENSORS_FAST_GPU=1`) because it hasn't received enough external scrutiny to be safe.
-But it does load roughly 2X faster than PyTorch on regular Linux hardware because of this extra CPU copy skip.
+GPU loading times are as fast or faster than PyTorch equivalent.
+Loading first on CPU with memmapping with torch, and then moving all tensors to GPU seems
+to be faster too somehow (similar behavior in torch pickle)
 
 - Lazy loading: in distributed (multi-node or multi-gpu) settings, it's nice to be able to
 load only part of the tensors on the various models. For
