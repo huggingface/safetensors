@@ -43,7 +43,8 @@ jobs:
         run: cargo test --verbose
 
       - name: Run Audit
-        run: cargo audit -D warnings
+        # RUSTSEC-2021-0145 is criterion so only within benchmarks
+        run: cargo audit -D warnings --ignore RUSTSEC-2021-0145
 
       - name: Coverage report
         if: matrix.os == 'ubuntu-latest'
