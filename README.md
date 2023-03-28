@@ -72,8 +72,16 @@ with safe_open("model.safetensors", framework="pt", device="cpu") as f:
 
 Notes:
  - Duplicate keys are disallowed. Not all parsers may respect this.
+ - In general the subset of JSON is implicitly decided by `serde_json` for
+ this library. Anything obscure might be modified at a later time, that odd ways
+ to represent integer, newlines and escapes in utf-8 strings. This would only
+ be done for safety concerns
  - Tensor values are not checked against, in particular NaN and +/-Inf could
  be in the file
+ - Empty tensors (tensors with 1 dimension being 0) are not allowed.
+ They are not storing any data in the databuffer, yet retaining size in the header.
+ This might be relaxed at a later time if good use cases are found.
+ - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
 
 
 ### Yet another format ?
