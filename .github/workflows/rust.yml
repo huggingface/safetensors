@@ -43,7 +43,7 @@ jobs:
         run: cargo test --verbose
 
       - name: Run Audit
-        run: cargo audit -D warnings -f ./safetensors/Cargo.lock --ignore RUSTSEC-2021-0145
+        run: cargo audit -D warnings
 
       - name: Coverage report
         if: matrix.os == 'ubuntu-latest'
