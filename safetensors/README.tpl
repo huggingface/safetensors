@@ -3,6 +3,7 @@ Python
 [![Documentation](https://huggingface.co/docs/safetensors/index)](https://img.shields.io/website/http/huggingface.co/docs/safetensors/index.svg?down_color=red)
 [![Codecov](https://codecov.io/github/Narsil/safetensors/coverage.svg?branch=main)](https://codecov.io/gh/Narsil/safetensors)
 [![Downloads](https://static.pepy.tech/badge/safetensors/month)](https://pepy.tech/project/safetensors)
+
 Rust
 [![Crates.io](https://img.shields.io/crates/v/safetensors.svg)](https://crates.io/crates/safetensors)
 [![Documentation](https://docs.rs/safetensors/badge.svg)](https://docs.rs/safetensors/)
