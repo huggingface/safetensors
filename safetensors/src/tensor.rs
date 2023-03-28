@@ -781,12 +781,16 @@ mod tests {
             offset += n;
         }
 
-        let filename = format!("./out_{model_id}.bin");
+        let filename = format!("./out_{model_id}.safetensors");
 
         let out = serialize(&metadata, &None).unwrap();
-
         std::fs::write(&filename, out).unwrap();
+        let raw = std::fs::read(&filename).unwrap();
+        let _deserialized = SafeTensors::deserialize(&raw).unwrap();
+        std::fs::remove_file(&filename).unwrap();
 
+        // File api
+        serialize_to_file(&metadata, &None, Path::new(&filename)).unwrap();
         let raw = std::fs::read(&filename).unwrap();
         let _deserialized = SafeTensors::deserialize(&raw).unwrap();
         std::fs::remove_file(&filename).unwrap();
@@ -855,6 +859,50 @@ mod tests {
 
         match SafeTensors::deserialize(serialized) {
             Err(SafeTensorError::HeaderTooLarge) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_header_too_small() {
+        let serialized = b"";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::HeaderTooSmall) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_header_length() {
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::InvalidHeaderLength) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_header_non_utf8() {
+        let serialized = b"\x01\x00\x00\x00\x00\x00\x00\x00\xff";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::InvalidHeader) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_header_not_json() {
+        let serialized = b"\x01\x00\x00\x00\x00\x00\x00\x00{";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::InvalidHeaderDeserialization) => {
                 // Yes we have the correct error
             }
             _ => panic!("This should not be able to be deserialized"),
