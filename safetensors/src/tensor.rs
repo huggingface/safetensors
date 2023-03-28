@@ -797,6 +797,19 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_shapes_allowed() {
+        let serialized = b"8\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[],\"data_offsets\":[0,4]}}\x00\x00\x00\x00\x00\x00\x00\x00";
+
+        let loaded = SafeTensors::deserialize(serialized).unwrap();
+        assert_eq!(loaded.names(), vec!["test"]);
+        let tensor = loaded.tensor("test").unwrap();
+        assert!(tensor.shape().is_empty());
+        assert_eq!(tensor.dtype(), Dtype::I32);
+        // 4 bytes
+        assert_eq!(tensor.data(), b"\0\0\0\0");
+    }
+
+    #[test]
     fn test_deserialization() {
         let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
 
