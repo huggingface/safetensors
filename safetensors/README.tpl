@@ -1,7 +1,7 @@
 Python
 [![Pypi](https://img.shields.io/pypi/v/safetensors.svg)](https://pypi.org/pypi/safetensors/)
 [![Documentation](https://img.shields.io/website/http/huggingface.co/docs/safetensors/index.svg?label=docs)](https://huggingface.co/docs/safetensors/index)
-[![Codecov](https://codecov.io/github/Narsil/safetensors/coverage.svg?branch=main)](https://codecov.io/gh/Narsil/safetensors)
+[![Codecov](https://codecov.io/github/huggingface/safetensors/coverage.svg?branch=main)](https://codecov.io/gh/huggingface/safetensors)
 [![Downloads](https://static.pepy.tech/badge/safetensors/month)](https://pepy.tech/project/safetensors)
 
 Rust
