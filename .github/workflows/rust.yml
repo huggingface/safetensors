@@ -9,6 +9,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
+    defaults:
+      run:
+        working-directory: ./safetensors
 
     steps:
       - uses: actions/checkout@v1
@@ -17,10 +20,17 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
           override: true
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov for Ubuntu
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-llvm-cov
 
       - name: Install cargo-readme for Ubuntu
         if: matrix.os == 'ubuntu-latest'
@@ -33,19 +43,19 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --all-targets --verbose --manifest-path ./safetensors/Cargo.toml
+          args: --all-targets --verbose
 
       - name: Lint with Clippy
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path ./safetensors/Cargo.toml --all-targets --all-features -- -D warnings
+          args: --all-targets --all-features -- -D warnings
 
       - name: Run Tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose --manifest-path ./safetensors/Cargo.toml
+          args: --verbose
 
       - name: Run Audit
         uses: actions-rs/cargo@v1
@@ -53,9 +63,17 @@ jobs:
           command: audit
           args: -D warnings -f ./safetensors/Cargo.lock --ignore RUSTSEC-2021-0145
 
+      - name: Coverage report
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo llvm-cov report --release --lcov --output-path lcov.info
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          fail_ci_if_error: true
+
       # Verify that Readme.md is up to date.
       - name: Make sure, Readme generated from lib.rs matches actual Readme
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        working-directory: ./safetensors
         run: cargo readme > must_match_readme.md && diff must_match_readme.md README.md && diff must_match_readme.md ../README.md
