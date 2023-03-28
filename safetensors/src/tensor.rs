@@ -258,6 +258,7 @@ pub fn serialize_to_file<
 
 /// A structure owning some metadata to lookup tensors on a shared `data`
 /// byte-buffer (not owned).
+#[derive(Debug)]
 pub struct SafeTensors<'data> {
     metadata: Metadata,
     data: &'data [u8],
@@ -373,7 +374,7 @@ impl<'data> SafeTensors<'data> {
 
 /// The stuct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Metadata {
     metadata: Option<HashMap<String, String>>,
     tensors: Vec<TensorInfo>,
@@ -495,7 +496,7 @@ impl Metadata {
 /// A view of a Tensor within the file.
 /// Contains references to data within the full byte-buffer
 /// And is thus a readable view of a single tensor
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TensorView<'data> {
     dtype: Dtype,
     shape: Vec<usize>,
@@ -629,6 +630,115 @@ impl Dtype {
 mod tests {
     use super::*;
     use crate::slice::IndexOp;
+    use proptest::prelude::*;
+
+    const MAX_DIMENSION: usize = 8;
+    const MAX_SIZE: usize = 8;
+    const MAX_TENSORS: usize = 8;
+
+    fn arbitrary_dtype() -> impl Strategy<Value = Dtype> {
+        prop_oneof![
+            Just(Dtype::BOOL),
+            Just(Dtype::U8),
+            Just(Dtype::I8),
+            Just(Dtype::I16),
+            Just(Dtype::U16),
+            Just(Dtype::I32),
+            Just(Dtype::U32),
+            Just(Dtype::I64),
+            Just(Dtype::U64),
+            Just(Dtype::F16),
+            Just(Dtype::BF16),
+            Just(Dtype::F32),
+            Just(Dtype::F64),
+        ]
+    }
+
+    fn arbitrary_shape() -> impl Strategy<Value = Vec<usize>> {
+        // We do not allow empty shapes or 0 sizes.
+        (1..MAX_DIMENSION).prop_flat_map(|length| prop::collection::vec(1..MAX_SIZE, length))
+    }
+
+    fn arbitrary_metadata() -> impl Strategy<Value = Metadata> {
+        // We generate at least one tensor.
+        (1..MAX_TENSORS)
+            .prop_flat_map(|size| {
+                // Returns a strategy generating `size` data types and shapes.
+                (
+                    prop::collection::vec(arbitrary_dtype(), size),
+                    prop::collection::vec(arbitrary_shape(), size),
+                )
+            })
+            .prop_map(|(dtypes, shapes)| {
+                // Returns a valid metadata object for a random (length, dtypes, shapes) triple.
+                let mut start = 0;
+                let tensors: Vec<TensorInfo> = dtypes
+                    .iter()
+                    .zip(shapes.into_iter())
+                    .map(|(dtype, shape)| {
+                        // This cannot overflow because the size of
+                        // the vector and elements are so small.
+                        let length: usize = shape.iter().product();
+                        let end = start + length * dtype.size();
+                        let tensor = TensorInfo {
+                            dtype: *dtype,
+                            shape,
+                            data_offsets: (start, end),
+                        };
+                        start = end;
+                        tensor
+                    })
+                    .collect();
+                let index_map = (0..tensors.len())
+                    .map(|index| (format!("t.{index}"), index))
+                    .collect();
+                Metadata {
+                    metadata: None,
+                    tensors,
+                    index_map,
+                }
+            })
+    }
+
+    /// This method returns the size of the data corresponding to the metadata. It
+    /// assumes that `metadata` contains at least one tensor, and that tensors are
+    /// ordered by offset in `metadata.tensors`.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if `metadata` does not contain any tensors.
+    fn data_size(metadata: &Metadata) -> usize {
+        metadata.tensors.last().unwrap().data_offsets.1
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        #[test]
+        fn test_indexing(metadata in arbitrary_metadata()) {
+            let data = vec![0u8; data_size(&metadata)];
+            let tensors = SafeTensors { metadata, data: &data };
+            for name in tensors.names() {
+                assert!(tensors.tensor(name).is_ok());
+            }
+        }
+        #[test]
+        fn test_roundtrip(metadata in arbitrary_metadata()) {
+            let data: Vec<u8> = (0..data_size(&metadata)).map(|x| x as u8).collect();
+            let before = SafeTensors { metadata, data: &data };
+            let tensors = before.tensors();
+            let bytes = serialize(tensors.iter().map(|(name, view)| (name.to_string(), view)), &None).unwrap();
+            let after = SafeTensors::deserialize(&bytes).unwrap();
+
+            // Check that the tensors are the same after deserialization.
+            assert_eq!(before.names().len(), after.names().len());
+            for name in before.names() {
+                let tensor_before = before.tensor(name).unwrap();
+                let tensor_after = after.tensor(name).unwrap();
+                assert_eq!(tensor_before, tensor_after);
+            }
+        }
+    }
 
     #[test]
     fn test_serialization() {
