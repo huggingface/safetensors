@@ -924,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_empty_shapes_allowed() {
-        let serialized = b"8\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[],\"data_offsets\":[0,4]}}\x00\x00\x00\x00\x00\x00\x00\x00";
+        let serialized = b"8\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[],\"data_offsets\":[0,4]}}\x00\x00\x00\x00";
 
         let loaded = SafeTensors::deserialize(serialized).unwrap();
         assert_eq!(loaded.names(), vec!["test"]);
