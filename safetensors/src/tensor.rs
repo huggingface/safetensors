@@ -39,6 +39,9 @@ pub enum SafeTensorError {
     /// fully cover the buffer part of the file. The last offset **must** be
     /// the end of the file.
     MetadataIncompleteBuffer,
+    /// The metadata contains information (shape or shape * dtype size) which lead to an
+    /// arithmetic overflow. This is most likely an error in the file.
+    ValidationOverflow,
 }
 
 impl From<std::io::Error> for SafeTensorError {
@@ -476,8 +479,15 @@ impl Metadata {
                 return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
             }
             start = e;
-            let nelements: usize = info.shape.iter().product();
-            let nbytes = nelements * info.dtype.size();
+            let nelements: usize = info
+                .shape
+                .iter()
+                .cloned()
+                .try_fold(1usize, usize::checked_mul)
+                .ok_or(SafeTensorError::ValidationOverflow)?;
+            let nbytes = nelements
+                .checked_mul(info.dtype.size())
+                .ok_or(SafeTensorError::ValidationOverflow)?;
             if (e - s) != nbytes {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
@@ -914,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_empty_shapes_allowed() {
-        let serialized = b"8\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[],\"data_offsets\":[0,4]}}\x00\x00\x00\x00\x00\x00\x00\x00";
+        let serialized = b"8\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[],\"data_offsets\":[0,4]}}\x00\x00\x00\x00";
 
         let loaded = SafeTensors::deserialize(serialized).unwrap();
         assert_eq!(loaded.names(), vec!["test"]);
@@ -1066,6 +1076,28 @@ mod tests {
 
         match SafeTensors::deserialize(serialized) {
             Err(SafeTensorError::InvalidOffset(_)) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_validation_overflow() {
+        // u64::MAX =  18_446_744_073_709_551_615u64
+        // Overflow the shape calculation.
+        let serialized = b"O\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,18446744073709551614],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::ValidationOverflow) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+        // u64::MAX =  18_446_744_073_709_551_615u64
+        // Overflow the num_elements * total shape.
+        let serialized = b"N\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,9223372036854775807],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::ValidationOverflow) => {
                 // Yes we have the correct error
             }
             _ => panic!("This should not be able to be deserialized"),
