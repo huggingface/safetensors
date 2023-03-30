@@ -818,6 +818,8 @@ fn create_tensor(
         let shape = shape.to_vec();
         let shape: PyObject = shape.into_py(py);
         let tensor = if count == 0 {
+            // Torch==1.10 does not allow frombuffer on empty buffers so we create
+            // the tensor manually.
             let zeros = module.getattr(intern!(py, "zeros"))?;
             let args = (shape.clone(),);
             let kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
