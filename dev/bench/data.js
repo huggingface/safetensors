@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1680080758849,
+  "lastUpdate": 1680181536142,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -7852,6 +7852,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0199529392310294",
             "extra": "mean: 306.9366806000062 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec6fc4a174e822b5bbaed87b617bfabf9a2f71e5",
+          "message": "Remove the breaking change of disallowing zero sized tensors. (#221)\n\n* Remove the breaking change of disallowing zero sized tensors.\r\n\r\nSome files out there might exist with this.\r\nWhile being questionnable, it's not worth doing a breaking change\r\nsince there doesn't seem to be either a security implication\r\nnor a performance hit.\r\n\r\n* Full support for zero-sized tensor on torch==1.10\r\n\r\n* Adding a nice comment.",
+          "timestamp": "2023-03-30T14:58:08+02:00",
+          "tree_id": "f08367be34c510cb0e566b998fc05238ddbc0786",
+          "url": "https://github.com/huggingface/safetensors/commit/ec6fc4a174e822b5bbaed87b617bfabf9a2f71e5"
+        },
+        "date": 1680181535078,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.0815306968931357,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013906194432007333",
+            "extra": "mean: 924.6154574000116 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.89173346383497,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07129839507386429",
+            "extra": "mean: 345.81333739998854 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.7056401338018412,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011742720578672839",
+            "extra": "mean: 586.2901442000066 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.595083683093802,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012799228205621429",
+            "extra": "mean: 626.9263553999963 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 2.9738891727679873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008836012720205597",
+            "extra": "mean: 336.26000900001145 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 73.27314433009975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007873589949785551",
+            "extra": "mean: 13.647565000007944 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3327298473146616,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09630053823976574",
+            "extra": "mean: 750.3396146 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.209765414949455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016435875486119647",
+            "extra": "mean: 311.5492475999986 msec\nrounds: 5"
           }
         ]
       }
