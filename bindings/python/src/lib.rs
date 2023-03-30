@@ -813,16 +813,26 @@ fn create_tensor(
         }
         .ok_or_else(|| SafetensorError::new_err(format!("Could not find module {framework:?}",)))?
         .as_ref(py);
-        let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
         let dtype: PyObject = get_pydtype(module, dtype)?;
-        let kwargs = [
-            (intern!(py, "buffer"), array),
-            (intern!(py, "dtype"), dtype),
-        ]
-        .into_py_dict(py);
-        let tensor = frombuffer.call((), Some(kwargs))?;
+        let count: usize = shape.iter().product();
         let shape = shape.to_vec();
         let shape: PyObject = shape.into_py(py);
+        let tensor = if count == 0 {
+            // Torch==1.10 does not allow frombuffer on empty buffers so we create
+            // the tensor manually.
+            let zeros = module.getattr(intern!(py, "zeros"))?;
+            let args = (shape.clone(),);
+            let kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
+            zeros.call(args, Some(kwargs))?
+        } else {
+            let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
+            let kwargs = [
+                (intern!(py, "buffer"), array),
+                (intern!(py, "dtype"), dtype),
+            ]
+            .into_py_dict(py);
+            frombuffer.call((), Some(kwargs))?
+        };
         let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
         let tensor = match framework {
             Framework::Flax => {
