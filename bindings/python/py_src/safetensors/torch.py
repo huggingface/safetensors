@@ -204,8 +204,9 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     total_bytes = length * bytes_per_item
 
     ptr = tensor.data_ptr()
+    if ptr == 0:
+        return b""
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
-
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
 
     return data.tobytes()

@@ -469,7 +469,7 @@ impl Metadata {
         let mut start = 0;
         for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
-            if s != start || e <= s {
+            if s != start || e < s {
                 let tensor_name = self
                     .index_map
                     .iter()
@@ -1072,14 +1072,14 @@ mod tests {
 
     #[test]
     fn test_zero_sized_tensor() {
-        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,0],\"data_offsets\":[0, 0]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,0],\"data_offsets\":[0, 0]}}";
+        let loaded = SafeTensors::deserialize(serialized).unwrap();
 
-        match SafeTensors::deserialize(serialized) {
-            Err(SafeTensorError::InvalidOffset(_)) => {
-                // Yes we have the correct error
-            }
-            _ => panic!("This should not be able to be deserialized"),
-        }
+        assert_eq!(loaded.names(), vec!["test"]);
+        let tensor = loaded.tensor("test").unwrap();
+        assert_eq!(tensor.shape(), vec![2, 0]);
+        assert_eq!(tensor.dtype(), Dtype::I32);
+        assert_eq!(tensor.data(), b"");
     }
 
     #[test]

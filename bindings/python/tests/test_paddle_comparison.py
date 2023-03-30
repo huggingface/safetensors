@@ -19,6 +19,18 @@ class SafeTestCase(unittest.TestCase):
         paddle.save(data, self.paddle_filename)
         save_file(data, self.sf_filename)
 
+    @unittest.expectedFailure
+    def test_zero_sized(self):
+        # This fails because paddle wants initialized tensor before
+        # sending to numpy
+        data = {
+            "test": paddle.zeros((2, 0), dtype=paddle.float32),
+        }
+        local = "./tests/data/out_safe_paddle_mmap_small2.safetensors"
+        save_file(data, local)
+        reloaded = load_file(local)
+        self.assertTrue(paddle.equal(data["test"], reloaded["test"]))
+
     def test_deserialization_safe(self):
         weights = load_file(self.sf_filename)
 

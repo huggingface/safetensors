@@ -31,6 +31,17 @@ class LoadTestCase(unittest.TestCase):
 
         save_file(data, self.sf_filename)
 
+    def test_zero_sized(self):
+        data = {
+            "test": jnp.zeros((2, 0), dtype=jnp.float32),
+        }
+        local = "./tests/data/out_safe_flat_mmap_small2.safetensors"
+        save_file(data.copy(), local)
+        reloaded = load_file(local)
+        # Empty tensor != empty tensor on numpy, so comparing shapes
+        # instead
+        self.assertEqual(data["test"].shape, reloaded["test"].shape)
+
     def test_deserialization_safe(self):
         weights = load_file(self.sf_filename)
 
