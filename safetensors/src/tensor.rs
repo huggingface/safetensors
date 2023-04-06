@@ -1083,6 +1083,17 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_info() {
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0, 4]}}";
+        match SafeTensors::deserialize(serialized) {
+            Err(SafeTensorError::TensorInvalidInfo) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
     fn test_validation_overflow() {
         // u64::MAX =  18_446_744_073_709_551_615u64
         // Overflow the shape calculation.
