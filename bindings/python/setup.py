@@ -15,6 +15,7 @@ _deps = [
     "huggingface_hub>=0.12.1",
     "isort>=5.5.4",
     "jax>=0.3.25",
+    "jaxlib>=0.3.25",
     "numpy>=1.21.6",
     "setuptools_rust>=1.5.2",
     "pytest>=7.2.0",
