@@ -10,18 +10,18 @@ _deps = [
     "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
     "click==8.0.4",
     "flake8>=3.8.3",
-    "flax",
-    "h5py",
-    "huggingface_hub",
+    "flax>=0.6.3",
+    "h5py>=3.7.0",
+    "huggingface_hub>=0.12.1",
     "isort>=5.5.4",
-    "jax",
-    "numpy",
-    "setuptools_rust",
-    "pytest",
-    "pytest-benchmark",
-    "tensorflow",
+    "jax>=0.4.1",
+    "numpy>=1.24.2",
+    "setuptools_rust>=1.5.2",
+    "pytest>=7.2.0",
+    "pytest-benchmark>=4.0.0",
+    "tensorflow>=2.12.0",
     "torch>=1.10",
-    "paddlepaddle",
+    "paddlepaddle>=2.4.1",
 ]
 
 
