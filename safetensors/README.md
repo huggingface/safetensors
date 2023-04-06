@@ -78,9 +78,10 @@ Notes:
  be done for safety concerns
  - Tensor values are not checked against, in particular NaN and +/-Inf could
  be in the file
- - Empty tensors (tensors with 1 dimension being 0) are not allowed.
+ - Empty tensors (tensors with 1 dimension being 0) are allowed.
  They are not storing any data in the databuffer, yet retaining size in the header.
- This might be relaxed at a later time if good use cases are found.
+ They don't really bring a lot of values but are accepted since they are valid tensors
+ from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
  - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
 
 
