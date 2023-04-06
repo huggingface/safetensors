@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1680770039858,
+  "lastUpdate": 1680779660462,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -8092,6 +8092,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03679927999200205",
             "extra": "mean: 394.44171580000784 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b21039218bd869969838d60286fe6786a87c9c3",
+          "message": "Minor checks + proptest in python. (#228)\n\n* Minor checks + proptest in python.\r\n\r\n* Fix readme.\r\n\r\n* Tf version.\r\n\r\n* Fix.\r\n\r\n* Jax version.\r\n\r\n* Jaxlib.\r\n\r\n* Jax.\r\n\r\n* Cannot have jax version\r\n\r\n- Python 3.7 is minimal version for which they don't have release\r\n  jax>0.4\r\n- Our doc builder relies on jax>0.4\r\n\r\n* wtf.\r\n\r\n* .\r\n\r\n* ...\r\n\r\n* Wahtever.",
+          "timestamp": "2023-04-06T13:08:14+02:00",
+          "tree_id": "d0be972572eeb665a13831d52cd8cfbc107218a4",
+          "url": "https://github.com/huggingface/safetensors/commit/0b21039218bd869969838d60286fe6786a87c9c3"
+        },
+        "date": 1680779659669,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.5306601166054568,
+            "unit": "iter/sec",
+            "range": "stddev: 0.044319604621121104",
+            "extra": "mean: 653.3129002000123 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.982273172210958,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06440618860254309",
+            "extra": "mean: 251.1128586000041 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.709869388810136,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018211842551582928",
+            "extra": "mean: 369.0214753999953 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.2448160301787827,
+            "unit": "iter/sec",
+            "range": "stddev: 0.054621768999031914",
+            "extra": "mean: 445.47080320000987 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.28171668662008,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010533706968611695",
+            "extra": "mean: 233.55118360000233 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 130.40523164899778,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001731526060972663",
+            "extra": "mean: 7.6684040000145615 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.8207296804261244,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034942819537611816",
+            "extra": "mean: 549.2303502000141 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.6195743262377835,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013703033969283839",
+            "extra": "mean: 216.47016140000233 msec\nrounds: 5"
           }
         ]
       }
