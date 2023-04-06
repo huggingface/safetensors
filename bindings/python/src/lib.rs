@@ -713,7 +713,7 @@ impl PySafeSlice {
                     .map(slice_to_indexer)
                     .collect::<Result<_, _>>()?;
 
-                let iterator = tensor.sliced_data(slices.clone()).map_err(|e| {
+                let iterator = tensor.sliced_data(&slices).map_err(|e| {
                     SafetensorError::new_err(format!(
                         "Error during slicing {slices:?} vs {:?}:  {:?}",
                         self.info.shape, e

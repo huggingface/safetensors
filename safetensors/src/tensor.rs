@@ -473,8 +473,7 @@ impl Metadata {
                 let tensor_name = self
                     .index_map
                     .iter()
-                    .filter_map(|(name, &index)| if index == i { Some(&name[..]) } else { None })
-                    .next()
+                    .find_map(|(name, &index)| if index == i { Some(&name[..]) } else { None })
                     .unwrap_or("no_tensor");
                 return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
             }
@@ -570,7 +569,7 @@ impl<'data> TensorView<'data> {
     /// The various pieces of the data buffer according to the asked slice
     pub fn sliced_data(
         &'data self,
-        slices: Vec<TensorIndexer>,
+        slices: &[TensorIndexer],
     ) -> Result<SliceIterator<'data>, InvalidSlice> {
         SliceIterator::new(self, slices)
     }

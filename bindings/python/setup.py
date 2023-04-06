@@ -22,6 +22,8 @@ _deps = [
     "tensorflow>=2.12.0",
     "torch>=1.10",
     "paddlepaddle>=2.4.1",
+    "python-afl>=0.7.3",
+    "hypothesis>=6.70.2",
 ]
 
 
