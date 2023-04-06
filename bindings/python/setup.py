@@ -14,14 +14,16 @@ _deps = [
     "h5py>=3.7.0",
     "huggingface_hub>=0.12.1",
     "isort>=5.5.4",
-    "jax>=0.4.1",
-    "numpy>=1.24.2",
+    "jax>=0.3.25",
+    "numpy>=1.21.6",
     "setuptools_rust>=1.5.2",
     "pytest>=7.2.0",
     "pytest-benchmark>=4.0.0",
-    "tensorflow>=2.12.0",
+    "tensorflow>=2.11.0",
     "torch>=1.10",
     "paddlepaddle>=2.4.1",
+    "python-afl>=0.7.3",
+    "hypothesis>=6.70.2",
 ]
 
 

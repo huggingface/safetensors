@@ -163,7 +163,7 @@ def _view2np(safeview) -> Dict[str, np.ndarray]:
     return result
 
 
-def _is_little_endian(tensor: np.ndarray) -> str:
+def _is_little_endian(tensor: np.ndarray) -> bool:
     byteorder = tensor.dtype.byteorder
     if byteorder == "=":
         if sys.byteorder == "little":

@@ -84,7 +84,7 @@ where
     A: Into<TensorIndexer>,
 {
     fn slice(&'data self, index: A) -> Result<SliceIterator<'data>, InvalidSlice> {
-        self.sliced_data(vec![index.into()])
+        self.sliced_data(&[index.into()])
     }
 }
 
@@ -94,7 +94,7 @@ where
 {
     fn slice(&'data self, index: (A,)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
-        self.sliced_data(vec![idx_a])
+        self.sliced_data(&[idx_a])
     }
 }
 
@@ -106,7 +106,7 @@ where
     fn slice(&'data self, index: (A, B)) -> Result<SliceIterator<'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
-        self.sliced_data(vec![idx_a, idx_b])
+        self.sliced_data(&[idx_a, idx_b])
     }
 }
 
@@ -120,7 +120,7 @@ where
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         let idx_c = index.2.into();
-        self.sliced_data(vec![idx_a, idx_b, idx_c])
+        self.sliced_data(&[idx_a, idx_b, idx_c])
     }
 }
 
@@ -211,7 +211,7 @@ pub struct SliceIterator<'data> {
 impl<'data> SliceIterator<'data> {
     pub(crate) fn new(
         view: &'data TensorView<'data>,
-        slices: Vec<TensorIndexer>,
+        slices: &[TensorIndexer],
     ) -> Result<Self, InvalidSlice> {
         // Make sure n. axis does not exceed n. of dimensions
         let n_slice = slices.len();
@@ -327,7 +327,7 @@ mod tests {
 
         let iterator = SliceIterator::new(
             &attn_0,
-            vec![TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
+            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
         )
         .unwrap();
         assert_eq!(iterator.remaining_byte_len(), 24);
@@ -335,7 +335,7 @@ mod tests {
 
         let iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
             ],
@@ -356,7 +356,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
+            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
         )
         .unwrap();
         assert_eq!(iterator.next(), Some(&data[0..24]));
@@ -364,7 +364,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
             ],
@@ -375,7 +375,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
             ],
@@ -386,7 +386,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
@@ -398,7 +398,7 @@ mod tests {
 
         assert!(SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
@@ -419,7 +419,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![TensorIndexer::Narrow(
+            &[TensorIndexer::Narrow(
                 Bound::Included(0),
                 Bound::Excluded(1),
             )],
@@ -430,7 +430,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
             ],
@@ -441,7 +441,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
@@ -454,7 +454,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(2)),
                 TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
@@ -476,7 +476,7 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            vec![
+            &[
                 TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
                 TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(3)),
             ],

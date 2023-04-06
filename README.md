@@ -44,6 +44,7 @@ pip install -e .
 ### Getting started
 
 ```python
+import torch
 from safetensors import safe_open
 from safetensors.torch import save_file
 
