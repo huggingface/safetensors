@@ -383,7 +383,10 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             raise ValueError(f"Key `{k}` is invalid, expected torch.Tensor but received {type(v)}")
 
         if v.layout == torch.strided:
-            ptrs[v.untyped_storage().data_ptr()].add(k)
+            storage = getattr(v, "untyped_storage", None)
+            if storage is None:
+                storage = getattr(v, "storage", None)
+            ptrs[storage().data_ptr()].add(k)
 
     failing = []
     for ptr, names in ptrs.items():
