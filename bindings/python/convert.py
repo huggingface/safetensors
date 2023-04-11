@@ -203,14 +203,16 @@ def check_final_model(model_id: str, folder: str):
 
 
 def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discussion"]:
+    main_commit = api.list_repo_commits(model_id)[0].commit_id
     try:
         discussions = api.get_repo_discussions(repo_id=model_id)
     except Exception:
         return None
     for discussion in discussions:
         if discussion.status == "open" and discussion.is_pull_request and discussion.title == pr_title:
-            details = api.get_discussion_details(repo_id=model_id, discussion_num=discussion.num)
-            if details.target_branch == "refs/heads/main":
+            commits = api.list_repo_commits(model_id, revision=discussion.git_reference)
+
+            if main_commit == commits[1].commit_id:
                 return discussion
 
 
