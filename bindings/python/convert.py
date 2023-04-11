@@ -203,8 +203,9 @@ def check_final_model(model_id: str, folder: str):
 
 
 def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discussion"]:
-    main_commit = api.list_repo_commits(model_id)[0].commit_id
+
     try:
+        main_commit = api.list_repo_commits(model_id)[0].commit_id
         discussions = api.get_repo_discussions(repo_id=model_id)
     except Exception:
         return None
