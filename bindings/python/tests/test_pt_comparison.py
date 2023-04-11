@@ -161,6 +161,18 @@ class SliceTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             save_file(data, "./tests/data/out.safetensors")
 
+    def test_cannot_serialize_shared(self):
+        A = torch.arange(6, dtype=torch.float32).reshape((2, 3))
+        B = A[:1]
+        data = {"A": A, "B": B}
+        with self.assertRaises(RuntimeError):
+            save_file(data, "./tests/data/out.safetensors")
+
+        B = A[1:]
+        data = {"A": A, "B": B}
+        with self.assertRaises(RuntimeError):
+            save_file(data, "./tests/data/out.safetensors")
+
     def test_deserialization_slice(self):
         with safe_open(self.local, framework="pt") as f:
             tensor = f.get_slice("test")[:, :, 1:2]
