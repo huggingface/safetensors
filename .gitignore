@@ -1,6 +1,5 @@
 safetensors/target
-safetensors/Cargo.lock
-safetensors/fuzz/Cargo.lock
+safetensors/**/Cargo.lock
 *.bin
 *.h5
 *.msgpack
