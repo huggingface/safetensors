@@ -1,11 +1,68 @@
 import os
 import sys
 from collections import defaultdict
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
+
+
+def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
+    tensors = defaultdict(set)
+    for k, v in state_dict.items():
+        if v.device != torch.device("meta"):
+            # Need to add device as key because of multiple GPU.
+            tensors[(v.untyped_storage().data_ptr(), v.device)].add(k)
+    tensors = list(sorted(tensors.values()))
+    return tensors
+
+
+def _is_complete(tensor: torch.Tensor) -> bool:
+    storage = tensor.untyped_storage()
+    return tensor.data_ptr() == storage.data_ptr() and tensor.nelement() * _SIZE[tensor.dtype] == storage.nbytes()
+
+
+def _remove_duplicate_names(state_dict: Dict[str, torch.Tensor]) -> List[str]:
+    shareds = _find_shared_tensors(state_dict)
+    to_remove = []
+    for shared in shareds:
+        complete_names = [name for name in shared if _is_complete(state_dict[name])]
+        if not complete_names:
+            raise RuntimeError(
+                f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage"
+            )
+
+        keep_name = sorted(complete_names)[0]
+        for name in sorted(shared):
+            if name != keep_name:
+                to_remove.append(name)
+    return to_remove
+
+
+def save_model(model: torch.nn.Module, filename: str, metadata: Optional[Dict[str, str]] = None):
+    state_dict = model.state_dict()
+    to_removes = _remove_duplicate_names(state_dict)
+    for to_remove in to_removes:
+        del state_dict[to_remove]
+    save_file(state_dict, filename, metadata=metadata)
+
+
+def load_model(model: torch.nn.Module, filename: str, metadata: Optional[Dict[str, str]] = None):
+    state_dict = load_file(filename)
+    # TODO handle shared tensors
+    model_state_dict = model.state_dict()
+    to_removes = _remove_duplicate_names(model_state_dict)
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    missing = set(missing)
+    for to_remove in to_removes:
+        missing.remove(to_remove)
+    if missing or unexpected:
+        raise RuntimeError(
+            f"Error(s) in loading state_dict for {model.__class__}:",
+            f'    Missing key(s) in state_dict: {", ".join(missing)}' if missing else "",
+            f'    Unexpected key(s) in state_dict: {", ".join(unexpected)}' if unexpected else "",
+        )
 
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
