@@ -745,6 +745,7 @@ mod tests {
             let before = SafeTensors { metadata, data: &data };
             let tensors = before.tensors();
             let bytes = serialize(tensors.iter().map(|(name, view)| (name.to_string(), view)), &None).unwrap();
+
             let after = SafeTensors::deserialize(&bytes).unwrap();
 
             // Check that the tensors are the same after deserialization.
@@ -752,6 +753,7 @@ mod tests {
             for name in before.names() {
                 let tensor_before = before.tensor(name).unwrap();
                 let tensor_after = after.tensor(name).unwrap();
+                assert_eq!(tensor_after.data().as_ptr() as usize % tensor_after.dtype().size(), 0);
                 assert_eq!(tensor_before, tensor_after);
             }
         }
@@ -788,7 +790,7 @@ mod tests {
             .into_iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
-        let shape = vec![1, 2, 3];
+        let shape = vec![1, 1, 2, 3];
         let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
         let metadata: HashMap<String, TensorView> =
             // Smaller string to force misalignment compared to previous test.
@@ -798,16 +800,19 @@ mod tests {
         assert_eq!(
             out,
             [
-                70, 0, 0, 0, 0, 0, 0, 0, 123, 34, 97, 116, 116, 110, 48, 34, 58, 123, 34, 100, 116,
+                72, 0, 0, 0, 0, 0, 0, 0, 123, 34, 97, 116, 116, 110, 48, 34, 58, 123, 34, 100, 116,
                 121, 112, 101, 34, 58, 34, 70, 51, 50, 34, 44, 34, 115, 104, 97, 112, 101, 34, 58,
-                91, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102, 115, 101,
+                91, 49, 44, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102,
                 // All the 32 are forcing alignement of the tensor data for casting to f32, f64
                 // etc..
-                116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 32, 32, 32, 32, 32, 32, 32, 0,
-                0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0, 160, 64
-            ]
+                115, 101, 116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 32, 32, 32, 32, 32,
+                32, 32, 0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0,
+                160, 64
+            ],
         );
-        let _parsed = SafeTensors::deserialize(&out).unwrap();
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+        let tensor = parsed.tensor("attn0").unwrap();
+        assert_eq!(tensor.data().as_ptr() as usize % tensor.dtype().size(), 0);
     }
 
     #[test]
