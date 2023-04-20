@@ -10,7 +10,6 @@ from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
-from safetensors import safe_open
 
 
 class TestCase(unittest.TestCase):
@@ -62,16 +61,20 @@ class TestCase(unittest.TestCase):
         self.assertEqual(out1, out2)
         self.assertEqual(
             out1,
-            b'|\x00\x00\x00\x00\x00\x00\x00{"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]},"test2":{"dtype":"F16","shape":[2,2],"data_offsets":[16,24]}}  \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+            b'\x80\x00\x00\x00\x00\x00\x00\x00{"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]},"test2":{"dtype":"F16","shape":[2,2],"data_offsets":[16,24]}}      \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
         )
+        self.assertEqual(out1[8:].index(b"\x00") + 8, 136)
+        self.assertEqual((out1[8:].index(b"\x00") + 8) % 8, 0)
 
     def test_serialization_metadata(self):
         data = np.zeros((2, 2), dtype=np.int32)
         out1 = save({"test1": data}, metadata={"framework": "pt"})
         self.assertEqual(
             out1,
-            b'f\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"framework":"pt"},"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}       \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+            b'`\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"framework":"pt"},"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}} \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
         )
+        self.assertEqual(out1[8:].index(b"\x00") + 8, 104)
+        self.assertEqual((out1[8:].index(b"\x00") + 8) % 8, 0)
 
     def test_serialization_no_big_endian(self):
         # Big endian tensor
