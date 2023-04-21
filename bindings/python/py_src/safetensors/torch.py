@@ -23,9 +23,9 @@ def _is_complete(tensor: torch.Tensor) -> bool:
     return tensor.data_ptr() == storage.data_ptr() and tensor.nelement() * _SIZE[tensor.dtype] == storage.nbytes()
 
 
-def _remove_duplicate_names(state_dict: Dict[str, torch.Tensor]) -> List[str]:
+def _remove_duplicate_names(state_dict: Dict[str, torch.Tensor]) -> Dict[str, List[str]]:
     shareds = _find_shared_tensors(state_dict)
-    to_remove = []
+    to_remove = defaultdict(list)
     for shared in shareds:
         complete_names = [name for name in shared if _is_complete(state_dict[name])]
         if not complete_names:
@@ -36,38 +36,75 @@ def _remove_duplicate_names(state_dict: Dict[str, torch.Tensor]) -> List[str]:
         keep_name = sorted(complete_names)[0]
         for name in sorted(shared):
             if name != keep_name:
-                to_remove.append(name)
+                to_remove[keep_name].append(name)
     return to_remove
 
 
 def save_model(model: torch.nn.Module, filename: str, metadata: Optional[Dict[str, str]] = None):
+    """
+    Saves a given torch model to specified filename.
+    This method exists specifically to avoid tensor sharing issues which are
+    not allowed in `safetensors`. [More information on tensor sharing](torch_shared_tensors)
+
+    Args:
+        model (`torch.nn.Module`):
+            The model to save on disk.
+        filename (`str`):
+            The filename location to save the file
+        metadata (`Dict[str, str]`, *optional*):
+            Extra information to save along with the file.
+            Some metadata will be added for each dropped tensors.
+            This information will not be enough to recover the entire
+            shared structure but might help understanding things
+    """
     state_dict = model.state_dict()
     to_removes = _remove_duplicate_names(state_dict)
-    for to_remove in to_removes:
-        del state_dict[to_remove]
+
+    for kept_name, to_remove_group in to_removes.items():
+        for to_remove in to_remove_group:
+            if metadata is None:
+                metadata = {}
+
+            if to_remove not in metadata:
+                # Do not override user data
+                metadata[to_remove] = kept_name
+            del state_dict[to_remove]
     save_file(state_dict, filename, metadata=metadata)
 
 
-def load_model(model: torch.nn.Module, filename: str, metadata: Optional[Dict[str, str]] = None):
+def load_model(model: torch.nn.Module, filename: str):
+    """
+    Loads a given filename onto a torch model.
+    This method exists specifically to avoid tensor sharing issues which are
+    not allowed in `safetensors`. [More information on tensor sharing](torch_shared_tensors)
+
+    Args:
+        model (`torch.nn.Module`):
+            The model to load onto.
+        filename (`str`):
+            The filename location to load the file from.
+    """
     state_dict = load_file(filename)
-    # TODO handle shared tensors
     model_state_dict = model.state_dict()
     to_removes = _remove_duplicate_names(model_state_dict)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     missing = set(missing)
-    for to_remove in to_removes:
-        missing.remove(to_remove)
+    for to_remove_group in to_removes.values():
+        for to_remove in to_remove_group:
+            if to_remove not in missing:
+                unexpected.append(to_remove)
+            else:
+                missing.remove(to_remove)
     if missing or unexpected:
-        missing_keys = ", ".join([f'"{k}"' for k in missing])
-        unexpected_keys = ", ".join([f'"{k}"' for k in unexpected])
-        raise RuntimeError(
-            f"Error(s) in loading state_dict for {model.__class__.__name__}:"
-            f"\n    Missing key(s) in state_dict: {missing_keys}"
-            if missing
-            else "" f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
-            if unexpected
-            else ""
-        )
+        missing_keys = ", ".join([f'"{k}"' for k in sorted(missing)])
+        unexpected_keys = ", ".join([f'"{k}"' for k in sorted(unexpected)])
+        error = f"Error(s) in loading state_dict for {model.__class__.__name__}:"
+        if missing:
+            error += f"\n    Missing key(s) in state_dict: {missing_keys}"
+        if unexpected:
+            error += f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
+
+        raise RuntimeError(error)
 
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
