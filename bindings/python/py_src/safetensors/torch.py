@@ -12,7 +12,12 @@ def storage_ptr(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().data_ptr()
     except Exception:
-        return tensor.storage().data_ptr()
+        # Fallback for torch==1.10
+        try:
+            return tensor.storage().data_ptr()
+        except NotImplementedError:
+            # Fallback for meta storage
+            return 0
 
 
 def storage_size(tensor: torch.Tensor) -> int:
