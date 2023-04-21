@@ -25,7 +25,11 @@ def storage_size(tensor: torch.Tensor) -> int:
         return tensor.untyped_storage().nbytes()
     except AttributeError:
         # Fallback for torch==1.10
-        return tensor.storage().size() * _SIZE[tensor.dtype]
+        try:
+            return tensor.storage().size() * _SIZE[tensor.dtype]
+        except NotImplementedError:
+            # Fallback for meta storage
+            return 0
 
 
 def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
