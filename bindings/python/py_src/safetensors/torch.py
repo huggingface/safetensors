@@ -11,11 +11,8 @@ from safetensors import deserialize, safe_open, serialize, serialize_file
 def storage_ptr(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().data_ptr()
-    except Exception as e:
-        try:
-            return tensor.storage().data_ptr()
-        except Exception:
-            raise e
+    except Exception:
+        return tensor.storage().data_ptr()
 
 
 def storage_size(tensor: torch.Tensor) -> int:
