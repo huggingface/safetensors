@@ -23,7 +23,13 @@ def _is_complete(tensor: torch.Tensor) -> bool:
     return tensor.data_ptr() == storage.data_ptr() and tensor.nelement() * _SIZE[tensor.dtype] == storage.nbytes()
 
 
-def _remove_duplicate_names(state_dict: Dict[str, torch.Tensor]) -> Dict[str, List[str]]:
+def _remove_duplicate_names(
+    state_dict: Dict[str, torch.Tensor], preferred_names: List[str] = None
+) -> Dict[str, List[str]]:
+    if preferred_names is None:
+        preferred_names = []
+    preferred_names = set(preferred_names)
+
     shareds = _find_shared_tensors(state_dict)
     to_remove = defaultdict(list)
     for shared in shareds:
@@ -33,7 +39,15 @@ def _remove_duplicate_names(state_dict: Dict[str, torch.Tensor]) -> Dict[str, Li
                 f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage"
             )
 
-        keep_name = sorted(complete_names)[0]
+        preferred = preferred_names.intersection(set(complete_names))
+        # Mecanism to preferentially select keys to keep
+        # coming from the on-disk file to allow\
+        # loading models saved with a different choice
+        # of keep_name
+        if preferred:
+            keep_name = sorted(list(preferred))[0]
+        else:
+            keep_name = sorted(complete_names)[0]
         for name in sorted(shared):
             if name != keep_name:
                 to_remove[keep_name].append(name)
@@ -86,7 +100,7 @@ def load_model(model: torch.nn.Module, filename: str):
     """
     state_dict = load_file(filename)
     model_state_dict = model.state_dict()
-    to_removes = _remove_duplicate_names(model_state_dict)
+    to_removes = _remove_duplicate_names(model_state_dict, preferred_names=state_dict.keys())
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     missing = set(missing)
     for to_remove_group in to_removes.values():

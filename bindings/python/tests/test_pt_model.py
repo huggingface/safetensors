@@ -87,7 +87,20 @@ class TorchModelTestCase(unittest.TestCase):
 
         model2 = Model()
         load_model(model2, "tmp.safetensors")
-        (model2, "tmp.safetensors")
+
+        state_dict = model.state_dict()
+        for k, v in model2.state_dict().items():
+            torch.testing.assert_close(v, state_dict[k])
+
+    def test_workaround_works_with_different_on_file_names(self):
+        model = Model()
+        state_dict = model.state_dict()
+        state_dict.pop("a.weight")
+        state_dict.pop("a.bias")
+        save_file(state_dict, "tmp.safetensors")
+
+        model2 = Model()
+        load_model(model2, "tmp.safetensors")
 
         state_dict = model.state_dict()
         for k, v in model2.state_dict().items():
