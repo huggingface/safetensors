@@ -192,11 +192,9 @@ fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Ite
 
     let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
     let mut metadata_buf = serde_json::to_string(&metadata)?.into_bytes();
-    // Force alignment
-    let extra = metadata_buf.len() % 8;
-    if extra != 0 {
-        metadata_buf.extend(vec![b' '; 8 - extra]);
-    }
+    // Force alignment to 8 bytes.
+    let extra = (8 - metadata_buf.len() % 8) % 8;
+    metadata_buf.extend(vec![b' '; extra]);
 
     let n: u64 = metadata_buf.len() as u64;
 
