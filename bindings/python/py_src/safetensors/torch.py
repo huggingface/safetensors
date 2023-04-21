@@ -29,7 +29,8 @@ def storage_size(tensor: torch.Tensor) -> int:
             return tensor.storage().size() * _SIZE[tensor.dtype]
         except NotImplementedError:
             # Fallback for meta storage
-            return 0
+            # On torch >=2.0 this is the tensor size
+            return tensor.nelement() * _SIZE[tensor.dtype]
 
 
 def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
