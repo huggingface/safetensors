@@ -8,12 +8,22 @@ import torch
 from safetensors import deserialize, safe_open, serialize, serialize_file
 
 
-def storage(tensor: torch.Tensor) -> torch.Storage:
+def storage_ptr(tensor: torch.Tensor) -> int:
     try:
-        return tensor.untyped_storage()
+        return tensor.untyped_storage().data_ptr()
     except Exception as e:
         try:
-            return tensor.storage()
+            return tensor.storage().data_ptr()
+        except Exception:
+            raise e
+
+
+def storage_size(tensor: torch.Tensor) -> int:
+    try:
+        return tensor.untyped_storage().nbytes()
+    except Exception as e:
+        try:
+            return tensor.storage().size() * _SIZE[tensor.dtype]
         except Exception:
             raise e
 
@@ -23,14 +33,13 @@ def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     for k, v in state_dict.items():
         if v.device != torch.device("meta"):
             # Need to add device as key because of multiple GPU.
-            tensors[(storage(v).data_ptr(), v.device)].add(k)
+            tensors[(storage_ptr(v), v.device)].add(k)
     tensors = list(sorted(tensors.values()))
     return tensors
 
 
 def _is_complete(tensor: torch.Tensor) -> bool:
-    tstorage = storage(tensor)
-    return tensor.data_ptr() == tstorage.data_ptr() and tensor.nelement() * _SIZE[tensor.dtype] == tstorage.size()
+    return tensor.data_ptr() == storage_ptr(tensor) and tensor.nelement() * _SIZE[tensor.dtype] == storage_size(tensor)
 
 
 def _remove_duplicate_names(
