@@ -21,11 +21,9 @@ def storage_ptr(tensor: torch.Tensor) -> int:
 def storage_size(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().nbytes()
-    except Exception as e:
-        try:
-            return tensor.storage().size() * _SIZE[tensor.dtype]
-        except Exception:
-            raise e
+    except AttributeError:
+        # Fallback for torch==1.10
+        return tensor.storage().size() * _SIZE[tensor.dtype]
 
 
 def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
