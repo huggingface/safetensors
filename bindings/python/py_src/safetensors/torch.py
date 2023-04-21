@@ -1,11 +1,21 @@
 import os
 import sys
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
+
+
+def storage(tensor: torch.Tensor) -> torch.Storage:
+    try:
+        return tensor.untyped_storage()
+    except Exception as e:
+        try:
+            return tensor.storage()
+        except Exception:
+            raise e
 
 
 def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
@@ -13,14 +23,14 @@ def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     for k, v in state_dict.items():
         if v.device != torch.device("meta"):
             # Need to add device as key because of multiple GPU.
-            tensors[(v.untyped_storage().data_ptr(), v.device)].add(k)
+            tensors[(storage(v).data_ptr(), v.device)].add(k)
     tensors = list(sorted(tensors.values()))
     return tensors
 
 
 def _is_complete(tensor: torch.Tensor) -> bool:
-    storage = tensor.untyped_storage()
-    return tensor.data_ptr() == storage.data_ptr() and tensor.nelement() * _SIZE[tensor.dtype] == storage.nbytes()
+    tstorage = storage(tensor)
+    return tensor.data_ptr() == tstorage.data_ptr() and tensor.nelement() * _SIZE[tensor.dtype] == tstorage.size()
 
 
 def _remove_duplicate_names(
@@ -36,7 +46,7 @@ def _remove_duplicate_names(
         complete_names = [name for name in shared if _is_complete(state_dict[name])]
         if not complete_names:
             raise RuntimeError(
-                f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage"
+                f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage.Refusing to save/load the model since you could be storing much more memory than needed. Please refer to https://huggingface.co/docs/safetensors/torch_shared_tensors for more information. Or open an issue."
             )
 
         preferred = preferred_names.intersection(set(complete_names))
@@ -86,7 +96,7 @@ def save_model(model: torch.nn.Module, filename: str, metadata: Optional[Dict[st
     save_file(state_dict, filename, metadata=metadata)
 
 
-def load_model(model: torch.nn.Module, filename: str):
+def load_model(model: torch.nn.Module, filename: str, strict=True) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
     This method exists specifically to avoid tensor sharing issues which are
@@ -97,6 +107,15 @@ def load_model(model: torch.nn.Module, filename: str):
             The model to load onto.
         filename (`str`):
             The filename location to load the file from.
+        strict (`bool`, *optional*, defaults to True):
+            Wether to fail if you're missing keys or having unexpected ones
+            When false, the function simply returns missing and unexpected names.
+
+    Returns:
+        `(missing, unexpected): (List[str], List[str])`
+            `missing` are names in the model which were not modified during loading
+            `unexpected` are names that are on the file, but weren't used during
+            the load.
     """
     state_dict = load_file(filename)
     model_state_dict = model.state_dict()
@@ -109,7 +128,7 @@ def load_model(model: torch.nn.Module, filename: str):
                 unexpected.append(to_remove)
             else:
                 missing.remove(to_remove)
-    if missing or unexpected:
+    if strict and (missing or unexpected):
         missing_keys = ", ".join([f'"{k}"' for k in sorted(missing)])
         unexpected_keys = ", ".join([f'"{k}"' for k in sorted(unexpected)])
         error = f"Error(s) in loading state_dict for {model.__class__.__name__}:"
@@ -117,8 +136,8 @@ def load_model(model: torch.nn.Module, filename: str):
             error += f"\n    Missing key(s) in state_dict: {missing_keys}"
         if unexpected:
             error += f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
-
         raise RuntimeError(error)
+    return missing, unexpected
 
 
 def save(tensors: Dict[str, torch.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:

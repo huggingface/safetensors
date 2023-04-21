@@ -79,6 +79,15 @@ class TorchModelTestCase(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             save_file(model.state_dict(), "tmp.safetensors")
 
+    # def test_workaround_refuse(self):
+    #     model = Model()
+    #     A = torch.zeros((1000, 10))
+    #     a = A[:100, :]
+    #     model.a.weight = torch.nn.Parameter(a)
+    #     with self.assertRaises(RuntimeError) as ctx:
+    #         save_model(model, "tmp4.safetensors")
+    #     self.assertIn(".Refusing to save/load the model since you could be storing much more memory than needed.", str(ctx.exception))
+
     def test_workaround(self):
         model = Model()
         save_model(model, "tmp.safetensors")
