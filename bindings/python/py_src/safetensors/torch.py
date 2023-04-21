@@ -58,10 +58,15 @@ def load_model(model: torch.nn.Module, filename: str, metadata: Optional[Dict[st
     for to_remove in to_removes:
         missing.remove(to_remove)
     if missing or unexpected:
+        missing_keys = ", ".join([f'"{k}"' for k in missing])
+        unexpected_keys = ", ".join([f'"{k}"' for k in unexpected])
         raise RuntimeError(
-            f"Error(s) in loading state_dict for {model.__class__}:",
-            f'    Missing key(s) in state_dict: {", ".join(missing)}' if missing else "",
-            f'    Unexpected key(s) in state_dict: {", ".join(unexpected)}' if unexpected else "",
+            f"Error(s) in loading state_dict for {model.__class__.__name__}:"
+            f"\n    Missing key(s) in state_dict: {missing_keys}"
+            if missing
+            else "" f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
+            if unexpected
+            else ""
         )
 
 
