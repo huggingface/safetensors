@@ -378,7 +378,11 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
 
     if failing:
         raise RuntimeError(
-            f"""Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}"""
+            f"""
+            Some tensors share memory, this will lead to duplicate memory on disk and potential differences when loading them again: {failing}.
+            A potential way to correctly save your model is to use `save_model`.
+            More information at https://huggingface.co/docs/safetensors/torch_shared_tensors
+            """
         )
 
     return {
