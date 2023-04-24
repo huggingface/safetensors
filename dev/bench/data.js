@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1682082040955,
+  "lastUpdate": 1682333011666,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -8412,6 +8412,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.02160644938026851",
             "extra": "mean: 261.346847599998 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11a0ddba9a80e4a50fd47957f1274c7e32baf667",
+          "message": "Adding `save_model` and `load_model` to help with shared tensors with PyTorch. (#236)\n\n* Adding `save_model` and `load_model` to help with shared tensors\n\nand non contiguous tensors.\n\n* Tmp.\n\n* Adding more docs more tests on the edge cases.\n\n* Adding support for different `keep_name` on disk.\n\n* Torch 1.10 support + save_model failure test.\n\n* Fixes 1.10\n\n* Debugging on remote..\n\n* 1.\n\n* 2.\n\n* 3.\n\n* 4.\n\n* Trying to fix documentation builder version.\n\n* PR documentation + route from error message to new methods.\n\n* ..\n\n* Revert \"..\"\n\nThis reverts commit 564b6863fc11407e19982944733de999c17c95ba.\n\n* Fixing `.[dev]` ?\n\n* Adding contiguous support.\n\n* ?\n\n* Fix.",
+          "timestamp": "2023-04-24T12:37:00+02:00",
+          "tree_id": "6b86f5d98b7f6116880c8efdb9cdf281535e3cd4",
+          "url": "https://github.com/huggingface/safetensors/commit/11a0ddba9a80e4a50fd47957f1274c7e32baf667"
+        },
+        "date": 1682333010446,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1689373147761006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02171279378979488",
+            "extra": "mean: 855.4778663999969 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.2052219208859563,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06689532589795358",
+            "extra": "mean: 311.9908776000102 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 1.9616377361463435,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0323821810698414",
+            "extra": "mean: 509.7781213999838 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.7929898472584398,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016234050592795944",
+            "extra": "mean: 557.7276422000068 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.3189663268689125,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013315564100755605",
+            "extra": "mean: 301.2986277999971 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 66.5352331345146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018097275342251137",
+            "extra": "mean: 15.029630962264688 msec\nrounds: 53"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.404181426664744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07783796834406537",
+            "extra": "mean: 712.1586861999958 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.4847558557082867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04887392689044787",
+            "extra": "mean: 286.9641494000007 msec\nrounds: 5"
           }
         ]
       }
