@@ -21,6 +21,15 @@ class Model(torch.nn.Module):
         self.b = self.a
 
 
+class NonContiguousModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.a = torch.nn.Linear(100, 100)
+        A = torch.zeros((100, 100))
+        A = A.transpose(0, 1)
+        self.a.weight = torch.nn.Parameter(A)
+
+
 class CopyModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -110,6 +119,21 @@ class TorchModelTestCase(unittest.TestCase):
 
         model2 = Model()
         load_model(model2, "tmp.safetensors")
+
+        state_dict = model.state_dict()
+        for k, v in model2.state_dict().items():
+            torch.testing.assert_close(v, state_dict[k])
+
+    def test_workaround_non_contiguous(self):
+        model = NonContiguousModel()
+
+        with self.assertRaises(ValueError) as ctx:
+            save_model(model, "tmp_c.safetensors", force_contiguous=False)
+        self.assertIn("use save_model(..., force_contiguous=True)", str(ctx.exception))
+        save_model(model, "tmp_c.safetensors", force_contiguous=True)
+
+        model2 = NonContiguousModel()
+        load_model(model2, "tmp_c.safetensors")
 
         state_dict = model.state_dict()
         for k, v in model2.state_dict().items():
