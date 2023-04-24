@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1682333011666,
+  "lastUpdate": 1682346069654,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -8492,6 +8492,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.04887392689044787",
             "extra": "mean: 286.9641494000007 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a35d5e0353562e3a93cd6a53d073b531416f95eb",
+          "message": "Fixing shared detection logic. (#232)\n\n* Fixing shared tensor logic.\r\n\r\n* Fixing shared detection logic.\r\n\r\n* torch 1.10 support.\r\n\r\n* Rebase.",
+          "timestamp": "2023-04-24T16:15:32+02:00",
+          "tree_id": "d85d039af99d3bee86779a1e8e22aba3b57c5f8d",
+          "url": "https://github.com/huggingface/safetensors/commit/a35d5e0353562e3a93cd6a53d073b531416f95eb"
+        },
+        "date": 1682346068779,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.349817021274811,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022029829063066227",
+            "extra": "mean: 740.8411541999726 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.9924031740923027,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1022715628094214",
+            "extra": "mean: 334.17956800000184 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.722989117343629,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01867483293275715",
+            "extra": "mean: 367.2434801999998 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.1383469780683404,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00962347359691775",
+            "extra": "mean: 467.65095200000815 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.1816326287889884,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010386645664188498",
+            "extra": "mean: 239.14104579999957 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 132.3031271035464,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00013012067440194443",
+            "extra": "mean: 7.55840033332965 msec\nrounds: 9"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.7850917872311014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06964292796518366",
+            "extra": "mean: 560.1952836000237 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 4.567442587772225,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017413191659973584",
+            "extra": "mean: 218.94090199998573 msec\nrounds: 5"
           }
         ]
       }
