@@ -39,7 +39,7 @@ extras = {}
 extras["torch"] = deps_list("torch")
 extras["numpy"] = deps_list("numpy")
 extras["tensorflow"] = deps_list("tensorflow")
-extras["jax"] = deps_list("jax", "flax")
+extras["jax"] = deps_list("jax", "flax", "jaxlib")
 extras["paddlepaddle"] = deps_list("paddlepaddle")
 extras["quality"] = deps_list("black", "isort", "flake8", "click")
 extras["testing"] = (
@@ -55,7 +55,6 @@ extras["all"] = (
     + extras["testing"]
 )
 extras["dev"] = extras["all"]
-extras["dev"] = ["jax>=0.4.7" if x.startswith("jax>=") else x for x in extras["dev"]]
 
 with open("py_src/safetensors/__init__.py", "r") as f:
     version = f.readline().split("=")[-1].strip().strip('"')
