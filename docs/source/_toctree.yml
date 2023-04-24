@@ -3,6 +3,8 @@
     title: 🤗 Safetensors
   - local: speed
     title: Speed Comparison
+  - local: torch_shared_tensors
+    title: Tensor Sharing in Pytorch
   title: Getting started
 - sections: 
   - local: api/torch
