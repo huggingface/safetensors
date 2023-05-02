@@ -198,15 +198,21 @@ function formatCounter<T>(counter: Counter<T>): string {
 		).json()
 	).map((m) => m.id);
 
+	c.debug("model | safetensors | params");
+	c.debug("--- | --- | ---");
 	for (const id of modelIds) {
-		const p = await parseFromModelRepo(id);
-		c.debug(
-			[
-				id,
-				p.sharded ? "index-file" : "single-file",
-				formatCounter(computeNumOfParamsByDtype(p)),
-			].join(" | ")
-		);
+		try {
+			const p = await parseFromModelRepo(id);
+			c.debug(
+				[
+					id,
+					p.sharded ? "index-file" : "single-file",
+					formatCounter(computeNumOfParamsByDtype(p)),
+				].join(" | ")
+			);
+		} catch (err) {
+			c.debug([id, "error", err.message].join(" | "));
+		}
 	}
 	process.exit();
 })();
