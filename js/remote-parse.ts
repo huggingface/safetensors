@@ -129,6 +129,9 @@ function computeNumOfParams(header: FileHeader): number {
 		if (k === "__metadata__") {
 			continue;
 		}
+		if ((v as TensorInfo).shape.length === 0) {
+			continue;
+		}
 		n += (v as TensorInfo).shape.reduce((a, b) => a * b);
 	}
 	return n;
@@ -148,6 +151,9 @@ function computeNumOfParamsByDtypeSingleFile(
 	const n = new Counter<Dtype>();
 	for (const [k, v] of Object.entries(header)) {
 		if (k === "__metadata__") {
+			continue;
+		}
+		if ((v as TensorInfo).shape.length === 0) {
 			continue;
 		}
 		n.incr(
