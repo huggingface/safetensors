@@ -77,7 +77,7 @@ async function parseSingleFile(url: URL): Promise<FileHeader> {
 	return header;
 }
 
-async function parseIndexFile(
+async function parseShardedIndex(
 	url: URL
 ): Promise<{ index: IndexJson; headers: ShardedHeaders }> {
 	const index: IndexJson = await (await fetch(url)).json();
@@ -118,10 +118,10 @@ async function parseFromModelRepo(id: string): Promise<ParseFromRepo> {
 	} else if (await doesFileExistOnHub(indexUrl)) {
 		return {
 			sharded: true,
-			...(await parseIndexFile(indexUrl)),
+			...(await parseShardedIndex(indexUrl)),
 		};
 	} else {
-		throw new Error("model id does not contain safetensors weights");
+		throw new Error("model id does not seem to contain safetensors weights");
 	}
 }
 
@@ -208,7 +208,7 @@ function formatCounter<T>(counter: Counter<T>): string {
 			c.debug(
 				[
 					id,
-					p.sharded ? "index-file" : "single-file",
+					p.sharded ? "sharded" : "single-file",
 					formatCounter(computeNumOfParamsByDtype(p)),
 				].join(" | ")
 			);
