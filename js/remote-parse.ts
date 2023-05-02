@@ -85,10 +85,12 @@ async function parseIndexFile(
 
 	const shardedMap: ShardedHeaders = {};
 	const filenames = [...new Set(Object.values(index.weight_map))];
-	for (const filename of filenames) {
-		const singleUrl = new URL(url.toString().replace(INDEX_FILE, filename));
-		shardedMap[filename] = await parseSingleFile(singleUrl);
-	}
+	await Promise.all(
+		filenames.map(async (filename) => {
+			const singleUrl = new URL(url.toString().replace(INDEX_FILE, filename));
+			shardedMap[filename] = await parseSingleFile(singleUrl);
+		})
+	);
 	return { index, headers: shardedMap };
 }
 
