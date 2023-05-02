@@ -3,6 +3,6 @@
     "prettier": "^2.7.1"
   },
   "devDependencies": {
-    "tsx": "^3.11.0"
+    "tsx": "^3.12.7"
   }
 }

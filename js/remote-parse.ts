@@ -12,6 +12,7 @@ type Dtype =
 	| "F64"
 	| "F32"
 	| "F16"
+	| "BF16"
 	| "I64"
 	| "I32"
 	| "I16"
@@ -37,7 +38,18 @@ interface IndexJson {
 	weight_map: Record<TensorName, FileName>;
 }
 
-type ShardedMap = Record<FileName, FileHeader>;
+type ShardedHeaders = Record<FileName, FileHeader>;
+
+type ParseFromRepo =
+	| {
+			sharded: false;
+			header: FileHeader;
+	  }
+	| {
+			sharded: true;
+			index: IndexJson;
+			headers: ShardedHeaders;
+	  };
 
 const c = console;
 
@@ -65,17 +77,19 @@ async function parseSingleFile(url: URL): Promise<FileHeader> {
 	return header;
 }
 
-async function parseIndexFile(url: URL): Promise<ShardedMap> {
+async function parseIndexFile(
+	url: URL
+): Promise<{ index: IndexJson; headers: ShardedHeaders }> {
 	const index: IndexJson = await (await fetch(url)).json();
 	/// no validation for now, we assume it's a valid IndexJson.
 
-	const shardedMap: ShardedMap = {};
+	const shardedMap: ShardedHeaders = {};
 	const filenames = [...new Set(Object.values(index.weight_map))];
 	for (const filename of filenames) {
 		const singleUrl = new URL(url.toString().replace(INDEX_FILE, filename));
 		shardedMap[filename] = await parseSingleFile(singleUrl);
 	}
-	return shardedMap;
+	return { index, headers: shardedMap };
 }
 
 async function doesFileExistOnHub(url: URL): Promise<boolean> {
@@ -85,6 +99,28 @@ async function doesFileExistOnHub(url: URL): Promise<boolean> {
 		/// ^do not follow redirects to save some time
 	});
 	return res.status >= 200 && res.status < 400;
+}
+
+async function parseFromModelRepo(id: string): Promise<ParseFromRepo> {
+	const singleUrl = new URL(
+		`https://huggingface.co/${id}/resolve/main/${SINGLE_FILE}`
+	);
+	const indexUrl = new URL(
+		`https://huggingface.co/${id}/resolve/main/${INDEX_FILE}`
+	);
+	if (await doesFileExistOnHub(singleUrl)) {
+		return {
+			sharded: false,
+			header: await parseSingleFile(singleUrl),
+		};
+	} else if (await doesFileExistOnHub(indexUrl)) {
+		return {
+			sharded: true,
+			...(await parseIndexFile(indexUrl)),
+		};
+	} else {
+		throw new Error("model id does not contain safetensors weights");
+	}
 }
 
 function computeNumOfParams(header: FileHeader): number {
@@ -98,7 +134,7 @@ function computeNumOfParams(header: FileHeader): number {
 	return n;
 }
 
-function computeNumOfParamsSharded(shardedMap: ShardedMap): number {
+function computeNumOfParamsSharded(shardedMap: ShardedHeaders): number {
 	let n = 0;
 	for (const [k, v] of Object.entries(shardedMap)) {
 		n += computeNumOfParams(v);
@@ -106,7 +142,9 @@ function computeNumOfParamsSharded(shardedMap: ShardedMap): number {
 	return n;
 }
 
-function computeNumOfParamsByDtype(header: FileHeader): Counter<Dtype> {
+function computeNumOfParamsByDtypeSingleFile(
+	header: FileHeader
+): Counter<Dtype> {
 	const n = new Counter<Dtype>();
 	for (const [k, v] of Object.entries(header)) {
 		if (k === "__metadata__") {
@@ -120,40 +158,49 @@ function computeNumOfParamsByDtype(header: FileHeader): Counter<Dtype> {
 	return n;
 }
 
-function computeNumOfParamsShardedByDtype(
-	shardedMap: ShardedMap
+function computeNumOfParamsByDtypeSharded(
+	shardedMap: ShardedHeaders
 ): Counter<Dtype> {
 	const n = new Counter<Dtype>();
 	for (const [k, v] of Object.entries(shardedMap)) {
-		n.add(computeNumOfParamsByDtype(v));
+		n.add(computeNumOfParamsByDtypeSingleFile(v));
 	}
 	return n;
+}
+
+function computeNumOfParamsByDtype(parse: ParseFromRepo): Counter<Dtype> {
+	if (parse.sharded) {
+		return computeNumOfParamsByDtypeSharded(parse.headers);
+	} else {
+		return computeNumOfParamsByDtypeSingleFile(parse.header);
+	}
+}
+
+function formatCounter<T>(counter: Counter<T>): string {
+	const inner = [...counter.entries()]
+		.map(([k, v]) => `'${k}' => ${v}`)
+		.join(", ");
+	return `{ ${inner} }`;
 }
 
 (async () => {
 	const modelIds = (
 		await (
-			await fetch(`https://huggingface.co/api/models?filter=safetensors`)
+			await fetch(
+				`https://huggingface.co/api/models?filter=safetensors&sort=downloads&direction=-1&limit=100`
+			)
 		).json()
 	).map((m) => m.id);
 
 	for (const id of modelIds) {
-		c.debug("===", id);
-
-		const singleUrl = new URL(
-			`https://huggingface.co/${id}/resolve/main/${SINGLE_FILE}`
+		const p = await parseFromModelRepo(id);
+		c.debug(
+			[
+				id,
+				p.sharded ? "index-file" : "single-file",
+				formatCounter(computeNumOfParamsByDtype(p)),
+			].join(" | ")
 		);
-		if (await doesFileExistOnHub(singleUrl)) {
-			c.info("single-file", singleUrl.toString());
-			c.log(computeNumOfParamsByDtype(await parseSingleFile(singleUrl)));
-		}
-
-		const indexUrl = new URL(
-			`https://huggingface.co/${id}/resolve/main/${INDEX_FILE}`
-		);
-		if (await doesFileExistOnHub(indexUrl)) {
-			c.info("index-file", indexUrl.toString());
-			c.log(computeNumOfParamsShardedByDtype(await parseIndexFile(indexUrl)));
-		}
 	}
+	process.exit();
 })();
