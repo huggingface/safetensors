@@ -5,6 +5,8 @@
     title: Speed Comparison
   - local: torch_shared_tensors
     title: Tensor Sharing in Pytorch
+  - local: metadata_parsing
+    title: Metadata Parsing
   title: Getting started
 - sections: 
   - local: api/torch
