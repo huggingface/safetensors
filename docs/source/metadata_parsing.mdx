@@ -1,0 +1,85 @@
+# Metadata parsing
+
+Given the simplicity of the format, it's very simple and efficient to fetch and parse metadata about Safetensors weights – i.e. the list of tensors, their types, and their shapes or numbers of parameters – using small (Range) HTTP requests.
+
+This parsing has been implemented in JS in [`huggingface.js`](https://huggingface.co/docs/huggingface.js/index) (sample code follows below), but it would be similar in any language.
+
+
+## Example use case
+
+We use it on the HuggingFace Hub to display info about models which have safetensors weights:
+
+![model-page](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/model-page.png)
+
+![view-all-tensors](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/view-all-tensors.png)
+
+But many other use cases are possible.
+
+## Usage from JS
+
+```ts
+import { parseSafetensorsMetadata } from "@huggingface/hub";
+
+const info = await parseSafetensorsMetadata({
+	repo: { type: "model", name: "bigscience/bloom" },
+});
+
+```
+
+Depending on whether the safetensors weights are sharded into multiple files or not, the output of the call above will be:
+
+```ts
+export type SafetensorsParseFromRepo =
+| {
+		sharded: false;
+		header: SafetensorsFileHeader;
+	}
+| {
+		sharded: true;
+		index: SafetensorsIndexJson;
+		headers: SafetensorsShardedHeaders;
+	};
+```
+
+where the underlying types are the following:
+
+```ts
+type FileName = string;
+
+type TensorName = string;
+type Dtype = "F64" | "F32" | "F16" | "BF16" | "I64" | "I32" | "I16" | "I8" | "U8" | "BOOL";
+
+interface TensorInfo {
+	dtype: Dtype;
+	shape: number[];
+	data_offsets: [number, number];
+}
+
+type SafetensorsFileHeader = Record<TensorName, TensorInfo> & {
+	__metadata__: Record<string, string>;
+};
+
+interface SafetensorsIndexJson {
+	weight_map: Record<TensorName, FileName>;
+}
+
+export type SafetensorsShardedHeaders = Record<FileName, SafetensorsFileHeader>;
+
+```
+
+
+## Example output
+
+For instance, here are the number of params per dtype for a few models on the HuggingFace Hub. Also see [this issue](https://github.com/huggingface/safetensors/issues/44) for more examples of usage.
+
+model | safetensors | params
+--- | --- | ---
+gpt2 | single-file | { 'F32' => 137022720 }
+roberta-base | single-file | { 'F32' => 124697433, 'I64' => 514 }
+Jean-Baptiste/camembert-ner | single-file | { 'F32' => 110035205, 'I64' => 514 }
+roberta-large | single-file | { 'F32' => 355412057, 'I64' => 514 }
+distilbert-base-german-cased | single-file | { 'F32' => 67431550 }
+EleutherAI/gpt-neox-20b | sharded | { 'F16' => 20554568208, 'U8' => 184549376 }
+bigscience/bloom-560m | single-file | { 'F16' => 559214592 }
+bigscience/bloom | sharded | { 'BF16' => 176247271424 }
+bigscience/bloom-3b | single-file | { 'F16' => 3002557440 }
