@@ -1,21 +1,28 @@
-# Metadata parsing
+# Metadata Parsing
 
-Given the simplicity of the format, it's very simple and efficient to fetch and parse metadata about Safetensors weights – i.e. the list of tensors, their types, and their shapes or numbers of parameters – using small (Range) HTTP requests.
+Given the simplicity of the format, it's very simple and efficient to fetch and parse metadata about Safetensors weights – i.e. the list of tensors, their types, and their shapes or numbers of parameters – using small [(Range) HTTP requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests).
 
-This parsing has been implemented in JS in [`huggingface.js`](https://huggingface.co/docs/huggingface.js/index) (sample code follows below), but it would be similar in any language.
-
+This parsing has been implemented in JS in [`huggingface.js`](https://huggingface.co/docs/huggingface.js/main/en/hub/modules#parsesafetensorsmetadata) (sample code follows below), but it would be similar in any language.
 
 ## Example use case
 
-We use it on the HuggingFace Hub to display info about models which have safetensors weights:
+There can be many potential use cases. For instance, we use it on the HuggingFace Hub to display info about models which have safetensors weights:
 
-![model-page](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/model-page.png)
+<div class="flex justify-center">
+    <img class="block dark:hidden" src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/model-page-light.png"/>
+    <img class="hidden dark:block" src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/model-page-dark.png"/>
+</div>
 
-![view-all-tensors](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/view-all-tensors.png)
+<div class="flex justify-center">
+    <img class="block dark:hidden" src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/view-all-tensors-light.png"/>
+    <img class="hidden dark:block" src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/view-all-tensors-dark.png"/>
+</div>
 
-But many other use cases are possible.
+## Usage
 
-## Usage from JS
+### JavaScript/TypeScript[[js]]
+
+Using [`huggingface.js`](https://huggingface.co/docs/huggingface.js)
 
 ```ts
 import { parseSafetensorsMetadata } from "@huggingface/hub";
@@ -24,6 +31,22 @@ const info = await parseSafetensorsMetadata({
 	repo: { type: "model", name: "bigscience/bloom" },
 });
 
+console.log(info)
+// {
+//   sharded: true,
+//   index: {
+//     metadata: { total_size: 352494542848 },
+//     weight_map: {
+//       'h.0.input_layernorm.bias': 'model_00002-of-00072.safetensors',
+//       ...
+//     }
+//   },
+//   headers: {
+//     __metadata__: {'format': 'pt'},
+//     'h.2.attn.c_attn.weight': {'dtype': 'F32', 'shape': [768, 2304], 'data_offsets': [541012992, 548090880]},
+//     ...
+//   }
+// }
 ```
 
 Depending on whether the safetensors weights are sharded into multiple files or not, the output of the call above will be:
@@ -41,7 +64,7 @@ export type SafetensorsParseFromRepo =
 	};
 ```
 
-where the underlying types are the following:
+where the underlying `types` are the following:
 
 ```ts
 type FileName = string;
@@ -67,6 +90,41 @@ export type SafetensorsShardedHeaders = Record<FileName, SafetensorsFileHeader>;
 
 ```
 
+### Python
+
+In this example python script, we are parsing metadata of [gpt2](https://huggingface.co/gpt2/blob/main/model.safetensors).
+
+```python
+import requests # pip install requests
+import struct
+
+def parse_single_file(url):
+    # Fetch the first 8 bytes of the file
+    headers = {'Range': 'bytes=0-7'}
+    response = requests.get(url, headers=headers)
+    # Interpret the bytes as a little-endian unsigned 64-bit integer
+    length_of_header = struct.unpack('<Q', response.content)[0]
+    # Fetch length_of_header bytes starting from the 9th byte
+    headers = {'Range': f'bytes=8-{7 + length_of_header}'}
+    response = requests.get(url, headers=headers)
+    # Interpret the response as a JSON object
+    header = response.json()
+    return header
+
+url = "https://huggingface.co/gpt2/resolve/main/model.safetensors"
+header = parse_single_file(url)
+
+print(header)
+# {
+#   "__metadata__": { "format": "pt" },
+#   "h.10.ln_1.weight": {
+#     "dtype": "F32",
+#     "shape": [768],
+#     "data_offsets": [223154176, 223157248]
+#   },
+#   ...
+# }
+```
 
 ## Example output
 
