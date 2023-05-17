@@ -21,7 +21,9 @@ with conda:
 conda install -c huggingface safetensors
 ```
 
-## Load tensors
+## Usage
+
+### Load tensors
 
 ```python
 from safetensors import safe_open
@@ -44,7 +46,7 @@ with safe_open("model.safetensors", framework="pt", device=0) as f:
     tensor = tensor_slice[:, :hidden_dim]
 ```
 
-## Save tensors
+### Save tensors
 
 ```python
 import torch
@@ -56,3 +58,63 @@ tensors = {
 }
 save_file(tensors, "model.safetensors")
 ```
+
+## Format
+
+<table>
+<colgroup>
+<col span="1" style="width: 20%;">
+<col span="1" style="width: 80%;">
+</colgroup>
+<tbody>
+<tr class="hidden">
+<th>Bytes</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>
+8 bytes
+</td>
+<td>
+
+`N = u64` int containing the size of the header
+
+</td>
+</tr>
+<tr>
+<td>
+N bytes
+</td>
+<td>
+
+JSON utf-8 string representing the header
+
+<div style="max-width: 20rem;">
+
+```json
+{
+    "TENSOR_NAME_1": {
+        "dtype": "F16", // can be one of ["F64","F32","F16","BF16","I64","I32","I16","I8","U8","BOOL"]
+        "shape": [1, 16, 256],
+        "offsets": [BEGIN, END]
+    },
+    "TENSOR_NAME_2": {...},
+        ...,
+    "__metadata__": {...} // special key for storing free form text-to-text map
+}
+```
+
+</div>
+
+</td>
+</tr>
+<tr>
+<td>
+rest of the file
+</td>
+<td>
+Byte buffer that is the tensors data
+</td>
+</tr>
+</tbody>
+</table>
