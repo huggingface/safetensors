@@ -19,7 +19,7 @@ jobs:
     name: Create wheels for manylinux2014
     container: quay.io/pypa/manylinux2014_x86_64
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
 
       - name: Install dependencies
         run: yum install -y openssl-devel
