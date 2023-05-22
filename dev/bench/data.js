@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1682346069654,
+  "lastUpdate": 1684764827401,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -8572,6 +8572,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.017413191659973584",
             "extra": "mean: 218.94090199998573 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7969d4683f014ef422cede384da1d1c3b1585bf",
+          "message": "Fixing the spec with mention about the buffer which cannot be non-contiguous. (#253)\n\n* Adding specification that the byte buffer needs to be contiguous and\r\nfull.\r\n\r\n* Fix cargo.lock which messes up benchmarks.",
+          "timestamp": "2023-05-22T16:07:24+02:00",
+          "tree_id": "6d80c7580c9bac202293ad4ecd043b3a7f982f37",
+          "url": "https://github.com/huggingface/safetensors/commit/a7969d4683f014ef422cede384da1d1c3b1585bf"
+        },
+        "date": 1684764826315,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.2015814598041852,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020336792666838664",
+            "extra": "mean: 832.2365427999898 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.186298815172432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07881174031119137",
+            "extra": "mean: 313.8437597999996 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.0870825928524175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015596097648608441",
+            "extra": "mean: 479.137722400003 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.8335707635727723,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008982799052761562",
+            "extra": "mean: 545.3839141999993 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.7084903373401397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009869543441089437",
+            "extra": "mean: 269.6515047999924 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 126.23782818000565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00019493662056173434",
+            "extra": "mean: 7.921555800010083 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.505642230595871,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09600018494426561",
+            "extra": "mean: 664.1684057999896 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.2196899919946222,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008564114753552489",
+            "extra": "mean: 310.5889083999955 msec\nrounds: 5"
           }
         ]
       }
