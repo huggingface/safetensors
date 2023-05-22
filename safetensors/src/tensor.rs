@@ -390,7 +390,7 @@ impl<'data> SafeTensors<'data> {
     /// Indicate if the SafeTensors contains or not any tensor.
     #[inline]
     pub fn is_empty(&self) -> bool {
-    self.metadata.tensors.is_empty()
+        self.metadata.tensors.is_empty()
     }
 }
 
