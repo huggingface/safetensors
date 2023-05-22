@@ -21,7 +21,9 @@ with conda:
 conda install -c huggingface safetensors
 ```
 
-## Load tensors
+## Usage
+
+### Load tensors
 
 ```python
 from safetensors import safe_open
@@ -44,7 +46,7 @@ with safe_open("model.safetensors", framework="pt", device=0) as f:
     tensor = tensor_slice[:, :hidden_dim]
 ```
 
-## Save tensors
+### Save tensors
 
 ```python
 import torch
@@ -56,6 +58,14 @@ tensors = {
 }
 save_file(tensors, "model.safetensors")
 ```
+
+## Format
+
+Let's say you have safetensors file named `model.safetensors`, then `model.safetensors` will have the following internal format:
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/safetensors-format.svg"/>
+</div>
 
 ## Featured Projects
 
