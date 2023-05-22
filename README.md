@@ -94,6 +94,8 @@ Notes:
  They don't really bring a lot of values but are accepted since they are valid tensors
  from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
  - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
+ - The byte buffer needs to be entirely indexed, and cannot contain holes. This prevents
+ the creation of polyglot files.
 
 
 ### Yet another format ?
