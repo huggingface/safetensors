@@ -380,6 +380,18 @@ impl<'data> SafeTensors<'data> {
     pub fn names(&self) -> Vec<&'_ String> {
         self.metadata.index_map.keys().collect()
     }
+
+    /// Return how many tensors are currently stored within the SafeTensors.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.metadata.tensors.len()
+    }
+
+    /// Indicate if the SafeTensors contains or not any tensor.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.metadata.tensors.is_empty()
+    }
 }
 
 /// The stuct representing the header of safetensor files which allow
@@ -945,6 +957,7 @@ mod tests {
 
         let loaded = SafeTensors::deserialize(serialized).unwrap();
 
+        assert_eq!(loaded.len(), 1);
         assert_eq!(loaded.names(), vec!["test"]);
         let tensor = loaded.tensor("test").unwrap();
         assert_eq!(tensor.shape(), vec![2, 2]);
