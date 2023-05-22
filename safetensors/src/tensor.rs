@@ -386,6 +386,12 @@ impl<'data> SafeTensors<'data> {
     pub fn len(&self) -> usize {
         self.metadata.tensors.len()
     }
+
+    /// Indicate if the SafeTensors contains or not any tensor.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// The stuct representing the header of safetensor files which allow
