@@ -8,3 +8,6 @@ bindings/python/Cargo.lock
 *.pdparams
 *.safetensors
 *.npz
+
+# CMake related
+cmake-*
