@@ -1,4 +1,4 @@
-name: Safetensors C API
+name: C/C++ / Check everything builds & tests
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
-  BUILD_TYPE: Release
+  BUILD_TYPE: Debug
 
 jobs:
   build:
@@ -26,12 +26,13 @@ jobs:
           submodules: "recursive"
 
       - name: Configure CMake
-        run: cmake -B ${{github.workspace}}/cmake-build-release -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DSAFETENSORS_BUILD_TESTS=ON
+        working-directory: ${{github.workspace}}/bindings/c
+        run: cmake -B cmake-build-debug -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DSAFETENSORS_BUILD_TESTS=ON
 
       - name: Build
-        # Build your program with the given configuration
-        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target safetensors_tests --parallel
+        working-directory: ${{github.workspace}}/bindings/c
+        run: cmake --build cmake-build-debug --config ${{env.BUILD_TYPE}} --target safetensors_tests --parallel
 
       - name: Test
-        working-directory: ${{github.workspace}}/build
+        working-directory: ${{github.workspace}}/bindings/c/cmake-build-debug
         run: ctest -C ${{env.BUILD_TYPE}} --test-dir tests
