@@ -15,8 +15,6 @@ typedef enum {
 typedef struct safetensors_handle_t safetensors_handle_t;
 typedef struct safetensors_view_t safetensors_view_t;
 
-uint32_t safetensors_version();
-
 
 /**
  * 

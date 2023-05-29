@@ -18,11 +18,6 @@ pub struct View {
 }
 
 #[no_mangle]
-pub extern "C" fn safetensors_version() -> c_uint {
-    42
-}
-
-#[no_mangle]
 pub extern "C" fn safetensors_deserialize(
     handle: *mut Handle,
     buffer: *const u8,
