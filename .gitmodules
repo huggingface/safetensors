@@ -1,0 +1,3 @@
+[submodule "bindings/c/third-party/catch2"]
+	path = bindings/c/third-party/catch2
+	url = https://github.com/catchorg/catch2

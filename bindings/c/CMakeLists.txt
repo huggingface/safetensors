@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.21)
+
+project(safetensors_c VERSION 0.3.0 LANGUAGES C CXX DESCRIPTION "Simple, safe way to store and distribute tensors")
+set(SAFETENSORS_PROJECT_NAME ${PROJECT_NAME})
+set(CMAKE_CXX_STANDARD 11)
+
+# Define options
+option(SAFETENSORS_BUILD_TESTS "Build the safetensors C-API tests" OFF)
+
+# Define the c library header location
+set(SAFETENSORS_C_HEADERS include/safetensors/safetensors.h)
+add_library(safetensors INTERFACE ${SAFETENSORS_C_HEADERS})
+
+target_include_directories(safetensors INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
+)
+
+# We need to compile the Rust library
+include(cmake/build_rust.cmake)
+
+# Check if we need to build the unit tests
+if(SAFETENSORS_BUILD_TESTS)
+    message(STATUS "Building tests")
+
+    enable_testing()
+
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third-party/catch2)
+    add_subdirectory(tests)
+endif()

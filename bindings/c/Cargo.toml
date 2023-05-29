@@ -5,9 +5,16 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "c_safetensors"
+name = "safetensors"
 crate-type = ["cdylib"]      # Creates dynamic lib
 
-[dependencies]
-safetensors = { path = "../../safetensors" }
+[profile.dev]
+lto = "fat"
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+
+[dependencies]
+thiserror = "1.0"
+safetensors = { path = "../../safetensors" }
