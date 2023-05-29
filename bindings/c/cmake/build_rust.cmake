@@ -12,8 +12,8 @@ endif()
 message(STATUS "Rust cargo args: ${SAFETENSORS_CARGO_BUILD_FLAGS}")
 
 add_custom_target(
-        libsafetensors_rust
-        COMMAND cargo build --target-dir . ${SAFETENSORS_CARGO_BUILD_FLAGS}
+    libsafetensors_rust
+    COMMAND cargo build --target-dir . ${SAFETENSORS_CARGO_BUILD_FLAGS}
 )
 
 #link_directories(BEFORE ${CMAKE_BINARY_DIR}})

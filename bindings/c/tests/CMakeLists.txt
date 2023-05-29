@@ -5,10 +5,11 @@ set(CATCH_DEVELOPMENT_BUILD CACHE BOOL OFF)
 # Create target
 add_executable(safetensors_tests safetensors_c_tests.cpp)
 
-link_directories(${CMAKE_BINARY_DIR})
+# Find the Rust library
+find_library(SAFETENSORS_LIB safetensors  HINTS ${CMAKE_BINARY_DIR})
 
-target_link_libraries(safetensors_tests PUBLIC safetensors_c_api safetensors)
-target_link_libraries(safetensors_tests PRIVATE Catch2::Catch2WithMain)
+# Links to the various library
+target_link_libraries(safetensors_tests PRIVATE ${SAFETENSORS_LIB} safetensors_c_api Catch2::Catch2WithMain)
 
 include(CTest)
 include(Catch)
