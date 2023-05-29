@@ -7,7 +7,7 @@ add_executable(safetensors_tests safetensors_c_tests.cpp)
 
 link_directories(${CMAKE_BINARY_DIR})
 
-target_link_libraries(safetensors_tests PUBLIC safetensors)
+target_link_libraries(safetensors_tests PUBLIC safetensors_c_api safetensors)
 target_link_libraries(safetensors_tests PRIVATE Catch2::Catch2WithMain)
 
 include(CTest)

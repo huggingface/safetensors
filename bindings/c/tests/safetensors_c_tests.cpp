@@ -13,15 +13,15 @@ const std::string ONE_ELEMENT_DATA = R"(b"<\x00\x00\x00\x00\x00\x00\x00{\"test\"
 
 TEST_CASE("Deserialize", "[safetensors][cpu]") {
     std::cout << safetensors_version() << std::endl;
-//    safetensors_handle_t* handle = nullptr;
-//
-//    SECTION("Single element") {
-//        safetensors_deserialize(handle, ONE_ELEMENT_DATA.c_str(), ONE_ELEMENT_DATA.size());
-//        REQUIRE(handle != nullptr);
-//        REQUIRE(safetensors_num_tensors(handle) == 1);
-//    }
-//
-//    safetensors_destroy(handle);
+    safetensors_handle_t* handle = nullptr;
+
+    SECTION("Single element") {
+        safetensors_deserialize(handle, ONE_ELEMENT_DATA.c_str(), ONE_ELEMENT_DATA.size());
+        REQUIRE(handle != nullptr);
+        REQUIRE(safetensors_num_tensors(handle) == 1);
+    }
+
+    safetensors_destroy(handle);
 }
 
 

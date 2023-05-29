@@ -17,7 +17,7 @@ add_custom_target(
 )
 
 #link_directories(BEFORE ${CMAKE_BINARY_DIR}})
-add_dependencies(safetensors libsafetensors_rust)
+add_dependencies(safetensors_c_api libsafetensors_rust)
 
 add_custom_command(
     TARGET libsafetensors_rust

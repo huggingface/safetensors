@@ -9,9 +9,9 @@ option(SAFETENSORS_BUILD_TESTS "Build the safetensors C-API tests" OFF)
 
 # Define the c library header location
 set(SAFETENSORS_C_HEADERS include/safetensors/safetensors.h)
-add_library(safetensors INTERFACE ${SAFETENSORS_C_HEADERS})
+add_library(safetensors_c_api INTERFACE)
 
-target_include_directories(safetensors INTERFACE
+target_include_directories(safetensors_c_api INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
 )
