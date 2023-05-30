@@ -16,8 +16,10 @@ target_include_directories(safetensors_c_api INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
 )
 
-# We need to compile the Rust library
-include(cmake/build_rust.cmake)
+# Build up Rust part
+add_subdirectory(third-party/corrosion)
+corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib)
+#corrosion_(TARGET safetensors HEADER_NAME safetensors.h ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Check if we need to build the unit tests
 if(SAFETENSORS_BUILD_TESTS)
