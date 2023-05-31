@@ -70,17 +70,16 @@ pub unsafe extern "C" fn safetensors_names(
     let names = (*handle).safetensors.names();
     let c_names = names
         .into_iter()
-        .map(|name| CString::from_vec_unchecked(name.clone().into_bytes()))
+        .map(|name| CString::from_vec_unchecked(name.clone().into_bytes()).as_ptr())
         .collect::<Vec<_>>();
 
-    let c_ptrs = c_names.iter().map(|name| name.as_ptr()).collect::<Vec<_>>();
+    // let c_ptrs = c_names.iter().map(|name| name.as_ptr()).collect::<Vec<_>>();
 
     unsafe {
-        ptr.write(c_ptrs.as_ptr());
-        len.write(c_ptrs.len() as c_uint);
+        ptr.write(c_names.as_ptr());
+        len.write(c_names.len() as c_uint);
 
         forget(c_names);
-        forget(c_ptrs);
 
         STATUS_OK
     }
