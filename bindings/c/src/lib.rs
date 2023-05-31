@@ -1,7 +1,7 @@
 use core::ffi::{c_int, c_uint};
 use core::str::Utf8Error;
-use safetensors::tensor::{SafeTensorError, SafeTensors, TensorView};
-use std::ffi::{c_char, CString};
+use safetensors::tensor::{SafeTensorError, SafeTensors};
+use std::ffi::{c_char, CStr, CString};
 use std::mem::forget;
 use thiserror::Error;
 
@@ -40,7 +40,10 @@ pub struct Handle {
 
 #[repr(C)]
 pub struct View {
-    view: TensorView<'static>,
+    dtype: u32,
+    rank: usize,
+    shapes: *const usize,
+    data: *const u8,
 }
 
 #[no_mangle]
@@ -113,17 +116,27 @@ pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) {
     }
 }
 
-// #[no_mangle]
-// pub unsafe extern "C" fn get_tensor(
-//     handle: *const Handle,
-//     name: *const c_char,
-//     view: *mut View,
-// ) -> c_int {
-//     match _get_tensor(handle, name, view) {
-//         Ok(_) => 0,
-//         Err(_) => 1,
-//     }
-// }
+#[no_mangle]
+pub extern "C" fn safetensors_get_tensor(
+    handle: *const Handle,
+    view: *mut *mut View,
+    name: *const c_char,
+) -> Status {
+    match unsafe { _get_tensor(handle, view, name) } {
+        Ok(_) => STATUS_OK,
+        Err(err) => err.into(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn safetensors_free_tensor(ptr: *mut View) -> Status {
+    unsafe {
+        let view = Box::from_raw(ptr);
+        drop(view);
+
+        STATUS_OK
+    }
+}
 
 #[inline(always)]
 unsafe fn _deserialize(
@@ -140,23 +153,32 @@ unsafe fn _deserialize(
     SafeTensors::deserialize(&data).map_err(|err| CError::SafeTensorError(err))
 }
 
-// unsafe fn _get_tensor(
-//     handle: *mut Handle,
-//     name: *const c_char,
-//     view: *mut View,
-// ) -> Result<(), CError> {
-//     if name.is_null() {
-//         return Err(CError::NullPointer(
-//             "Null pointer `name` when accessing get_tensor".to_string(),
-//         ));
-//     }
-//     if handle.is_null() {
-//         return Err(CError::NullPointer(
-//             "Null pointer `handle` when accessing get_tensor".to_string(),
-//         ));
-//     }
-//     let name = CStr::from_ptr(name).to_str()?;
+unsafe fn _get_tensor(
+    handle: *const Handle,
+    ptr: *mut *mut View,
+    name: *const c_char,
+) -> Result<(), CError> {
+    if name.is_null() {
+        return Err(CError::NullPointer(
+            "Null pointer `name` when accessing get_tensor".to_string(),
+        ));
+    }
+    if handle.is_null() {
+        return Err(CError::NullPointer(
+            "Null pointer `handle` when accessing get_tensor".to_string(),
+        ));
+    }
+    let name = CStr::from_ptr(name).to_str()?;
 
-//     (*view).view = (*handle).safetensors.tensor(name)?;
-//     Ok(())
-// }
+    let st_view = (*handle).safetensors.tensor(name)?;
+    let view = Box::new(View {
+        dtype: st_view.dtype() as u32,
+        rank: st_view.shape().len(),
+        shapes: st_view.shape().as_ptr(),
+        data: st_view.data().as_ptr(),
+    });
+
+    ptr.write(Box::into_raw(view));
+
+    Ok(())
+}

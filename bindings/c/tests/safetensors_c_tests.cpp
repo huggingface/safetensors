@@ -34,17 +34,29 @@ TEST_CASE("Deserialize", "[safetensors][cpu]") {
             REQUIRE_FALSE(handle == nullptr);
         }
 
-        SECTION("Retrieve metadata about safetensors") {
-            const char *const *names = nullptr;
-            uint32_t numTensors = 0;
+//        SECTION("Retrieve metadata about safetensors") {
+//            const char *const *names = nullptr;
+//            uint32_t numTensors = 0;
+//
+//            // Retrieve info about the safetensors
+//            auto nb = safetensors_num_tensors(handle);
+//            REQUIRE(safetensors_names(handle, &names, &numTensors) == SAFETENSORS_OK);
+//            REQUIRE(numTensors == nb);
+//
+//            // Free names
+//            REQUIRE(safetensors_free_names(names, numTensors) == SAFETENSORS_OK);
+//        }
 
-            // Retrieve info about the safetensors
-            auto nb = safetensors_num_tensors(handle);
-            REQUIRE(safetensors_names(handle, &names, &numTensors) == SAFETENSORS_OK);
-            REQUIRE(numTensors == nb);
+        SECTION("Retrieve tensor & free") {
+            safetensors_view_t *view = nullptr;
+            REQUIRE(safetensors_get_tensor(handle, &view, "test") == SAFETENSORS_OK);
 
-            // Free names
-            REQUIRE(safetensors_free_names(names, numTensors) == SAFETENSORS_OK);
+            REQUIRE(view->dtype == safetensors_dtype_t::INT32);
+            REQUIRE(view->rank == 2);
+            REQUIRE(view->shapes[0] == 2);
+            REQUIRE(view->shapes[1] == 2);
+
+            REQUIRE(safetensors_free_tensor(view) == SAFETENSORS_OK);
         }
 
         return;

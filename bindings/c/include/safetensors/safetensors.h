@@ -15,9 +15,43 @@ typedef enum {
 } safetensors_status_t;
 
 
-typedef struct safetensors_handle_t safetensors_handle_t;
-typedef struct safetensors_view_t safetensors_view_t;
+typedef enum {
+    /// Boolan type
+    BOOL,
+    /// Unsigned byte
+    UINT8,
+    /// Signed byte
+    INT8,
+    /// Signed integer (16-bit)
+    INT16,
+    /// Unsigned integer (16-bit)
+    UINT16,
+    /// Half-precision floating point
+    FLOAT16,
+    /// Brain floating point
+    BFLOAT16,
+    /// Signed integer (32-bit)
+    INT32,
+    /// Unsigned integer (32-bit)
+    UINT32,
+    /// Floating point (32-bit)
+    FLOAT32,
+    /// Floating point (64-bit)
+    FLOAT64,
+    /// Signed integer (64-bit)
+    INT64,
+    /// Unsigned integer (64-bit)
+    UINT64,
+} safetensors_dtype_t;
 
+
+typedef struct safetensors_handle_t safetensors_handle_t;
+typedef struct safetensors_view_t {
+    safetensors_dtype_t dtype;
+    uintptr_t rank;
+    uintptr_t *shapes;
+    char * data;
+} safetensors_view_t;
 
 /**
  * 
@@ -63,7 +97,15 @@ uint32_t safetensors_free_names(const char * const * names, uintptr_t len);
  * @param name
  * @return
  */
- safetensors_status_t get_tensor(const safetensors_view_t *handle, safetensors_view_t *view, const char *name);
+safetensors_status_t safetensors_get_tensor(const safetensors_handle_t *handle, safetensors_view_t **view, const char *name);
+
+/**
+*
+* @param ptr
+* @return
+*/
+safetensors_status_t safetensors_free_tensor(safetensors_view_t *ptr);
+
 
 #ifdef __cplusplus
 }
