@@ -71,9 +71,20 @@ pub unsafe extern "C" fn safetensors_names(
     len: *mut c_uint,
 ) -> Status {
     let names = (*handle).safetensors.names();
+
+    // We need to convert the String repr to a C-friendly repr (NUL terminated)
     let c_names = names
         .into_iter()
-        .map(|name| CString::from_vec_unchecked(name.clone().into_bytes()).as_ptr())
+        .map(|name| {
+            // Nul-terminated string
+            let s = CString::from_vec_unchecked(name.clone().into_bytes());
+            let ptr = s.as_ptr();
+
+            // Advise Rust we will take care of the desallocation (see `safetensors_free_names`)
+            forget(s);
+
+            ptr
+        })
         .collect::<Vec<_>>();
 
     unsafe {
@@ -96,8 +107,7 @@ pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uin
 
         // Now drop all the string.
         for elem in v {
-            let s = CString::from_raw(elem.cast_mut());
-            drop(s);
+            let _ = CString::from_raw(elem.cast_mut());
         }
     }
 
@@ -112,6 +122,7 @@ pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> usize
 #[no_mangle]
 pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) {
     if !handle.is_null() {
+        // Restore the heap allocated handle and explicitly drop it
         drop(Box::from_raw(handle));
     }
 }
@@ -131,8 +142,8 @@ pub extern "C" fn safetensors_get_tensor(
 #[no_mangle]
 pub extern "C" fn safetensors_free_tensor(ptr: *mut View) -> Status {
     unsafe {
-        let view = Box::from_raw(ptr);
-        drop(view);
+        // Restore the heap allocated view and explicitly drop it
+        drop(Box::from_raw(ptr));
 
         STATUS_OK
     }
