@@ -1,7 +1,7 @@
 use core::ffi::{c_int, c_uint};
 use core::str::Utf8Error;
 use safetensors::tensor::{SafeTensorError, SafeTensors, TensorView};
-use std::ffi::{c_char, c_ulong, c_ulonglong, CString};
+use std::ffi::{c_char, CString};
 use std::mem::forget;
 use thiserror::Error;
 
@@ -73,8 +73,6 @@ pub unsafe extern "C" fn safetensors_names(
         .map(|name| CString::from_vec_unchecked(name.clone().into_bytes()).as_ptr())
         .collect::<Vec<_>>();
 
-    // let c_ptrs = c_names.iter().map(|name| name.as_ptr()).collect::<Vec<_>>();
-
     unsafe {
         ptr.write(c_names.as_ptr());
         len.write(c_names.len() as c_uint);
@@ -86,20 +84,18 @@ pub unsafe extern "C" fn safetensors_names(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn safetensors_free_names(
-    names: *const *const c_char,
-    len: c_uint,
-) -> Status {
+pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uint) -> Status {
     let len = len as usize;
 
-    // Get back our vector.
-    // Previously we shrank to fit, so capacity == length.
-    let v = Vec::from_raw_parts(names.cast_mut(), len, len);
+    unsafe {
+        // Get back our vector.
+        let v = Vec::from_raw_parts(names.cast_mut(), len, len);
 
-    // Now drop one string at a time.
-    for elem in v {
-        let s = CString::from_raw(elem.cast_mut());
-        drop(s);
+        // Now drop all the string.
+        for elem in v {
+            let s = CString::from_raw(elem.cast_mut());
+            drop(s);
+        }
     }
 
     STATUS_OK
