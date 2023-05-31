@@ -4,7 +4,6 @@
 #ifndef SAFETENSORS_SAFETENSORS_C_TESTS_H
 #define SAFETENSORS_SAFETENSORS_C_TESTS_H
 
-#include "iostream"
 #include "catch2/catch_test_macros.hpp"
 #include "safetensors/safetensors.h"
 
@@ -23,7 +22,24 @@ static const char ONE_ELEMENT_DATA[] = {
 };
 
 
-TEST_CASE("Deserialize", "[safetensors][cpu]") {
+TEST_CASE("Ensure dtype size match", "[safetensors][dtype]") {
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::BOOL) == 1);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::UINT8) == 1);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::INT8) == 1);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::UINT16) == 2);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::INT16) == 2);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::FLOAT16) == 2);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::BFLOAT16) == 2);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::UINT32) == 4);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::INT32) == 4);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::FLOAT32) == 4);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::UINT64) == 8);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::INT64) == 8);
+    REQUIRE(safetensors_dtype_size(safetensors_dtype_t::FLOAT64) == 8);
+}
+
+
+TEST_CASE("Deserialize safetensors", "[safetensors][cpu]") {
     safetensors_handle_t* handle = nullptr;
 
     SECTION("Single element") {
@@ -52,6 +68,7 @@ TEST_CASE("Deserialize", "[safetensors][cpu]") {
             REQUIRE(safetensors_get_tensor(handle, &view, "test") == SAFETENSORS_OK);
 
             REQUIRE(view->dtype == safetensors_dtype_t::INT32);
+            REQUIRE(safetensors_dtype_size(view->dtype) == 4);
             REQUIRE(view->rank == 2);
             REQUIRE(view->shapes[0] == 2);
             REQUIRE(view->shapes[1] == 2);

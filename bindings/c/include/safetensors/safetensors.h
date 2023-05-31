@@ -16,7 +16,7 @@ typedef enum {
 
 
 typedef enum {
-    /// Boolan type
+    /// Boolean type
     BOOL,
     /// Unsigned byte
     UINT8,
@@ -75,6 +75,13 @@ void safetensors_destroy(safetensors_handle_t *handle);
  * @param handle 
  */
 uintptr_t safetensors_num_tensors(const safetensors_handle_t *handle);
+
+/**
+ *
+ * @param dtype
+ * @return
+ */
+uintptr_t safetensors_dtype_size(safetensors_dtype_t dtype);
 
 
 /**

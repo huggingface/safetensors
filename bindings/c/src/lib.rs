@@ -1,6 +1,7 @@
 use core::ffi::{c_int, c_uint};
 use core::str::Utf8Error;
 use safetensors::tensor::{SafeTensorError, SafeTensors};
+use safetensors::Dtype;
 use std::ffi::{c_char, CStr, CString};
 use std::mem::forget;
 use thiserror::Error;
@@ -117,6 +118,12 @@ pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uin
 #[no_mangle]
 pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> usize {
     (*handle).safetensors.len()
+}
+
+#[no_mangle]
+#[allow(improper_ctypes_definitions)]
+pub extern "C" fn safetensors_dtype_size(dtype: Dtype) -> usize {
+    dtype.size()
 }
 
 #[no_mangle]

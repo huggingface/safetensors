@@ -602,6 +602,7 @@ pub struct TensorInfo {
 
 /// The various available dtypes. They MUST be in increasing alignment order
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[repr(C)]
 #[non_exhaustive]
 pub enum Dtype {
     /// Boolan type
