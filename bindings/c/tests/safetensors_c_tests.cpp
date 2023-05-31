@@ -27,14 +27,26 @@ TEST_CASE("Deserialize", "[safetensors][cpu]") {
     safetensors_handle_t* handle = nullptr;
 
     SECTION("Single element") {
-        REQUIRE(safetensors_deserialize(&handle, ONE_ELEMENT_DATA, sizeof (ONE_ELEMENT_DATA)) == SAFETENSORS_OK);
-        REQUIRE_FALSE(handle == nullptr);
+        REQUIRE(safetensors_deserialize(&handle, ONE_ELEMENT_DATA, sizeof(ONE_ELEMENT_DATA)) == SAFETENSORS_OK);
 
-        auto nb = safetensors_num_tensors(handle);
-        const char * const *names = nullptr;
-        uint32_t numTensors = 0;
-        REQUIRE(safetensors_names(handle, &names, &numTensors) == SAFETENSORS_OK);
-        REQUIRE(numTensors == nb);
+        // Deserialize the safetensors and initialize pointer
+        SECTION("Deserialize safetensors and init pointer") {
+            REQUIRE_FALSE(handle == nullptr);
+        }
+
+        SECTION("Retrieve metadata about safetensors") {
+            const char *const *names = nullptr;
+            uint32_t numTensors = 0;
+
+            // Retrieve info about the safetensors
+            auto nb = safetensors_num_tensors(handle);
+            REQUIRE(safetensors_names(handle, &names, &numTensors) == SAFETENSORS_OK);
+            REQUIRE(numTensors == nb);
+
+            // Free names
+            REQUIRE(safetensors_free_names(names, numTensors) == SAFETENSORS_OK);
+        }
+
         return;
     }
 

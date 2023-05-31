@@ -54,7 +54,7 @@ uint32_t safetensors_names(const safetensors_handle_t *handle, char const * cons
  * @param len
  * @return
  */
-uint32_t safetensors_free_names(const char** names, uintptr_t len);
+uint32_t safetensors_free_names(const char * const * names, uintptr_t len);
 
 /**
  *
@@ -63,7 +63,7 @@ uint32_t safetensors_free_names(const char** names, uintptr_t len);
  * @param name
  * @return
  */
-// safetensors_status_t SAFETENSORS_EXPORT get_tensor(const safetensors_view_t *handle, safetensors_view_t *view, const char *name);
+ safetensors_status_t get_tensor(const safetensors_view_t *handle, safetensors_view_t *view, const char *name);
 
 #ifdef __cplusplus
 }
