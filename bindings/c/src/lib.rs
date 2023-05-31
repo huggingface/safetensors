@@ -26,10 +26,21 @@ impl Into<Status> for CError {
         match self {
             CError::NullPointer(_) => -1,
             CError::Utf8Error(_) => -2,
-            CError::SafeTensorError(err) => {
-                println!("{}", err);
-                -10
-            }
+            CError::SafeTensorError(err) => match err {
+                SafeTensorError::InvalidHeader => 1,
+                SafeTensorError::InvalidHeaderDeserialization => 2,
+                SafeTensorError::HeaderTooLarge => 3,
+                SafeTensorError::HeaderTooSmall => 4,
+                SafeTensorError::InvalidHeaderLength => 5,
+                SafeTensorError::TensorNotFound(_) => 6,
+                SafeTensorError::TensorInvalidInfo => 7,
+                SafeTensorError::InvalidOffset(_) => 8,
+                SafeTensorError::IoError(_) => 9,
+                SafeTensorError::JsonError(_) => 10,
+                SafeTensorError::InvalidTensorView(_, _, _) => 11,
+                SafeTensorError::MetadataIncompleteBuffer => 12,
+                SafeTensorError::ValidationOverflow => 13,
+            },
         }
     }
 }
