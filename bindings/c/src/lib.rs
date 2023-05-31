@@ -47,6 +47,16 @@ pub struct View {
     data: *const u8,
 }
 
+/// Attempt to deserialize the content of `buffer`, reading `buffer_len` bytes as a safentesors
+/// data buffer.
+///
+/// # Arguments
+///
+/// * `handle`: In-Out pointer to store the resulting safetensors reference is sucessfully deserialized
+/// * `buffer`: Buffer to attempt to read data from
+/// * `buffer_len`: Number of bytes we can safely read from the deserialize the safetensors
+///
+/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub extern "C" fn safetensors_deserialize(
     handle: *mut *mut Handle,
@@ -65,6 +75,32 @@ pub extern "C" fn safetensors_deserialize(
     }
 }
 
+/// Free the resources hold by the safetensors
+///
+/// # Arguments
+///
+/// * `handle`: Pointer ot the safetensors we want to release the resources of
+///
+/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
+#[no_mangle]
+pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) -> Status {
+    if !handle.is_null() {
+        // Restore the heap allocated handle and explicitly drop it
+        drop(Box::from_raw(handle));
+    }
+
+    STATUS_OK
+}
+
+/// Retrieve the list of tensor's names currently stored in the safetensors
+///
+/// # Arguments
+///
+/// * `handle`: Pointer to the underlying safetensors we want to query tensor's names from
+/// * `ptr`: In-Out pointer to store the array of strings representing all the tensor's names
+/// * `len`: Number of strings stored in `ptr`
+///
+/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub unsafe extern "C" fn safetensors_names(
     handle: *const Handle,
@@ -98,6 +134,15 @@ pub unsafe extern "C" fn safetensors_names(
     }
 }
 
+/// Free the resources used to represent the list of tensor's names stored in the safetensors.
+/// This must follow any call to `safetensors_names()` to clean up underlying resources.
+///
+/// # Arguments
+///
+/// * `names`: Pointer to the array of strings we want to release resources of
+/// * `len`: Number of strings hold by `names` array
+///
+/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uint) -> Status {
     let len = len as usize;
@@ -115,25 +160,41 @@ pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uin
     STATUS_OK
 }
 
+/// Return the number of tensors stored in this safetensors
+///
+/// # Arguments
+///
+/// * `handle`: Pointer to the underlying safetensors we want to know the number of tensors of.
+///
+/// returns: usize Number of tensors in the safetensors
 #[no_mangle]
 pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> usize {
     (*handle).safetensors.len()
 }
 
+/// Return the number of bytes required to represent a single element from the specified dtype
+///
+/// # Arguments
+///
+/// * `dtype`: The data type we want to know the number of bytes required
+///
+/// returns: usize Number of bytes for this specific `dtype`
 #[no_mangle]
 #[allow(improper_ctypes_definitions)]
 pub extern "C" fn safetensors_dtype_size(dtype: Dtype) -> usize {
     dtype.size()
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) {
-    if !handle.is_null() {
-        // Restore the heap allocated handle and explicitly drop it
-        drop(Box::from_raw(handle));
-    }
-}
-
+/// Attempt to retrieve the metadata and content for the tensor associated with `name` storing the
+/// result to the memory location pointed by `view` pointer.
+///
+/// # Arguments
+///
+/// * `handle`: Pointer to the underlying safetensors we want to retrieve the tensor from.
+/// * `view`: In-Out pointer to store the tensor if successfully found to belong to the safetensors
+/// * `name`: The name of the tensor to retrieve from the safetensors
+///
+/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub extern "C" fn safetensors_get_tensor(
     handle: *const Handle,
@@ -146,6 +207,13 @@ pub extern "C" fn safetensors_get_tensor(
     }
 }
 
+/// Free the resources used by a TensorView to expose metadata + content to the C-FFI layer
+///
+/// # Arguments
+///
+/// * `ptr`: Pointer to the TensorView we want to release the underlying resources of
+///
+/// returns: `STATUS_OK = 0` if resources were successfully freed
 #[no_mangle]
 pub extern "C" fn safetensors_free_tensor(ptr: *mut View) -> Status {
     unsafe {
@@ -156,6 +224,14 @@ pub extern "C" fn safetensors_free_tensor(ptr: *mut View) -> Status {
     }
 }
 
+/// Deserialize the content pointed by `buffer`, reading `buffer_len` number of bytes from it
+///
+/// # Arguments
+///
+/// * `buffer`: The raw buffer to read from
+/// * `buffer_len`: The number of bytes to safely read from the `buffer`
+///
+/// returns: Result<SafeTensors, CError>
 #[inline(always)]
 unsafe fn _deserialize(
     buffer: *const u8,
@@ -171,6 +247,16 @@ unsafe fn _deserialize(
     SafeTensors::deserialize(&data).map_err(|err| CError::SafeTensorError(err))
 }
 
+/// Retrieve a tensor from the underlying safetensors pointed by `handle` and referenced by it's `name`.
+/// If found, the resulting view will populate the memory location pointed by `ptr`
+///
+/// # Arguments
+///
+/// * `handle`: Handle to the underlying safetensors we want to retrieve the tensor from
+/// * `ptr`: The in-out pointer to populate if the tensor is found
+/// * `name`: The name of the tensor we want to retrieve
+///
+/// returns: Result<(), CError>
 unsafe fn _get_tensor(
     handle: *const Handle,
     ptr: *mut *mut View,
