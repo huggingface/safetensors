@@ -38,7 +38,7 @@ def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     for k, v in state_dict.items():
         if v.device != torch.device("meta"):
             # Need to add device as key because of multiple GPU.
-            tensors[(storage_ptr(v), v.device)].add(k)
+            tensors[(v.device, storage_ptr(v), storage_size(v))].add(k)
     tensors = list(sorted(tensors.values()))
     return tensors
 
