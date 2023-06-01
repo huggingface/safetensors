@@ -179,8 +179,8 @@ pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uin
 ///
 /// returns: usize Number of tensors in the safetensors
 #[no_mangle]
-pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> u32 {
-    (*handle).safetensors.len() as u32
+pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> usize {
+    (*handle).safetensors.len()
 }
 
 /// Return the number of bytes required to represent a single element from the specified dtype
@@ -192,8 +192,8 @@ pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> u32 {
 /// returns: usize Number of bytes for this specific `dtype`
 #[no_mangle]
 #[allow(improper_ctypes_definitions)]
-pub extern "C" fn safetensors_dtype_size(dtype: Dtype) -> u32 {
-    dtype.size() as u32
+pub extern "C" fn safetensors_dtype_size(dtype: Dtype) -> usize {
+    dtype.size()
 }
 
 /// Attempt to retrieve the metadata and content for the tensor associated with `name` storing the
