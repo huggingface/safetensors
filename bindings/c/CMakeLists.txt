@@ -18,7 +18,7 @@ target_include_directories(safetensors_c_api INTERFACE
 
 # Build up Rust part
 add_subdirectory(third-party/corrosion)
-corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib)
+corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES staticlib)
 
 # Check if we need to build the unit tests
 if(SAFETENSORS_BUILD_TESTS)

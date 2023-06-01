@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "safetensors"
-crate-type = ["cdylib"]      # Creates dynamic lib
+crate-type = ["staticlib"]
 
 [profile.dev]
 lto = "fat"
