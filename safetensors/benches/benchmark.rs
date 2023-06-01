@@ -19,7 +19,7 @@ pub fn bench_serialize(c: &mut Criterion) {
     let mut metadata: HashMap<String, TensorView> = HashMap::new();
     // 2_MB x 5 = 10_MB
     for i in 0..n_layers {
-        let tensor = TensorView::new(dtype, shape.into(), &data[..]).unwrap();
+        let tensor = TensorView::new(dtype, shape.as_slice().into(), &data[..]).unwrap();
         metadata.insert(format!("weight{i}"), tensor);
     }
 
@@ -37,7 +37,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
     let mut metadata: HashMap<String, TensorView> = HashMap::new();
     // 2_MB x 5 = 10_MB
     for i in 0..n_layers {
-        let tensor = TensorView::new(dtype, shape.into(), &data[..]).unwrap();
+        let tensor = TensorView::new(dtype, shape.as_slice().into(), &data[..]).unwrap();
         metadata.insert(format!("weight{i}"), tensor);
     }
 
