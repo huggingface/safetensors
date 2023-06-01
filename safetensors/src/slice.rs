@@ -323,7 +323,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3], &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3].into(), &data).unwrap();
 
         let iterator = SliceIterator::new(
             &attn_0,
@@ -352,7 +352,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3], &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3].into(), &data).unwrap();
 
         let mut iterator = SliceIterator::new(
             &attn_0,
@@ -415,7 +415,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3], &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, vec![1, 2, 3].into(), &data).unwrap();
 
         let mut iterator = SliceIterator::new(
             &attn_0,
@@ -472,7 +472,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let attn_0 = TensorView::new(Dtype::F32, vec![2, 3], &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, vec![2, 3].into(), &data).unwrap();
 
         let mut iterator = SliceIterator::new(
             &attn_0,

@@ -777,7 +777,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 2, 3];
-        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, shape.into(), &data).unwrap();
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
@@ -802,7 +802,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 1, 2, 3];
-        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, shape.into(), &data).unwrap();
         let metadata: HashMap<String, TensorView> =
             // Smaller string to force misalignment compared to previous test.
             [("attn0".to_string(), attn_0)].into_iter().collect();
@@ -834,7 +834,7 @@ mod tests {
             .collect();
         let attn_0 = TensorView {
             dtype: Dtype::F32,
-            shape: vec![1, 2, 3],
+            shape: vec![1, 2, 3].into(),
             data: &data,
         };
         let metadata: HashMap<String, TensorView> =
@@ -919,7 +919,7 @@ mod tests {
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
             let buffer = &all_data[offset..offset + n * dtype.size()];
-            let tensor = TensorView::new(dtype, shape, buffer).unwrap();
+            let tensor = TensorView::new(dtype, shape.into(), buffer).unwrap();
             metadata.insert(name, tensor);
             offset += n;
         }
