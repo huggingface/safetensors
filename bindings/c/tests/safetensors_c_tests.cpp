@@ -21,6 +21,30 @@ static const char ONE_ELEMENT_DATA[] = {
     0x0, 0x0, 0x0, 0x0
 };
 
+// Header Length = 1 (0x01) and header content [0xF5] is invalid utf8 content
+static const uint8_t INVALID_HEADER[] = {
+    0x01, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xF5
+};
+
+// Header < 8 bytes
+static const char TOO_SMALL_HEADER[] = {
+        '<', 0x0,
+};
+
+// header way too big
+static const uint8_t TOO_LARGE_HEADER[] = {
+        '<', 0x0, 0x0, 0x0, 0x05, 0xf5, 0xe1, 0x01
+};
+
+
+static const uint8_t INVALID_HEADER_LENGTH[] = {
+        0xFF, 0xFF, 0x0,0x0, 0x0, 0x0, 0x0, 0x0, '-'
+};
+
+static const uint8_t INVALID_HEADER_DESERIALIZATION[] = {
+        0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, '-'
+};
+
 
 TEST_CASE("Ensure dtype size match", "[safetensors][dtype]") {
     REQUIRE(safetensors_dtype_size(safetensors_dtype_t::BOOL) == 1);
@@ -82,6 +106,42 @@ TEST_CASE("Deserialize safetensors", "[safetensors][cpu]") {
     safetensors_destroy(handle);
 }
 
+TEST_CASE("Error status mapping", "[safetensors][status]") {
+    safetensors_handle_t* handle = nullptr;
 
+    SECTION("Null buffer") {
+        REQUIRE(safetensors_deserialize(&handle, nullptr, 10) == SAFETENSORS_NULL_BUFFER);
+    }
+
+    SECTION("Invalid header") {
+        REQUIRE(safetensors_deserialize(&handle, (const char *) INVALID_HEADER, sizeof INVALID_HEADER) == SAFETENSORS_INVALID_HEADER);
+    }
+
+    SECTION("Header too small") {
+        REQUIRE(safetensors_deserialize(&handle, TOO_SMALL_HEADER, sizeof TOO_SMALL_HEADER) == SAFETENSORS_HEADER_TOO_SMALL);
+    }
+
+    SECTION("Header too large") {
+        REQUIRE(safetensors_deserialize(&handle, (const char *)TOO_LARGE_HEADER, sizeof TOO_LARGE_HEADER) == SAFETENSORS_HEADER_TOO_LARGE);
+    }
+
+    SECTION("Header invalid length (overflow buffer len)") {
+        REQUIRE(safetensors_deserialize(&handle, (const char *)INVALID_HEADER_LENGTH, sizeof INVALID_HEADER_LENGTH) == SAFETENSORS_INVALID_HEADER_LENGTH);
+    }
+
+    SECTION("Header not JSON") {
+        REQUIRE(safetensors_deserialize(&handle, (const char *)INVALID_HEADER_DESERIALIZATION, sizeof INVALID_HEADER_DESERIALIZATION) == SAFETENSORS_INVALID_HEADER_DESERIALIZATION);
+    }
+
+    SECTION("Tensor not found") {
+        safetensors_view_t *tensor = nullptr;
+        REQUIRE(safetensors_deserialize(&handle, ONE_ELEMENT_DATA, sizeof ONE_ELEMENT_DATA) == SAFETENSORS_OK);
+        REQUIRE(safetensors_get_tensor(handle, &tensor, "test") == SAFETENSORS_OK);
+        REQUIRE(safetensors_get_tensor(handle, &tensor, "test_") == SAFETENSORS_TENSOR_NOT_FOUND);
+    }
+
+    if(handle != nullptr)
+        safetensors_destroy(handle);
+}
 
 #endif //SAFETENSORS_SAFETENSORS_C_TESTS_H
