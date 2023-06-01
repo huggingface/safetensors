@@ -294,8 +294,6 @@ unsafe fn _get_tensor(
             data: st_view.data().as_ptr(),
         });
 
-        forget(st_view);
-
         ptr.write(Box::into_raw(view));
     }
 
