@@ -101,14 +101,14 @@ void safetensors_destroy(safetensors_handle_t *handle);
  * @param handle The pointer to the safetensors we want to retrieve the number of tensors
  * @return Positive or zero (if empty) unsigned integers indicating the number of tensors
  */
-uintptr_t safetensors_num_tensors(const safetensors_handle_t *handle);
+uint32_t safetensors_num_tensors(const safetensors_handle_t *handle);
 
 /**
  * Return the size (in bytes) of an element of the specified `dtype`
  * @param dtype The dtype to query the number of bytes
  * @return Positive unsigned number
  */
-uintptr_t safetensors_dtype_size(safetensors_dtype_t dtype);
+uint32_t safetensors_dtype_size(safetensors_dtype_t dtype);
 
 
 /**
