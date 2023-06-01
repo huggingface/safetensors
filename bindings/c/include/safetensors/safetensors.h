@@ -74,8 +74,8 @@ typedef struct safetensors_handle_t safetensors_handle_t;
  */
 typedef struct safetensors_view_t {
     const safetensors_dtype_t dtype;
-    const uintptr_t rank;
-    const uintptr_t *shapes;
+    const size_t rank;
+    const size_t *shapes;
     const char * data;
 } safetensors_view_t;
 
@@ -125,7 +125,7 @@ uint32_t safetensors_names(const safetensors_handle_t *handle, char const * cons
  * @param len The number of items in the array
  * @return `safetensors_status_t::SAFETENSORS_OK` if deserialization succeeded, any other status code otherwise
  */
-uint32_t safetensors_free_names(const char * const * names, uintptr_t len);
+uint32_t safetensors_free_names(const char * const * names, size_t len);
 
 /**
  * Retrieve a view (i.e. no copy) of a tensor referenced by `name` and populator the pointer `view` with the content
