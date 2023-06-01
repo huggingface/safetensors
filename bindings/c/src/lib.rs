@@ -284,16 +284,20 @@ unsafe fn _get_tensor(
         ));
     }
     let name = CStr::from_ptr(name).to_str()?;
-
     let st_view = (*handle).safetensors.tensor(name)?;
-    let view = Box::new(View {
-        dtype: st_view.dtype() as u32,
-        rank: st_view.shape().len(),
-        shapes: st_view.shape().as_ptr(),
-        data: st_view.data().as_ptr(),
-    });
 
-    ptr.write(Box::into_raw(view));
+    unsafe {
+        let view = Box::new(View {
+            dtype: st_view.dtype() as u32,
+            rank: st_view.shape().len(),
+            shapes: st_view.shape().as_ptr(),
+            data: st_view.data().as_ptr(),
+        });
+
+        forget(st_view);
+
+        ptr.write(Box::into_raw(view));
+    }
 
     Ok(())
 }

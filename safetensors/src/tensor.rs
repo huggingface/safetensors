@@ -347,7 +347,7 @@ impl<'data> SafeTensors<'data> {
             let info = &self.metadata.tensors[index];
             let tensorview = TensorView {
                 dtype: info.dtype,
-                shape: info.shape.clone(),
+                shape: &info.shape,
                 data: &self.data[info.data_offsets.0..info.data_offsets.1],
             };
             tensors.push((name.to_string(), tensorview));
@@ -363,7 +363,7 @@ impl<'data> SafeTensors<'data> {
             if let Some(info) = &self.metadata.tensors.get(**index) {
                 Ok(TensorView {
                     dtype: info.dtype,
-                    shape: info.shape.clone(),
+                    shape: &info.shape,
                     data: &self.data[info.data_offsets.0..info.data_offsets.1],
                 })
             } else {
@@ -526,7 +526,7 @@ impl Metadata {
 #[derive(Debug, PartialEq, Eq)]
 pub struct TensorView<'data> {
     dtype: Dtype,
-    shape: Vec<usize>,
+    shape: &'data [usize],
     data: &'data [u8],
 }
 
@@ -552,13 +552,13 @@ impl<'data> TensorView<'data> {
     /// Create new tensor view
     pub fn new(
         dtype: Dtype,
-        shape: Vec<usize>,
+        shape: &'data [usize],
         data: &'data [u8],
     ) -> Result<Self, SafeTensorError> {
         let n = data.len();
         let n_elements: usize = shape.iter().product();
         if n != n_elements * dtype.size() {
-            Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
+            Err(SafeTensorError::InvalidTensorView(dtype, shape.to_vec(), n))
         } else {
             Ok(Self { dtype, shape, data })
         }
