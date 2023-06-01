@@ -704,8 +704,8 @@ impl PySafeSlice {
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
 
-                let tensor = TensorView::new(self.info.dtype, &self.info.shape, data)
-                    .map_err(|e| {
+                let tensor =
+                    TensorView::new(self.info.dtype, &self.info.shape, data).map_err(|e| {
                         SafetensorError::new_err(format!("Error preparing tensor view: {e:?}"))
                     })?;
                 let slices: Vec<TensorIndexer> = slices
