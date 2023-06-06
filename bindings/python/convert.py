@@ -5,7 +5,7 @@ import shutil
 from collections import defaultdict
 from inspect import signature
 from tempfile import TemporaryDirectory
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 import torch
 
@@ -32,6 +32,8 @@ If you find any issues: please report here: https://huggingface.co/spaces/safete
 
 Feel free to ignore this PR.
 """
+
+ConversionResult = Tuple[List["CommitOperationAdd"], List[Tuple[str, "Exception"]]]
 
 
 class AlreadyExists(Exception):
@@ -69,7 +71,7 @@ def rename(pt_filename: str) -> str:
     return local
 
 
-def convert_multi(model_id: str, folder: str) -> List["CommitOperationAdd"]:
+def convert_multi(model_id: str, folder: str) -> ConversionResult:
     filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json")
     with open(filename, "r") as f:
         data = json.load(f)
@@ -95,18 +97,20 @@ def convert_multi(model_id: str, folder: str) -> List["CommitOperationAdd"]:
     operations = [
         CommitOperationAdd(path_in_repo=local.split("/")[-1], path_or_fileobj=local) for local in local_filenames
     ]
+    errors: List[Tuple[str, "Exception"]] = []
 
-    return operations
+    return operations, errors
 
 
-def convert_single(model_id: str, folder: str) -> List["CommitOperationAdd"]:
+def convert_single(model_id: str, folder: str) -> ConversionResult:
     pt_filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
 
     sf_name = "model.safetensors"
     sf_filename = os.path.join(folder, sf_name)
     convert_file(pt_filename, sf_filename)
     operations = [CommitOperationAdd(path_in_repo=sf_name, path_or_fileobj=sf_filename)]
-    return operations
+    errors: List[Tuple[str, "Exception"]] = []
+    return operations, errors
 
 
 def convert_file(
@@ -203,7 +207,6 @@ def check_final_model(model_id: str, folder: str):
 
 
 def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discussion"]:
-
     try:
         main_commit = api.list_repo_commits(model_id)[0].commit_id
         discussions = api.get_repo_discussions(repo_id=model_id)
@@ -215,10 +218,12 @@ def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discuss
 
             if main_commit == commits[1].commit_id:
                 return discussion
+    return None
 
 
-def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["CommitOperationAdd"]:
+def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> ConversionResult:
     operations = []
+    errors = []
 
     extensions = set([".bin", ".ckpt"])
     for filename in filenames:
@@ -233,12 +238,15 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> List["Co
             else:
                 sf_in_repo = f"{prefix}.safetensors"
             sf_filename = os.path.join(folder, sf_in_repo)
-            convert_file(pt_filename, sf_filename)
-            operations.append(CommitOperationAdd(path_in_repo=sf_in_repo, path_or_fileobj=sf_filename))
-    return operations
+            try:
+                convert_file(pt_filename, sf_filename)
+                operations.append(CommitOperationAdd(path_in_repo=sf_in_repo, path_or_fileobj=sf_filename))
+            except Exception as e:
+                errors.append((pt_filename, e))
+    return operations, errors
 
 
-def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["CommitInfo"]:
+def convert(api: "HfApi", model_id: str, force: bool = False) -> Tuple["CommitInfo", List[Tuple[str, "Exception"]]]:
     pr_title = "Adding `safetensors` variant of this model"
     info = api.model_info(model_id)
     filenames = set(s.rfilename for s in info.siblings)
@@ -260,14 +268,14 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
                 raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
             elif library_name == "transformers":
                 if "pytorch_model.bin" in filenames:
-                    operations = convert_single(model_id, folder)
+                    operations, errors = convert_single(model_id, folder)
                 elif "pytorch_model.bin.index.json" in filenames:
-                    operations = convert_multi(model_id, folder)
+                    operations, errors = convert_multi(model_id, folder)
                 else:
                     raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
                 check_final_model(model_id, folder)
             else:
-                operations = convert_generic(model_id, folder, filenames)
+                operations, errors = convert_generic(model_id, folder, filenames)
 
             if operations:
                 new_pr = api.create_commit(
@@ -282,7 +290,7 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Optional["Commi
                 print("No files to convert")
         finally:
             shutil.rmtree(folder)
-        return new_pr
+        return new_pr, errors
 
 
 if __name__ == "__main__":
@@ -320,6 +328,26 @@ if __name__ == "__main__":
             " Continue [Y/n] ?"
         )
     if txt.lower() in {"", "y"}:
-        convert(api, model_id, force=args.force)
+        try:
+            commit_info, errors = convert(api, model_id, force=args.force)
+            string = f"""
+### Success 🔥
+Yay! This model was successfully converted and a PR was open using your token, here:
+[{commit_info.pr_url}]({commit_info.pr_url})
+            """
+            if errors:
+                string += "\nErrors during conversion:\n"
+                string += "\n".join(
+                    f"Error while converting {filename}: {e}, skipped conversion" for filename, e in errors
+                )
+            print(string)
+        except Exception as e:
+            print(
+                f"""
+### Error 😢😢😢
+
+{e}
+            """
+            )
     else:
         print(f"Answer was `{txt}` aborting.")
