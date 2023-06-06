@@ -84,7 +84,7 @@ Loaded pytorch 0:00:00.353889
 on GPU, safetensors is faster than pytorch by: 2.1 X
 ```
 
-The speedup works because this library is able to skip unecessary CPU allocations. It is unfortunately not replicable in pure pytorch as far as we know. The library works by memory mapping the file, creating the tensor empty with pytorch and calling `cudaMemcpy` directly to move the tensor directly on the GPU.
+The speedup works because this library is able to skip unnecessary CPU allocations. It is unfortunately not replicable in pure pytorch as far as we know. The library works by memory mapping the file, creating the tensor empty with pytorch and calling `cudaMemcpy` directly to move the tensor directly on the GPU.
 The currently shown speedup was gotten on:
 * OS: Ubuntu 18.04.6 LTS.
 * GPU: Tesla T4
