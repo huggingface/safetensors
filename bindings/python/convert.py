@@ -246,7 +246,7 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> Conversi
     return operations, errors
 
 
-def convert(api: "HfApi", model_id: str, force: bool = False) -> Tuple["CommitInfo", List["Exception"]]:
+def convert(api: "HfApi", model_id: str, force: bool = False) -> Tuple["CommitInfo", List[Tuple[str, "Exception"]]]:
     pr_title = "Adding `safetensors` variant of this model"
     info = api.model_info(model_id)
     filenames = set(s.rfilename for s in info.siblings)
@@ -328,6 +328,26 @@ if __name__ == "__main__":
             " Continue [Y/n] ?"
         )
     if txt.lower() in {"", "y"}:
-        _commit_info, _errors = convert(api, model_id, force=args.force)
+        try:
+            commit_info, errors = convert(api, model_id, force=args.force)
+            string = f"""
+### Success 🔥
+Yay! This model was successfully converted and a PR was open using your token, here:
+[{commit_info.pr_url}]({commit_info.pr_url})
+            """
+            if errors:
+                string += "\nErrors during conversion:\n"
+                string += "\n".join(
+                    f"Error while converting {filename}: {e}, skipped conversion" for filename, e in errors
+                )
+            print(string)
+        except Exception as e:
+            print(
+                f"""
+### Error 😢😢😢
+
+{e}
+            """
+            )
     else:
         print(f"Answer was `{txt}` aborting.")
