@@ -139,6 +139,7 @@ impl From<RDtype> for Dtype {
 
 pub struct Handle {
     safetensors: SafeTensors<'static>,
+    buffer: *const u8,
 }
 
 #[repr(C)]
@@ -146,7 +147,8 @@ pub struct View {
     dtype: Dtype,
     rank: usize,
     shape: *const usize,
-    data: *const u8,
+    start: usize,
+    stop: usize,
 }
 
 /// Attempt to deserialize the content of `buffer`, reading `buffer_len` bytes as a safentesors
@@ -167,7 +169,10 @@ pub extern "C" fn safetensors_deserialize(
 ) -> Status {
     match unsafe { _deserialize(buffer, buffer_len) } {
         Ok(safetensors) => unsafe {
-            let heap_handle = Box::new(Handle { safetensors });
+            let heap_handle = Box::new(Handle {
+                safetensors,
+                buffer,
+            });
             let raw = Box::into_raw(heap_handle);
             handle.write(raw);
 
@@ -376,13 +381,20 @@ unsafe fn _get_tensor(
     let name = CStr::from_ptr(name).to_str()?;
     let st_view = (*handle).safetensors.tensor(name)?;
 
+    let start_ptr = (*handle).buffer as usize;
+
     unsafe {
         let shape = st_view.shape().to_vec();
+        let data = st_view.data();
+        let start = data.as_ptr() as usize - start_ptr;
+        let stop = start + data.len();
+
         let view = Box::new(View {
             dtype: st_view.dtype().into(),
             rank: shape.len(),
             shape: shape.as_ptr(),
-            data: st_view.data().as_ptr(),
+            start,
+            stop,
         });
         forget(shape);
 
