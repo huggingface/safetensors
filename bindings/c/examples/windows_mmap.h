@@ -25,7 +25,7 @@ const uint8_t* map_file(const char* filename, size_t& length){
     printf("Cannot open file : %s\n", filename);
     printf("Try downloading a file on the hub\n");
     printf("wget https://huggingface.co/gpt2/resolve/main/model.safetensors");
-    return 1;
+    exit(1);
   }
 
   length = GetFileSize(hFile,  NULL);
@@ -33,6 +33,7 @@ const uint8_t* map_file(const char* filename, size_t& length){
     printf("Cannot open file : %s\n", filename);
     printf("Try downloading a file on the hub\n");
     printf("wget https://huggingface.co/gpt2/resolve/main/model.safetensors");
+    exit(1);
   }
 
   lpMapAddress = MapViewOfFile(hFile,
@@ -44,7 +45,8 @@ const uint8_t* map_file(const char* filename, size_t& length){
   if (lpMapAddress == NULL)
   {
     printf("lpMapAddress is NULL: last error: %d\n", GetLastError());
-    return 1;
+    exit(1);
+  }
   }
   return (const uint8_t*) lpMapAddress;
 }
