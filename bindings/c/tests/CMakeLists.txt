@@ -6,7 +6,7 @@
 add_executable(safetensors_tests safetensors_c_tests.cpp)
 
 # Links to the various library
-target_link_libraries(safetensors_tests PUBLIC safetensors_c_api Catch2::Catch2WithMain)
+target_link_libraries(safetensors_tests PUBLIC safetensors_c_api safetensors Catch2::Catch2WithMain)
 
 include(CTest)
 include(Catch)
