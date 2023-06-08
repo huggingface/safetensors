@@ -25,7 +25,6 @@ const uint8_t* map_file(const char* filename, size_t& length){
     file,
     NULL,
     PAGE_READONLY,
-    FILE_MAP_READ,
     0,
     length,
     NULL);
