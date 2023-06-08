@@ -26,10 +26,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Corrosion)
 
-corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib PROFILE release)
 
 # Check if we need to build the unit tests
 if(SAFETENSORS_BUILD_TESTS)
+    corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES staticlib PROFILE release)
+
     message(STATUS "Building tests")
 
     enable_testing()
@@ -41,4 +42,6 @@ if(SAFETENSORS_BUILD_TESTS)
     )
     FetchContent_MakeAvailable(catch2)
     add_subdirectory(tests)
+else()
+    corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib PROFILE release)
 endif()
