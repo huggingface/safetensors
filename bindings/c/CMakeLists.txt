@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 11)
 
 # Define options
 option(SAFETENSORS_BUILD_TESTS "Build the safetensors C-API tests" OFF)
+option(SAFETENSORS_BUILD_EXAMPLES "Build the safetensors C-API examples" OFF)
 
 # Define the c library header location
 set(SAFETENSORS_C_HEADERS include/safetensors/safetensors.h)
@@ -44,4 +45,10 @@ if(SAFETENSORS_BUILD_TESTS)
     add_subdirectory(tests)
 else()
     corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib PROFILE release)
+endif()
+
+if(SAFETENSORS_BUILD_EXAMPLES)
+    message(STATUS "Building examples")
+
+    add_subdirectory(examples)
 endif()
