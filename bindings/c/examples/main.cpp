@@ -14,6 +14,7 @@ const char* dtype_to_str(Dtype dtype){
         return "I32";
     case Dtype::F16:
         return "F16";
+    // TODO Fill in this, this is good enough for a demo.
     default:
         return "Unknown dtype";
     }
