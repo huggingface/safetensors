@@ -12,7 +12,7 @@ git clone https://github.com/huggingface/safetensors
 cd safetensors
 cd bindings/c
 mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake ..
 make
 ```
 

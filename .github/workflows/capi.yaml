@@ -26,7 +26,7 @@ jobs:
 
       - name: Build
         working-directory: ${{github.workspace}}/bindings/c/build/
-        run: cmake --build --parallel
+        run: cmake --build --target safetensors_tests --parallel
 
       - name: Test
         working-directory: ${{github.workspace}}/bindings/c/build
