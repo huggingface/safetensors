@@ -16,7 +16,7 @@ int main(void)
   HANDLE hMapFile;
   HANDLE hFile;
   LPCTSTR pBuf;
-  DWORD dwFileSize;
+  DWORD length;
   LPVOID lpMapAddress;
 
   // Create the test file. Open it "Create Always" to overwrite any
@@ -30,8 +30,8 @@ int main(void)
     BUF_SIZE,
     filename);               // name of mapping object
                              //
-  dwFileSize = GetFileSize(hFile,  NULL);
-  _tprintf(TEXT("hFile size: %10d\n"), dwFileSize);
+  length = GetFileSize(hFile,  NULL);
+  _tprintf(TEXT("hFile size: %10d\n"), length);
 
   if (hFile == NULL)
   {
@@ -94,7 +94,7 @@ int main(void)
 
   // Calculate the pointer to the data.
   Handle* handle = nullptr;
-  auto result = safetensors_deserialize(&handle, (const uint8_t*) f, length);
+  Status result = safetensors_deserialize(&handle, (const uint8_t*) lpMapAddress, length);
   if (result != Status::Ok){
       printf("Could not open safetensors file");
   }
