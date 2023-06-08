@@ -11,10 +11,9 @@ API definition can be found over `include/safetensors/safetensors.h` and binding
 git clone https://github.com/huggingface/safetensors
 cd safetensors
 cd bindings/c
-mkdir cmake-build-release && cd cmake-build-release
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
-cd ..
-cmake --build cmake-build-release --target safetensors_c_api --parallel
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make
 ```
 
 # Add as CMake dependency

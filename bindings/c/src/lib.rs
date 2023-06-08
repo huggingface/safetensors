@@ -1,15 +1,33 @@
-use core::ffi::{c_int, c_uint};
+use core::ffi::c_uint;
 use core::str::Utf8Error;
 use safetensors::tensor::{SafeTensorError, SafeTensors};
-use safetensors::Dtype;
+use safetensors::Dtype as RDtype;
 use std::ffi::{c_char, CStr, CString};
 use std::mem::forget;
 use thiserror::Error;
 
-type Status = c_int;
-const STATUS_OK: Status = 0;
+#[repr(C)]
+pub enum Status {
+    NullPointer = -2,
+    Utf8Error,
+    Ok,
+    InvalidHeader,
+    InvalidHeaderDeserialization,
+    HeaderTooLarge,
+    HeaderTooSmall,
+    InvalidHeaderLength,
+    TensorNotFound,
+    TensorInvalidInfo,
+    InvalidOffset,
+    IoError,
+    JsonError,
+    InvalidTensorView,
+    MetadataIncompleteBuffer,
+    ValidationOverflow,
+}
 
 #[derive(Debug, Error)]
+#[repr(C)]
 enum CError {
     #[error("{0}")]
     NullPointer(String),
@@ -24,37 +42,110 @@ enum CError {
 impl Into<Status> for CError {
     fn into(self) -> Status {
         match self {
-            CError::NullPointer(_) => -1,
-            CError::Utf8Error(_) => -2,
+            CError::NullPointer(_) => Status::NullPointer,
+            CError::Utf8Error(_) => Status::Utf8Error,
             CError::SafeTensorError(err) => match err {
-                SafeTensorError::InvalidHeader => 1,
-                SafeTensorError::InvalidHeaderDeserialization => 2,
-                SafeTensorError::HeaderTooLarge => 3,
-                SafeTensorError::HeaderTooSmall => 4,
-                SafeTensorError::InvalidHeaderLength => 5,
-                SafeTensorError::TensorNotFound(_) => 6,
-                SafeTensorError::TensorInvalidInfo => 7,
-                SafeTensorError::InvalidOffset(_) => 8,
-                SafeTensorError::IoError(_) => 9,
-                SafeTensorError::JsonError(_) => 10,
-                SafeTensorError::InvalidTensorView(_, _, _) => 11,
-                SafeTensorError::MetadataIncompleteBuffer => 12,
-                SafeTensorError::ValidationOverflow => 13,
+                SafeTensorError::InvalidHeader => Status::InvalidHeader,
+                SafeTensorError::InvalidHeaderDeserialization => {
+                    Status::InvalidHeaderDeserialization
+                }
+                SafeTensorError::HeaderTooLarge => Status::HeaderTooLarge,
+                SafeTensorError::HeaderTooSmall => Status::HeaderTooSmall,
+                SafeTensorError::InvalidHeaderLength => Status::InvalidHeaderLength,
+                SafeTensorError::TensorNotFound(_) => Status::TensorNotFound,
+                SafeTensorError::TensorInvalidInfo => Status::TensorInvalidInfo,
+                SafeTensorError::InvalidOffset(_) => Status::InvalidOffset,
+                SafeTensorError::IoError(_) => Status::IoError,
+                SafeTensorError::JsonError(_) => Status::JsonError,
+                SafeTensorError::InvalidTensorView(_, _, _) => Status::InvalidTensorView,
+                SafeTensorError::MetadataIncompleteBuffer => Status::MetadataIncompleteBuffer,
+                SafeTensorError::ValidationOverflow => Status::ValidationOverflow,
             },
         }
     }
 }
 
+/// The various available dtypes. They MUST be in increasing alignment order
 #[repr(C)]
+pub enum Dtype {
+    /// Boolan type
+    BOOL,
+    /// Unsigned byte
+    U8,
+    /// Signed byte
+    I8,
+    /// Signed integer (16-bit)
+    I16,
+    /// Unsigned integer (16-bit)
+    U16,
+    /// Half-precision floating point
+    F16,
+    /// Brain floating point
+    BF16,
+    /// Signed integer (32-bit)
+    I32,
+    /// Unsigned integer (32-bit)
+    U32,
+    /// Floating point (32-bit)
+    F32,
+    /// Floating point (64-bit)
+    F64,
+    /// Signed integer (64-bit)
+    I64,
+    /// Unsigned integer (64-bit)
+    U64,
+}
+
+impl Dtype {
+    fn to_dtype(self) -> RDtype {
+        match self {
+            Dtype::BOOL => RDtype::BOOL,
+            Dtype::U8 => RDtype::U8,
+            Dtype::I8 => RDtype::I8,
+            Dtype::I16 => RDtype::I16,
+            Dtype::U16 => RDtype::U16,
+            Dtype::I32 => RDtype::I32,
+            Dtype::U32 => RDtype::U32,
+            Dtype::I64 => RDtype::I64,
+            Dtype::U64 => RDtype::U64,
+            Dtype::F16 => RDtype::F16,
+            Dtype::BF16 => RDtype::BF16,
+            Dtype::F32 => RDtype::F32,
+            Dtype::F64 => RDtype::F64,
+        }
+    }
+}
+
+impl From<RDtype> for Dtype {
+    fn from(dtype: RDtype) -> Dtype {
+        match dtype {
+            RDtype::BOOL => Dtype::BOOL,
+            RDtype::U8 => Dtype::U8,
+            RDtype::I8 => Dtype::I8,
+            RDtype::I16 => Dtype::I16,
+            RDtype::U16 => Dtype::U16,
+            RDtype::I32 => Dtype::I32,
+            RDtype::U32 => Dtype::U32,
+            RDtype::I64 => Dtype::I64,
+            RDtype::U64 => Dtype::U64,
+            RDtype::F16 => Dtype::F16,
+            RDtype::BF16 => Dtype::BF16,
+            RDtype::F32 => Dtype::F32,
+            RDtype::F64 => Dtype::F64,
+            d => panic!("Unhandled dtype {d:?}"),
+        }
+    }
+}
+
 pub struct Handle {
     safetensors: SafeTensors<'static>,
 }
 
 #[repr(C)]
 pub struct View {
-    dtype: u32,
+    dtype: Dtype,
     rank: usize,
-    shapes: *const usize,
+    shape: *const usize,
     data: *const u8,
 }
 
@@ -67,7 +158,7 @@ pub struct View {
 /// * `buffer`: Buffer to attempt to read data from
 /// * `buffer_len`: Number of bytes we can safely read from the deserialize the safetensors
 ///
-/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub extern "C" fn safetensors_deserialize(
     handle: *mut *mut Handle,
@@ -80,7 +171,7 @@ pub extern "C" fn safetensors_deserialize(
             let raw = Box::into_raw(heap_handle);
             handle.write(raw);
 
-            STATUS_OK
+            Status::Ok
         },
         Err(err) => err.into(),
     }
@@ -92,7 +183,7 @@ pub extern "C" fn safetensors_deserialize(
 ///
 /// * `handle`: Pointer ot the safetensors we want to release the resources of
 ///
-/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) -> Status {
     if !handle.is_null() {
@@ -100,7 +191,7 @@ pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) -> Status {
         drop(Box::from_raw(handle));
     }
 
-    STATUS_OK
+    Status::Ok
 }
 
 /// Retrieve the list of tensor's names currently stored in the safetensors
@@ -111,7 +202,7 @@ pub unsafe extern "C" fn safetensors_destroy(handle: *mut Handle) -> Status {
 /// * `ptr`: In-Out pointer to store the array of strings representing all the tensor's names
 /// * `len`: Number of strings stored in `ptr`
 ///
-/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub unsafe extern "C" fn safetensors_names(
     handle: *const Handle,
@@ -141,7 +232,7 @@ pub unsafe extern "C" fn safetensors_names(
 
         forget(c_names);
 
-        STATUS_OK
+        Status::Ok
     }
 }
 
@@ -153,7 +244,7 @@ pub unsafe extern "C" fn safetensors_names(
 /// * `names`: Pointer to the array of strings we want to release resources of
 /// * `len`: Number of strings hold by `names` array
 ///
-/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uint) -> Status {
     let len = len as usize;
@@ -168,7 +259,7 @@ pub extern "C" fn safetensors_free_names(names: *const *const c_char, len: c_uin
         }
     }
 
-    STATUS_OK
+    Status::Ok
 }
 
 /// Return the number of tensors stored in this safetensors
@@ -191,9 +282,8 @@ pub unsafe extern "C" fn safetensors_num_tensors(handle: *const Handle) -> usize
 ///
 /// returns: usize Number of bytes for this specific `dtype`
 #[no_mangle]
-#[allow(improper_ctypes_definitions)]
 pub extern "C" fn safetensors_dtype_size(dtype: Dtype) -> usize {
-    dtype.size()
+    dtype.to_dtype().size()
 }
 
 /// Attempt to retrieve the metadata and content for the tensor associated with `name` storing the
@@ -205,7 +295,7 @@ pub extern "C" fn safetensors_dtype_size(dtype: Dtype) -> usize {
 /// * `view`: In-Out pointer to store the tensor if successfully found to belong to the safetensors
 /// * `name`: The name of the tensor to retrieve from the safetensors
 ///
-/// returns: `STATUS_OK == 0` if success, any other status code if an error what caught up
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
 #[no_mangle]
 pub extern "C" fn safetensors_get_tensor(
     handle: *const Handle,
@@ -213,7 +303,7 @@ pub extern "C" fn safetensors_get_tensor(
     name: *const c_char,
 ) -> Status {
     match unsafe { _get_tensor(handle, view, name) } {
-        Ok(_) => STATUS_OK,
+        Ok(_) => Status::Ok,
         Err(err) => err.into(),
     }
 }
@@ -224,14 +314,14 @@ pub extern "C" fn safetensors_get_tensor(
 ///
 /// * `ptr`: Pointer to the TensorView we want to release the underlying resources of
 ///
-/// returns: `STATUS_OK = 0` if resources were successfully freed
+/// returns: `Status::Ok = 0` if resources were successfully freed
 #[no_mangle]
 pub extern "C" fn safetensors_free_tensor(ptr: *mut View) -> Status {
     unsafe {
         // Restore the heap allocated view and explicitly drop it
         drop(Box::from_raw(ptr));
 
-        STATUS_OK
+        Status::Ok
     }
 }
 
@@ -287,12 +377,14 @@ unsafe fn _get_tensor(
     let st_view = (*handle).safetensors.tensor(name)?;
 
     unsafe {
+        let shape = st_view.shape().to_vec();
         let view = Box::new(View {
-            dtype: st_view.dtype() as u32,
-            rank: st_view.shape().len(),
-            shapes: st_view.shape().as_ptr(),
+            dtype: st_view.dtype().into(),
+            rank: shape.len(),
+            shape: shape.as_ptr(),
             data: st_view.data().as_ptr(),
         });
+        forget(shape);
 
         ptr.write(Box::into_raw(view));
     }

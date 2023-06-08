@@ -17,8 +17,16 @@ target_include_directories(safetensors_c_api INTERFACE
 )
 
 # Build up Rust part
-add_subdirectory(third-party/corrosion)
-corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES staticlib)
+include(FetchContent)
+
+FetchContent_Declare(
+    Corrosion
+    GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+    GIT_TAG v0.4 # Optionally specify a commit hash, version tag or branch here
+)
+FetchContent_MakeAvailable(Corrosion)
+
+corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES staticlib PROFILE release)
 
 # Check if we need to build the unit tests
 if(SAFETENSORS_BUILD_TESTS)
@@ -26,6 +34,11 @@ if(SAFETENSORS_BUILD_TESTS)
 
     enable_testing()
 
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third-party/catch2)
+    FetchContent_Declare(
+        catch2
+        GIT_REPOSITORY https://github.com/catchorg/catch2
+        GIT_TAG v3.3.2
+    )
+    FetchContent_MakeAvailable(catch2)
     add_subdirectory(tests)
 endif()

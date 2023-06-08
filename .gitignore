@@ -1,6 +1,9 @@
 safetensors/target
 safetensors/**/Cargo.lock
 bindings/python/Cargo.lock
+bindings/c/Cargo.lock
+bindings/c/target
+bindings/c/build/
 *.bin
 *.h5
 *.msgpack

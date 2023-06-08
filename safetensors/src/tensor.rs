@@ -347,7 +347,7 @@ impl<'data> SafeTensors<'data> {
             let info = &self.metadata.tensors[index];
             let tensorview = TensorView {
                 dtype: info.dtype,
-                shape: Cow::from(&info.shape),
+                shape: info.shape.clone(),
                 data: &self.data[info.data_offsets.0..info.data_offsets.1],
             };
             tensors.push((name.to_string(), tensorview));
@@ -363,7 +363,7 @@ impl<'data> SafeTensors<'data> {
             if let Some(info) = &self.metadata.tensors.get(**index) {
                 Ok(TensorView {
                     dtype: info.dtype,
-                    shape: Cow::from(&info.shape),
+                    shape: info.shape.clone(),
                     data: &self.data[info.data_offsets.0..info.data_offsets.1],
                 })
             } else {
@@ -526,7 +526,7 @@ impl Metadata {
 #[derive(Debug, PartialEq, Eq)]
 pub struct TensorView<'data> {
     dtype: Dtype,
-    shape: Cow<'data, [usize]>,
+    shape: Vec<usize>,
     data: &'data [u8],
 }
 
@@ -552,13 +552,13 @@ impl<'data> TensorView<'data> {
     /// Create new tensor view
     pub fn new(
         dtype: Dtype,
-        shape: Cow<'data, [usize]>,
+        shape: Vec<usize>,
         data: &'data [u8],
     ) -> Result<Self, SafeTensorError> {
         let n = data.len();
         let n_elements: usize = shape.iter().product();
         if n != n_elements * dtype.size() {
-            Err(SafeTensorError::InvalidTensorView(dtype, shape.to_vec(), n))
+            Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
         } else {
             Ok(Self { dtype, shape, data })
         }
@@ -602,7 +602,6 @@ pub struct TensorInfo {
 
 /// The various available dtypes. They MUST be in increasing alignment order
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
-#[repr(C)]
 #[non_exhaustive]
 pub enum Dtype {
     /// Boolan type
@@ -777,7 +776,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 2, 3];
-        let attn_0 = TensorView::new(Dtype::F32, shape.into(), &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
@@ -802,7 +801,7 @@ mod tests {
             .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 1, 2, 3];
-        let attn_0 = TensorView::new(Dtype::F32, shape.into(), &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
         let metadata: HashMap<String, TensorView> =
             // Smaller string to force misalignment compared to previous test.
             [("attn0".to_string(), attn_0)].into_iter().collect();
@@ -834,7 +833,7 @@ mod tests {
             .collect();
         let attn_0 = TensorView {
             dtype: Dtype::F32,
-            shape: vec![1, 2, 3].into(),
+            shape: vec![1, 2, 3],
             data: &data,
         };
         let metadata: HashMap<String, TensorView> =
@@ -919,7 +918,7 @@ mod tests {
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
             let buffer = &all_data[offset..offset + n * dtype.size()];
-            let tensor = TensorView::new(dtype, shape.into(), buffer).unwrap();
+            let tensor = TensorView::new(dtype, shape, buffer).unwrap();
             metadata.insert(name, tensor);
             offset += n;
         }

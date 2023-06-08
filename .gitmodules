@@ -1,6 +1,0 @@
-[submodule "bindings/c/third-party/catch2"]
-	path = bindings/c/third-party/catch2
-	url = https://github.com/catchorg/catch2
-[submodule "bindings/c/third-party/corrosion"]
-	path = bindings/c/third-party/corrosion
-	url = https://github.com/corrosion-rs/corrosion.git

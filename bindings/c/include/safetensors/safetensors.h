@@ -1,150 +1,151 @@
-#ifdef __cplusplus
+#include <cstdarg>
+#include <cstdint>
+#include <cstdlib>
+#include <ostream>
+#include <new>
+
+/// The various available dtypes. They MUST be in increasing alignment order
+enum class Dtype {
+  /// Boolan type
+  BOOL,
+  /// Unsigned byte
+  U8,
+  /// Signed byte
+  I8,
+  /// Signed integer (16-bit)
+  I16,
+  /// Unsigned integer (16-bit)
+  U16,
+  /// Half-precision floating point
+  F16,
+  /// Brain floating point
+  BF16,
+  /// Signed integer (32-bit)
+  I32,
+  /// Unsigned integer (32-bit)
+  U32,
+  /// Floating point (32-bit)
+  F32,
+  /// Floating point (64-bit)
+  F64,
+  /// Signed integer (64-bit)
+  I64,
+  /// Unsigned integer (64-bit)
+  U64,
+};
+
+enum class Status {
+  NullPointer = -2,
+  Utf8Error,
+  Ok,
+  InvalidHeader,
+  InvalidHeaderDeserialization,
+  HeaderTooLarge,
+  HeaderTooSmall,
+  InvalidHeaderLength,
+  TensorNotFound,
+  TensorInvalidInfo,
+  InvalidOffset,
+  IoError,
+  JsonError,
+  InvalidTensorView,
+  MetadataIncompleteBuffer,
+  ValidationOverflow,
+};
+
+struct Handle;
+
+struct View {
+  Dtype dtype;
+  uintptr_t rank;
+  const uintptr_t *shape;
+  const uint8_t *data;
+};
+
 extern "C" {
-#endif
 
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
+/// Attempt to deserialize the content of `buffer`, reading `buffer_len` bytes as a safentesors
+/// data buffer.
+///
+/// # Arguments
+///
+/// * `handle`: In-Out pointer to store the resulting safetensors reference is sucessfully deserialized
+/// * `buffer`: Buffer to attempt to read data from
+/// * `buffer_len`: Number of bytes we can safely read from the deserialize the safetensors
+///
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
+Status safetensors_deserialize(Handle **handle,
+                               const uint8_t *buffer,
+                               uintptr_t buffer_len);
 
-/**
- * Represents all the status code returned by safetensors
- */
-typedef enum {
-    SAFETENSORS_OK = 0,
-    SAFETENSORS_NULL_BUFFER = -1,
-    SAFETENSORS_UTF8_ERROR = -2,
-    SAFETENSORS_INVALID_HEADER = 1,
-    SAFETENSORS_INVALID_HEADER_DESERIALIZATION = 2,
-    SAFETENSORS_HEADER_TOO_LARGE = 3,
-    SAFETENSORS_HEADER_TOO_SMALL = 4,
-    SAFETENSORS_INVALID_HEADER_LENGTH = 5,
-    SAFETENSORS_TENSOR_NOT_FOUND = 6,
-    SAFETENSORS_TENSOR_INVALID_INFO = 7,
-    SAFETENSORS_INVALID_OFFSET = 8,
-    SAFETENSORS_IO_ERROR = 9,
-    SAFETENSORS_JSON_ERROR = 10,
-    SAFETENSORS_INVALID_TENSOR_VIEW = 11,
-    SAFETENSORS_METADATA_INCOMPLETE_BUFFER = 12,
-    SAFETENSORS_VALIDATION_OVERFLOW = 13,
-} safetensors_status_t;
+/// Free the resources hold by the safetensors
+///
+/// # Arguments
+///
+/// * `handle`: Pointer ot the safetensors we want to release the resources of
+///
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
+Status safetensors_destroy(Handle *handle);
 
+/// Retrieve the list of tensor's names currently stored in the safetensors
+///
+/// # Arguments
+///
+/// * `handle`: Pointer to the underlying safetensors we want to query tensor's names from
+/// * `ptr`: In-Out pointer to store the array of strings representing all the tensor's names
+/// * `len`: Number of strings stored in `ptr`
+///
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
+Status safetensors_names(const Handle *handle, const char *const **ptr, unsigned int *len);
 
-/**
- * Represent all the different data type support by safetensors
- */
-typedef enum {
-    /// Boolean type
-    BOOL,
-    /// Unsigned byte
-    UINT8,
-    /// Signed byte
-    INT8,
-    /// Signed integer (16-bit)
-    INT16,
-    /// Unsigned integer (16-bit)
-    UINT16,
-    /// Half-precision floating point
-    FLOAT16,
-    /// Brain floating point
-    BFLOAT16,
-    /// Signed integer (32-bit)
-    INT32,
-    /// Unsigned integer (32-bit)
-    UINT32,
-    /// Floating point (32-bit)
-    FLOAT32,
-    /// Floating point (64-bit)
-    FLOAT64,
-    /// Signed integer (64-bit)
-    INT64,
-    /// Unsigned integer (64-bit)
-    UINT64,
-} safetensors_dtype_t;
+/// Free the resources used to represent the list of tensor's names stored in the safetensors.
+/// This must follow any call to `safetensors_names()` to clean up underlying resources.
+///
+/// # Arguments
+///
+/// * `names`: Pointer to the array of strings we want to release resources of
+/// * `len`: Number of strings hold by `names` array
+///
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
+Status safetensors_free_names(const char *const *names, unsigned int len);
 
+/// Return the number of tensors stored in this safetensors
+///
+/// # Arguments
+///
+/// * `handle`: Pointer to the underlying safetensors we want to know the number of tensors of.
+///
+/// returns: usize Number of tensors in the safetensors
+uintptr_t safetensors_num_tensors(const Handle *handle);
 
-/**
- * Opaque struct holding safetensors and data references
- */
-typedef struct safetensors_handle_t safetensors_handle_t;
+/// Return the number of bytes required to represent a single element from the specified dtype
+///
+/// # Arguments
+///
+/// * `dtype`: The data type we want to know the number of bytes required
+///
+/// returns: usize Number of bytes for this specific `dtype`
+uintptr_t safetensors_dtype_size(Dtype dtype);
 
-/**
- * Represents a tensor deserialized from the underlying safetensors.
- * No copy is made through the FFI layer.
- */
-typedef struct safetensors_view_t {
-    const safetensors_dtype_t dtype;
-    const size_t rank;
-    const size_t *shapes;
-    const char * data;
-} safetensors_view_t;
+/// Attempt to retrieve the metadata and content for the tensor associated with `name` storing the
+/// result to the memory location pointed by `view` pointer.
+///
+/// # Arguments
+///
+/// * `handle`: Pointer to the underlying safetensors we want to retrieve the tensor from.
+/// * `view`: In-Out pointer to store the tensor if successfully found to belong to the safetensors
+/// * `name`: The name of the tensor to retrieve from the safetensors
+///
+/// returns: `Status::Ok == 0` if success, any other status code if an error what caught up
+Status safetensors_get_tensor(const Handle *handle, View **view, const char *name);
 
-/**
- * Read `bufferLen` bytes from `buffer` storing the underlying safetensors reference into `handle` pointer.
- * @param handle An in-out pointer used to store the pointer to the deserialized safetensors content.
- * @param buffer The buffer to read from
- * @param bufferLen The number of bytes it is safe to read from the `buffer`
- * @return `safetensors_status_t::SAFETENSORS_OK` if deserialization succeeded, any other status code otherwise
- */
-safetensors_status_t safetensors_deserialize(safetensors_handle_t **handle, const char *buffer, size_t bufferLen);
+/// Free the resources used by a TensorView to expose metadata + content to the C-FFI layer
+///
+/// # Arguments
+///
+/// * `ptr`: Pointer to the TensorView we want to release the underlying resources of
+///
+/// returns: `Status::Ok = 0` if resources were successfully freed
+Status safetensors_free_tensor(View *ptr);
 
-
-/**
- * Destroy a previously allocated safetensors pointer `handle`
- * @param handle The pointer we want to free the resources of
- */
-void safetensors_destroy(safetensors_handle_t *handle);
-
-
-/**
- * Return the number of tensors contained in this safetensors
- * @param handle The pointer to the safetensors we want to retrieve the number of tensors
- * @return Positive or zero (if empty) unsigned integers indicating the number of tensors
- */
-size_t safetensors_num_tensors(const safetensors_handle_t *handle);
-
-/**
- * Return the size (in bytes) of an element of the specified `dtype`
- * @param dtype The dtype to query the number of bytes
- * @return Positive unsigned number
- */
-size_t safetensors_dtype_size(safetensors_dtype_t dtype);
-
-
-/**
- * Return the tensor names currently stored in the underlying `handle` safetensors
- * @param handle The pointer to the safetensors we want to retrieve the tensor names
- * @param ptr In-out pointer to store an array of strings
- * @param len The number of items stored in `ptr` (i.e. number of tensors)
- */
-uint32_t safetensors_names(const safetensors_handle_t *handle, char const * const * *ptr, uint32_t *len);
-
-/**
- * Release the underlying memory used to store tensor's names following a call to `safetensors_names`
- * @param names The pointer to the array of string we want to release
- * @param len The number of items in the array
- * @return `safetensors_status_t::SAFETENSORS_OK` if deserialization succeeded, any other status code otherwise
- */
-uint32_t safetensors_free_names(const char * const * names, size_t len);
-
-/**
- * Retrieve a view (i.e. no copy) of a tensor referenced by `name` and populator the pointer `view` with the content
- * and metadata for this specific tensor
- * @param handle The pointer to the safetensors we want to retrieve a tensor from
- * @param view In-out pointer to a `safetensors_view_t` struct holding metadata and tensor data for the referenced tensor
- * @param name The name of the tensor (nul-terminated) we want to retrieve the content of from the underlying safetensors
- * @return `safetensors_status_t::SAFETENSORS_OK` if deserialization succeeded, any other status code otherwise
- */
-safetensors_status_t safetensors_get_tensor(const safetensors_handle_t *handle, safetensors_view_t **view, const char *name);
-
-/**
- * Release the resources hold by the provided safetensors_view_t previously allocated from a call to `safetensors_get_tensor`
- * @param ptr Pointer to the `safetensors_view_t` we want to release the resources of
- * @return `safetensors_status_t::SAFETENSORS_OK` if deserialization succeeded, any other status code otherwise
- */
-safetensors_status_t safetensors_free_tensor(safetensors_view_t *ptr);
-
-
-#ifdef __cplusplus
-}
-#endif
+} // extern "C"

@@ -18,3 +18,6 @@ lto = "fat"
 [dependencies]
 thiserror = "1.0"
 safetensors = { path = "../../safetensors" }
+
+[build-dependencies]
+cbindgen = "0.24.5"

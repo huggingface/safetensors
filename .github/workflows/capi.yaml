@@ -1,14 +1,11 @@
 name: C/C++ / Check everything builds & tests
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
-  BUILD_TYPE: Debug
+  BUILD_TYPE: Release
 
 jobs:
   build:
@@ -22,17 +19,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-        with:
-          submodules: "recursive"
 
       - name: Configure CMake
         working-directory: ${{github.workspace}}/bindings/c
-        run: cmake -B cmake-build-debug -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DSAFETENSORS_BUILD_TESTS=ON
+        run: cmake -B build -DSAFETENSORS_BUILD_TESTS=ON
 
       - name: Build
-        working-directory: ${{github.workspace}}/bindings/c
-        run: cmake --build cmake-build-debug --config ${{env.BUILD_TYPE}} --target safetensors_tests --parallel
+        working-directory: ${{github.workspace}}/bindings/c/build/
+        run: cmake --target safetensors_tests --parallel
 
       - name: Test
-        working-directory: ${{github.workspace}}/bindings/c/cmake-build-debug
-        run: ctest -C ${{env.BUILD_TYPE}} --test-dir tests
+        working-directory: ${{github.workspace}}/bindings/c/build
+        run: ctest tests
