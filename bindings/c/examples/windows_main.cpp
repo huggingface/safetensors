@@ -41,25 +41,6 @@ int main(void)
     return 1;
   }
 
-  pBuf = (LPTSTR)MapViewOfFile(hMapFile, // handle to map object
-    FILE_MAP_ALL_ACCESS,  // read/write permission
-    0,
-    0,
-    BUF_SIZE);
-
-    if (pBuf == NULL)
-    {
-        _tprintf(TEXT("Could not map view of file (%d).\n"),
-            GetLastError());
-
-        CloseHandle(hMapFile);
-        return 1;
-    }
-
-  // Verify that the correct file size was written.
-
-  // Create a file mapping object for the file
-  // Note that it is a good idea to ensure the file size is not zero
   hMapFile = CreateFileMapping( hFile,          // current file handle
                 NULL,           // default security
                 PAGE_READWRITE, // read/write permission
