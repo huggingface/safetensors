@@ -9,11 +9,10 @@
 
 TCHAR * filename = TEXT("model.safetensors"); // the file to be manipulated
 
-#define BUF_SIZE 256
+#define MAX_FILE_SIZE 0x10000000
 
 int main(void)
 {
-  HANDLE hMapFile;
   HANDLE hFile;
   LPCTSTR pBuf;
   DWORD length;
@@ -27,36 +26,28 @@ int main(void)
     NULL,
     PAGE_READONLY,
     0,
-    BUF_SIZE,
+    MAX_FILE_SIZE,
     filename);               // name of mapping object
                              //
-  length = GetFileSize(hFile,  NULL);
-  _tprintf(TEXT("hFile size: %10d\n"), length);
-
   if (hFile == NULL)
   {
-    _tprintf(TEXT("hFile is NULL\n"));
-    _tprintf(TEXT("Target file is %s\n"),
-             filename);
+    printf("Cannot open file : %s\n", filename);
+    printf("Try downloading a file on the hub\n");
+    printf("wget https://huggingface.co/gpt2/resolve/main/model.safetensors");
     return 1;
   }
 
-  hMapFile = CreateFileMapping( hFile,          // current file handle
-                NULL,           // default security
-                PAGE_READWRITE, // read/write permission
-                0,              // size of mapping object, high
-                0,  // size of mapping object, low
-                NULL);          // name of mapping object
-
-  if (hMapFile == NULL)
-  {
-    _tprintf(TEXT("hMapFile is NULL: last error: %d\n"), GetLastError() );
-    return (2);
+  length = GetFileSize(hFile,  NULL);
+  if (length <= 0){
+    printf("Cannot open file : %s\n", filename);
+    printf("Try downloading a file on the hub\n");
+    printf("wget https://huggingface.co/gpt2/resolve/main/model.safetensors");
   }
+
 
   // Map the view and test the results.
 
-  lpMapAddress = MapViewOfFile(hMapFile,            // handle to
+  lpMapAddress = MapViewOfFile(hFile,            // handle to
                                                     // mapping object
                                FILE_MAP_READ, // read/write
                                0,                   // high-order 32
@@ -83,7 +74,7 @@ int main(void)
   auto tensor_name =  "wpe.weight";
   result = safetensors_get_tensor(handle, &tensor, tensor_name);
   if (result != Status::Ok){
-      printf("Could not open find tensor");
+      printf("Could not open find tensor\n");
   }else{
       printf("Found tensor %s: rank %d\n", tensor_name, tensor->rank);
       printf("Shape:\n    ");
