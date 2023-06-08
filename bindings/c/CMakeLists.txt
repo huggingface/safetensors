@@ -5,6 +5,7 @@ set(SAFETENSORS_PROJECT_NAME ${PROJECT_NAME})
 set(CMAKE_CXX_STANDARD 11)
 
 # Define options
+option(SAFETENSORS_BUILD_STATIC "Build the a static library" OFF)
 option(SAFETENSORS_BUILD_TESTS "Build the safetensors C-API tests" OFF)
 option(SAFETENSORS_BUILD_EXAMPLES "Build the safetensors C-API examples" OFF)
 
@@ -27,11 +28,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Corrosion)
 
+if(SAFETENSORS_BUILD_STATIC)
+    corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES staticlib PROFILE release)
+else()
+    corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib PROFILE release)
+endif()
 
 # Check if we need to build the unit tests
 if(SAFETENSORS_BUILD_TESTS)
-    corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES staticlib PROFILE release)
-
     message(STATUS "Building tests")
 
     enable_testing()
@@ -43,8 +47,6 @@ if(SAFETENSORS_BUILD_TESTS)
     )
     FetchContent_MakeAvailable(catch2)
     add_subdirectory(tests)
-else()
-    corrosion_import_crate(MANIFEST_PATH Cargo.toml CRATE_TYPES cdylib PROFILE release)
 endif()
 
 if(SAFETENSORS_BUILD_EXAMPLES)
