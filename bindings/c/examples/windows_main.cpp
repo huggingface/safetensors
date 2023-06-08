@@ -14,6 +14,7 @@ TCHAR * filename = TEXT("model.safetensors"); // the file to be manipulated
 int main(void)
 {
   HANDLE hMapFile;
+  HANDLE hFile;
   LPCTSTR pBuf;
   DWORD dwFileSize;
   LPVOID lpMapAddress;
@@ -63,7 +64,7 @@ int main(void)
                 NULL,           // default security
                 PAGE_READWRITE, // read/write permission
                 0,              // size of mapping object, high
-                dwFileMapSize,  // size of mapping object, low
+                0,  // size of mapping object, low
                 NULL);          // name of mapping object
 
   if (hMapFile == NULL)
@@ -80,10 +81,10 @@ int main(void)
                                0,                   // high-order 32
                                                     // bits of file
                                                     // offset
-                               dwFileMapStart,      // low-order 32
+                               0,      // low-order 32
                                                     // bits of file
                                                     // offset
-                               dwMapViewSize);      // number of bytes
+                               BUF_SIZE);      // number of bytes
                                                     // to map
   if (lpMapAddress == NULL)
   {
