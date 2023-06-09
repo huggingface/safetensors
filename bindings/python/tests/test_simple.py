@@ -95,7 +95,13 @@ class TestCase(unittest.TestCase):
         m = torch.randn(10)
         n = torch.empty([], dtype=m.dtype, device=m.device)
         element_size = torch.finfo(m.dtype).bits // 8
-        n.set_(source=m.untyped_storage()[: 4 * element_size])
+        try:
+            smaller_storage = m.untyped_storage()[: 4 * element_size]
+        except Exception as e:
+            # Fallback for torch==1.10
+            smaller_storage = m.storage()[: 4]
+
+        n.set_(source=smaller_storage)
 
         # Check that we can have tensors with storage that have the same `data_ptr` but not the same storage size
         assert storage_ptr(n) == storage_ptr(m)
