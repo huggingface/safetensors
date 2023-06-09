@@ -91,7 +91,6 @@ class TestCase(unittest.TestCase):
         load_file_pt(Path("./out.safetensors"))
         os.remove(Path("./out.safetensors"))
 
-
     def test_pt_sf_save_model_overlapping_storage(self):
         m = torch.randn(10)
         n = torch.empty([], dtype=m.dtype, device=m.device)
