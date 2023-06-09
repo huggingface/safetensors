@@ -8,7 +8,7 @@ import torch
 
 from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
-from safetensors.torch import load_file as load_file_pt
+from safetensors.torch import load_file as load_file_pt, storage_ptr, storage_size, _find_shared_tensors
 from safetensors.torch import save_file as save_file_pt
 
 
@@ -90,6 +90,22 @@ class TestCase(unittest.TestCase):
         save_file_pt(tensors, Path("./out.safetensors"))
         load_file_pt(Path("./out.safetensors"))
         os.remove(Path("./out.safetensors"))
+
+
+    def test_pt_sf_save_model_overlapping_storage(self):
+        m = torch.randn(10)
+        n = torch.empty([], dtype=m.dtype, device=m.device)
+        element_size = torch.finfo(m.dtype).bits // 8
+        n.set_(source=m.untyped_storage()[: 4 * element_size])
+
+        # Check that we can have tensors with storage that have the same `data_ptr` but not the same storage size
+        assert storage_ptr(n) == storage_ptr(m)
+        assert storage_size(n) != storage_size(m)
+        assert storage_size(n) == 4 * element_size
+        assert storage_size(m) == 10 * element_size
+
+        shared_tensors = _find_shared_tensors({"random_naming_1": m, "random_naming_2": n})
+        assert len(shared_tensors) == 2
 
 
 class WindowsTestCase(unittest.TestCase):
