@@ -8,8 +8,10 @@ import torch
 
 from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
-from safetensors.torch import load_file as load_file_pt, storage_ptr, storage_size, _find_shared_tensors
+from safetensors.torch import _find_shared_tensors
+from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
+from safetensors.torch import storage_ptr, storage_size
 
 
 class TestCase(unittest.TestCase):
@@ -97,20 +99,20 @@ class TestCase(unittest.TestCase):
         element_size = torch.finfo(m.dtype).bits // 8
         try:
             smaller_storage = m.untyped_storage()[: 4 * element_size]
-        except Exception as e:
+        except Exception:
             # Fallback for torch==1.10
-            smaller_storage = m.storage()[:4]
+            smaller_storage = m.storage()._untyped()[: 4 * element_size]
 
         n.set_(source=smaller_storage)
 
         # Check that we can have tensors with storage that have the same `data_ptr` but not the same storage size
-        assert storage_ptr(n) == storage_ptr(m)
-        assert storage_size(n) != storage_size(m)
-        assert storage_size(n) == 4 * element_size
-        assert storage_size(m) == 10 * element_size
+        self.assertEqual(storage_ptr(n), storage_ptr(m))
+        self.assertNotEqual(storage_size(n), storage_size(m))
+        self.assertEqual(storage_size(n), 4 * element_size)
+        self.assertEqual(storage_size(m), 10 * element_size)
 
-        shared_tensors = _find_shared_tensors({"random_naming_1": m, "random_naming_2": n})
-        assert len(shared_tensors) == 2
+        shared_tensors = _find_shared_tensors({"m": m, "n": n})
+        self.assertEqual(shared_tensors, [{"m"}, {"n"}])
 
 
 class WindowsTestCase(unittest.TestCase):
