@@ -59,7 +59,7 @@ class TorchTestCase(unittest.TestCase):
             save_file(data, local)
         self.assertEqual(
             str(ctx.exception),
-            "You are trying to save a sparse tensor: `test` which this library does not support. You can make it a"
+            "You are trying to save a sparse tensors: `['test']` which this library does not support. You can make it a"
             " dense tensor before saving with `.to_dense()` but be aware this might make a much larger file than"
             " needed.",
         )
