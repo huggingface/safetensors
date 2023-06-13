@@ -101,11 +101,15 @@ class TestCase(unittest.TestCase):
             smaller_storage = m.untyped_storage()[: 4 * element_size]
         except Exception:
             try:
-                # Fallback for torch>=1.11
-                smaller_storage = m.storage()._untyped()[: 4 * element_size]
+                # Fallback for torch>=1.13
+                smaller_storage = m.storage().untyped()[: 4 * element_size]
             except Exception:
-                # Fallback for torch==1.10
-                smaller_storage = m.storage()[:4]
+                try:
+                    # Fallback for torch>=1.11
+                    smaller_storage = m.storage()._untyped()[: 4 * element_size]
+                except Exception:
+                    # Fallback for torch==1.10
+                    smaller_storage = m.storage()[:4]
 
         n.set_(source=smaller_storage)
 
