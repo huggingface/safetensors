@@ -63,6 +63,9 @@ jobs:
           pip install .[quality]
           black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+
       - name: Run tests
         run: |
           cargo test
