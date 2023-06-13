@@ -38,7 +38,7 @@ def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     for k, v in state_dict.items():
         if v.device != torch.device("meta"):
             # Need to add device as key because of multiple GPU.
-            tensors[(storage_ptr(v), v.device)].add(k)
+            tensors[(v.device, storage_ptr(v), storage_size(v))].add(k)
     tensors = list(sorted(tensors.values()))
     return tensors
 
@@ -377,16 +377,24 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
         raise ValueError("Big endian is not supported, serialization need to be in little endian")
     if not isinstance(tensors, dict):
         raise ValueError(f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}")
-    ptrs = defaultdict(set)
+
+    invalid_tensors = []
     for k, v in tensors.items():
         if not isinstance(v, torch.Tensor):
             raise ValueError(f"Key `{k}` is invalid, expected torch.Tensor but received {type(v)}")
 
-        if v.layout == torch.strided:
-            ptrs[storage_ptr(v)].add(k)
+        if v.layout != torch.strided:
+            invalid_tensors.append(k)
+    if invalid_tensors:
+        raise ValueError(
+            f"You are trying to save a sparse tensors: `{invalid_tensors}` which this library does not support."
+            " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
+            " make a much larger file than needed."
+        )
 
+    shared_pointers = _find_shared_tensors(tensors)
     failing = []
-    for ptr, names in ptrs.items():
+    for names in shared_pointers:
         if len(names) > 1:
             failing.append(names)
 
