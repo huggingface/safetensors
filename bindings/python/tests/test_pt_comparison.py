@@ -29,6 +29,38 @@ class TorchTestCase(unittest.TestCase):
         reloaded = load_file(local)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
 
+    def test_multiple_zero_sized(self):
+        data = {
+            "test": torch.zeros((2, 0), dtype=torch.float),
+            "test2": torch.zeros((2, 0), dtype=torch.float),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small3.safetensors"
+        save_file(data, local)
+        reloaded = load_file(local)
+        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
+        self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
+
+    def test_disjoint_tensors_shared_storage(self):
+        A = torch.zeros((10, 10))
+        data = {
+            "test": A[:, :0],
+            "test2": A[:0],
+        }
+        local = "./tests/data/out_safe_pt_mmap_small4.safetensors"
+        with self.assertRaises(RuntimeError) as ex:
+            save_file(data, local)
+        self.assertIn("tensors share memory", str(ex.exception))
+
+    def test_meta_tensor(self):
+        A = torch.zeros((10, 10), device=torch.device("meta"))
+        data = {
+            "test": A,
+        }
+        local = "./tests/data/out_safe_pt_mmap_small5.safetensors"
+        with self.assertRaises(RuntimeError) as ex:
+            save_file(data, local)
+        self.assertIn("Cannot copy out of meta tensor", str(ex.exception))
+
     def test_in_memory(self):
         data = {
             "test": torch.zeros((2, 2), dtype=torch.float32),
