@@ -20,7 +20,7 @@ _deps = [
     "setuptools_rust>=1.5.2",
     "pytest>=7.2.0",
     "pytest-benchmark>=4.0.0",
-    "tensorflow==2.11.0",
+    "tensorflow>=2.11.0",
     "torch>=1.10",
     "paddlepaddle>=2.4.1",
     "python-afl>=0.7.3",
@@ -45,10 +45,12 @@ extras["quality"] = deps_list("black", "isort", "flake8", "click")
 extras["testing"] = (
     deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark", "h5py") + extras["numpy"]
 )
+# pinning tf version 2.11.0 for doc-builder
+extras["pinned-tf"] = ["tensorflow==2.11.0"]
 extras["all"] = (
     extras["torch"]
     + extras["numpy"]
-    + extras["tensorflow"]
+    + extras["pinned-tf"]
     + extras["jax"]
     + extras["paddlepaddle"]
     + extras["quality"]
