@@ -374,9 +374,9 @@ impl<'data> SafeTensors<'data> {
         }
     }
 
-    /// Allow the user to get a specific tensor within the SafeTensors.
-    /// The tensor returned is merely a view and the data is not owned by this
-    /// structure.
+    /// Return the names of the tensors within the SafeTensors.
+    /// These are used as keys to access to the actual tensors, that can be
+    /// retrieved using the tensor method.
     pub fn names(&self) -> Vec<&'_ String> {
         self.metadata.index_map.keys().collect()
     }
