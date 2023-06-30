@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1688111964546,
+  "lastUpdate": 1688114212037,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -9692,6 +9692,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.03841157202181318",
             "extra": "mean: 298.78536079999094 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eca6cf10c3a782147c73569edd18649b62e3a840",
+          "message": "Superseed #279 (#285)\n\n* Update README.md\r\n\r\nAdd note about arbitrary JSON not allowed in __metadata__.\r\n\r\n* Update README.md\r\n\r\nCo-authored-by: Julien Chaumond <julien@huggingface.co>\r\n\r\n* Update other readmes.\r\n\r\n---------\r\n\r\nCo-authored-by: by321 <by321@hotmail.com>\r\nCo-authored-by: Julien Chaumond <julien@huggingface.co>",
+          "timestamp": "2023-06-30T10:32:00+02:00",
+          "tree_id": "dbd11a8be10ad98805fb8d22916d221306117275",
+          "url": "https://github.com/huggingface/safetensors/commit/eca6cf10c3a782147c73569edd18649b62e3a840"
+        },
+        "date": 1688114210882,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.4181213056358692,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019943472363111548",
+            "extra": "mean: 705.1582936000045 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.974254054450939,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10356178828301939",
+            "extra": "mean: 336.21875659999887 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.673156037371277,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0169801057916223",
+            "extra": "mean: 374.08964759998753 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.0862521548283337,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008194799141992302",
+            "extra": "mean: 479.3284443999937 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.346133785603806,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010216466645098624",
+            "extra": "mean: 230.08955760000163 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 130.89906451643276,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00015407100716701815",
+            "extra": "mean: 7.639474000018254 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.052160225998428,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06870353657830679",
+            "extra": "mean: 487.2913856000082 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.9131120301988433,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008921439517164464",
+            "extra": "mean: 255.5510786000127 msec\nrounds: 5"
           }
         ]
       }
