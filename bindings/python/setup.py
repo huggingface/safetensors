@@ -45,10 +45,12 @@ extras["quality"] = deps_list("black", "isort", "flake8", "click")
 extras["testing"] = (
     deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark", "h5py") + extras["numpy"]
 )
+# pinning tf version 2.11.0 for doc-builder
+extras["pinned-tf"] = ["tensorflow==2.11.0"]
 extras["all"] = (
     extras["torch"]
     + extras["numpy"]
-    + extras["tensorflow"]
+    + extras["pinned-tf"]
     + extras["jax"]
     + extras["paddlepaddle"]
     + extras["quality"]
