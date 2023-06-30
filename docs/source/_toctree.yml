@@ -13,8 +13,6 @@
     title: Torch API
   - local: api/tensorflow
     title: Tensorflow API
-  - local: api/paddle
-    title: PaddlePaddle API
   - local: api/flax
     title: Flax API
   - local: api/numpy
