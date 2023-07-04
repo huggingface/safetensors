@@ -12,7 +12,7 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, np.ndarray]`):
+        tensor_dict (`Dict[str, np.ndarray]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         metadata (`Dict[str, str]`, *optional*, defaults to `None`):
             Optional text only metadata you might want to save in your header.
@@ -48,7 +48,7 @@ def save_file(
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, np.ndarray]`):
+        tensor_dict (`Dict[str, np.ndarray]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         filename (`str`, or `os.PathLike`)):
             The filename we're saving into.
