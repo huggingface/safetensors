@@ -48,30 +48,41 @@ def _is_complete(tensor: torch.Tensor) -> bool:
 
 
 def _remove_duplicate_names(
-    state_dict: Dict[str, torch.Tensor], preferred_names: List[str] = None
+    state_dict: Dict[str, torch.Tensor],
+    *,
+    preferred_names: List[str] = None,
+    discard_names: List[str] = None,
 ) -> Dict[str, List[str]]:
     if preferred_names is None:
         preferred_names = []
     preferred_names = set(preferred_names)
+    if discard_names is None:
+        discard_names = []
+    discard_names = set(discard_names)
 
     shareds = _find_shared_tensors(state_dict)
     to_remove = defaultdict(list)
     for shared in shareds:
-        complete_names = [name for name in shared if _is_complete(state_dict[name])]
+        complete_names = set([name for name in shared if _is_complete(state_dict[name])])
         if not complete_names:
             raise RuntimeError(
                 f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage.Refusing to save/load the model since you could be storing much more memory than needed. Please refer to https://huggingface.co/docs/safetensors/torch_shared_tensors for more information. Or open an issue."
             )
 
-        preferred = preferred_names.intersection(set(complete_names))
+        keep_name = sorted(list(complete_names))[0]
+
         # Mecanism to preferentially select keys to keep
-        # coming from the on-disk file to allow\
+        # coming from the on-disk file to allow
         # loading models saved with a different choice
         # of keep_name
+        preferred = complete_names.difference(discard_names)
         if preferred:
             keep_name = sorted(list(preferred))[0]
-        else:
-            keep_name = sorted(complete_names)[0]
+
+        if preferred_names:
+            preferred = preferred_names.intersection(complete_names)
+            if preferred:
+                keep_name = sorted(list(preferred))[0]
         for name in sorted(shared):
             if name != keep_name:
                 to_remove[keep_name].append(name)
