@@ -95,7 +95,7 @@ def save_model(
     """
     Saves a given torch model to specified filename.
     This method exists specifically to avoid tensor sharing issues which are
-    not allowed in `safetensors`. [More information on tensor sharing](torch_shared_tensors)
+    not allowed in `safetensors`. [More information on tensor sharing](../torch_shared_tensors)
 
     Args:
         model (`torch.nn.Module`):
@@ -139,7 +139,7 @@ def load_model(model: torch.nn.Module, filename: str, strict=True) -> Tuple[List
     """
     Loads a given filename onto a torch model.
     This method exists specifically to avoid tensor sharing issues which are
-    not allowed in `safetensors`. [More information on tensor sharing](torch_shared_tensors)
+    not allowed in `safetensors`. [More information on tensor sharing](../torch_shared_tensors)
 
     Args:
         model (`torch.nn.Module`):
