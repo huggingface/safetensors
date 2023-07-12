@@ -6,6 +6,14 @@ from safetensors import safe_open
 from safetensors.torch import load, load_file, save, save_file
 
 
+try:
+    import torch_xla  # noqa
+
+    xla_present = True
+except Exception:
+    xla_present = False
+
+
 class TorchTestCase(unittest.TestCase):
     def test_odd_dtype(self):
         data = {
@@ -83,6 +91,29 @@ class TorchTestCase(unittest.TestCase):
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
+
+    def test_cpu(self):
+        data = {
+            "test": torch.arange(4).view((2, 2)),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small_cpu.safetensors"
+        save_file(data, local)
+        reloaded = load_file(local, device=torch.device("cpu"))
+        self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
+
+    @unittest.skipIf(not xla_present, "Xla is not available")
+    def test_xla(self):
+        data = {
+            "test": torch.arange(4).view((2, 2)),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small_xla.safetensors"
+        save_file(data, local)
+        import torch_xla  # noqa
+        import torch_xla.core.xla_model as xm
+
+        device = xm.xla_device()
+        reloaded = load_file(local, device=device)
+        self.assertTrue(torch.equal(torch.arange(4).view((2, 2)).to(device=device), reloaded["test"]))
 
     def test_sparse(self):
         data = {"test": torch.sparse_coo_tensor(size=(2, 3))}
