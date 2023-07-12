@@ -62,7 +62,7 @@ tensors = {
    "weight1": torch.zeros((1024, 1024)),
    "weight2": torch.zeros((1024, 1024))
 }
-save_file(tensors, "model.safetensors")
+save_file(tensors, "model.safetensors", framework="pt")
 
 tensors = {}
 with safe_open("model.safetensors", framework="pt", device="cpu") as f:
