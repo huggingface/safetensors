@@ -4,15 +4,16 @@ from typing import Dict, Optional, Union
 import numpy as np
 
 import jax.numpy as jnp
+from jax import Array
 from safetensors import numpy
 
 
-def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]] = None) -> bytes:
+def save(tensors: Dict[str, Array], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, jnp.DeviceArray]`):
+        tensors (`Dict[str, Array]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         metadata (`Dict[str, str]`, *optional*, defaults to `None`):
             Optional text only metadata you might want to save in your header.
@@ -37,7 +38,7 @@ def save(tensors: Dict[str, jnp.DeviceArray], metadata: Optional[Dict[str, str]]
 
 
 def save_file(
-    tensors: Dict[str, jnp.DeviceArray],
+    tensors: Dict[str, Array],
     filename: Union[str, os.PathLike],
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
@@ -45,7 +46,7 @@ def save_file(
     Saves a dictionnary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, jnp.DeviceArray]`):
+        tensors (`Dict[str, Array]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         filename (`str`, or `os.PathLike`)):
             The filename we're saving into.
@@ -71,7 +72,7 @@ def save_file(
     return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 
-def load(data: bytes) -> Dict[str, jnp.DeviceArray]:
+def load(data: bytes) -> Dict[str, Array]:
     """
     Loads a safetensors file into flax format from pure bytes.
 
@@ -80,7 +81,7 @@ def load(data: bytes) -> Dict[str, jnp.DeviceArray]:
             The content of a safetensors file
 
     Returns:
-        `Dict[str, jnp.DeviceArray]`: dictionary that contains name as key, value as `jnp.DeviceArray` on cpu
+        `Dict[str, Array]`: dictionary that contains name as key, value as `Array` on cpu
 
     Example:
 
@@ -98,7 +99,7 @@ def load(data: bytes) -> Dict[str, jnp.DeviceArray]:
     return _np2jnp(flat)
 
 
-def load_file(filename: Union[str, os.PathLike]) -> Dict[str, jnp.DeviceArray]:
+def load_file(filename: Union[str, os.PathLike]) -> Dict[str, Array]:
     """
     Loads a safetensors file into flax format.
 
@@ -110,7 +111,7 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, jnp.DeviceArray]:
             available options are all regular flax device locations
 
     Returns:
-        `Dict[str, jnp.DeviceArray]`: dictionary that contains name as key, value as `jnp.DeviceArray`
+        `Dict[str, Array]`: dictionary that contains name as key, value as `Array`
 
     Example:
 
@@ -125,13 +126,13 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, jnp.DeviceArray]:
     return _np2jnp(flat)
 
 
-def _np2jnp(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, jnp.DeviceArray]:
+def _np2jnp(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, Array]:
     for k, v in numpy_dict.items():
         numpy_dict[k] = jnp.array(v)
     return numpy_dict
 
 
-def _jnp2np(jnp_dict: Dict[str, jnp.DeviceArray]) -> Dict[str, np.array]:
+def _jnp2np(jnp_dict: Dict[str, Array]) -> Dict[str, np.array]:
     for k, v in jnp_dict.items():
         jnp_dict[k] = np.asarray(v)
     return jnp_dict
