@@ -13,7 +13,6 @@ from huggingface_hub import CommitInfo, CommitOperationAdd, Discussion, HfApi, h
 from huggingface_hub.file_download import repo_folder_name
 from safetensors.torch import load_file, save_file
 from transformers import AutoConfig
-from transformers.pipelines.base import infer_framework_load_model
 
 
 COMMIT_DESCRIPTION = """
@@ -71,15 +70,15 @@ def rename(pt_filename: str) -> str:
     return local
 
 
-def convert_multi(model_id: str, folder: str) -> ConversionResult:
-    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json")
+def convert_multi(model_id: str, folder: str, token: Optional[str]) -> ConversionResult:
+    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json", token=token)
     with open(filename, "r") as f:
         data = json.load(f)
 
     filenames = set(data["weight_map"].values())
     local_filenames = []
     for filename in filenames:
-        pt_filename = hf_hub_download(repo_id=model_id, filename=filename)
+        pt_filename = hf_hub_download(repo_id=model_id, filename=filename, token=token)
 
         sf_filename = rename(pt_filename)
         sf_filename = os.path.join(folder, sf_filename)
@@ -102,8 +101,8 @@ def convert_multi(model_id: str, folder: str) -> ConversionResult:
     return operations, errors
 
 
-def convert_single(model_id: str, folder: str) -> ConversionResult:
-    pt_filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin")
+def convert_single(model_id: str, folder: str, token: Optional[str]) -> ConversionResult:
+    pt_filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin", token=token)
 
     sf_name = "model.safetensors"
     sf_filename = os.path.join(folder, sf_name)
@@ -156,8 +155,8 @@ def create_diff(pt_infos: Dict[str, List[str]], sf_infos: Dict[str, List[str]]) 
     return "\n".join(errors)
 
 
-def check_final_model(model_id: str, folder: str):
-    config = hf_hub_download(repo_id=model_id, filename="config.json")
+def check_final_model(model_id: str, folder: str, token: Optional[str]):
+    config = hf_hub_download(repo_id=model_id, filename="config.json", token=token)
     shutil.copy(config, os.path.join(folder, "config.json"))
     config = AutoConfig.from_pretrained(folder)
 
@@ -236,7 +235,7 @@ def previous_pr(api: "HfApi", model_id: str, pr_title: str) -> Optional["Discuss
     return None
 
 
-def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> ConversionResult:
+def convert_generic(model_id: str, folder: str, filenames: Set[str], token: Optional[str]) -> ConversionResult:
     operations = []
     errors = []
 
@@ -244,7 +243,7 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str]) -> Conversi
     for filename in filenames:
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
-            pt_filename = hf_hub_download(model_id, filename=filename)
+            pt_filename = hf_hub_download(model_id, filename=filename, token=token)
             dirname, raw_filename = os.path.split(filename)
             if raw_filename == "pytorch_model.bin":
                 # XXX: This is a special case to handle `transformers` and the
@@ -283,14 +282,14 @@ def convert(api: "HfApi", model_id: str, force: bool = False) -> Tuple["CommitIn
                 raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
             elif library_name == "transformers":
                 if "pytorch_model.bin" in filenames:
-                    operations, errors = convert_single(model_id, folder)
+                    operations, errors = convert_single(model_id, folder, token=api.token)
                 elif "pytorch_model.bin.index.json" in filenames:
-                    operations, errors = convert_multi(model_id, folder)
+                    operations, errors = convert_multi(model_id, folder, token=api.token)
                 else:
                     raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
-                check_final_model(model_id, folder)
+                check_final_model(model_id, folder, token=api.token)
             else:
-                operations, errors = convert_generic(model_id, folder, filenames)
+                operations, errors = convert_generic(model_id, folder, filenames, token=api.token)
 
             if operations:
                 new_pr = api.create_commit(
