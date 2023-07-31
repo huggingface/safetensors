@@ -693,6 +693,26 @@ impl PySafeSlice {
         Ok(shape)
     }
 
+    /// Returns the dtype of the full underlying tensor
+    ///
+    /// Returns:
+    ///     (`str`):
+    ///         The dtype of the full tensor
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tslice = f.get_slice("embedding")
+    ///     dtype = tslice.get_dtype() # "F32"
+    /// ```
+    pub fn get_dtype(&self, py: Python) -> PyResult<PyObject> {
+        let dtype = self.info.dtype;
+        let dtype: PyObject = format!("{:?}", dtype).into_py(py);
+        Ok(dtype)
+    }
+
     pub fn __getitem__(&self, slices: Slice) -> PyResult<PyObject> {
         let slices: Vec<&PySlice> = match slices {
             Slice::Slice(slice) => vec![slice],
