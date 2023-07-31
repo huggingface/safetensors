@@ -207,7 +207,10 @@ class SliceTestCase(unittest.TestCase):
 
     def test_deserialization_slice(self):
         with safe_open(self.local, framework="pt") as f:
-            tensor = f.get_slice("test")[:, :, 1:2]
+            _slice = f.get_slice("test")
+            self.assertEqual(_slice.get_shape(), [1, 2, 3])
+            self.assertEqual(_slice.get_dtype(), "F32")
+            tensor = _slice[:, :, 1:2]
 
         self.assertEqual(
             tensor.numpy().tobytes(),
