@@ -44,7 +44,7 @@ python numpy_dos_get_pwned.py
 # Safetensors abuse attempts
 
 In order to try and check the limits, we also try to abuse the current format.
-Please ssend ideas !
+Please send ideas!
 
 A few things can be abused:
 - Proposal 1: The initial 8 bytes, which could be too big with regards to the file. This crashes, and crashes early (Out of bounds) (Attempt #1).
