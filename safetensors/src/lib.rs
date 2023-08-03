@@ -55,7 +55,7 @@
 //! - 8 bytes: `N`, an unsigned little-endian 64-bit integer, containing the size of the header
 //! - N bytes: a JSON UTF-8 string representing the header.
 //!   - The header data MUST begin with a `{` character (0x7B).
-//!   - The header data MAY be trailing padded with whitespace (any bytes 0x09, 0x0A, 0x0D, 0x20).
+//!   - The header data MAY be trailing padded with whitespace (0x20).
 //!   - The header is a dict like `{"TENSOR_NAME": {"dtype": "F16", "shape": [1, 16, 256], "data_offsets": [BEGIN, END]}, "NEXT_TENSOR_NAME": {...}, ...}`,
 //!     - `data_offsets` point to the tensor data relative to the beginning of the byte buffer (i.e. not an absolute position in the file),
 //!       with `BEGIN` as the starting offset and `END` as the one-past offset (so total tensor byte size = `END - BEGIN`).
