@@ -19,6 +19,7 @@ def storage_ptr(tensor: torch.Tensor) -> int:
             # Fallback for meta storage
             return 0
 
+
 def _end_ptr(tensor: torch.Tensor) -> int:
     stop = tensor.view(-1)[-1].data_ptr() + _SIZE[tensor.dtype]
     return stop
@@ -36,6 +37,7 @@ def storage_size(tensor: torch.Tensor) -> int:
             # On torch >=2.0 this is the tensor size
             return tensor.nelement() * _SIZE[tensor.dtype]
 
+
 def _filter_shared_not_shared(tensors: List[Set[str]], state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     filtered_tensors = []
     for shared in tensors:
@@ -50,7 +52,6 @@ def _filter_shared_not_shared(tensors: List[Set[str]], state_dict: Dict[str, tor
             areas.append((tensor.data_ptr(), _end_ptr(tensor), name))
         areas.sort()
 
-        
         _, last_stop, last_name = areas[0]
         filtered_tensors.append({last_name})
         for start, stop, name in areas[1:]:
@@ -61,6 +62,7 @@ def _filter_shared_not_shared(tensors: List[Set[str]], state_dict: Dict[str, tor
             last_stop = stop
 
     return filtered_tensors
+
 
 def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     tensors = defaultdict(set)
@@ -96,7 +98,11 @@ def _remove_duplicate_names(
         complete_names = set([name for name in shared if _is_complete(state_dict[name])])
         if not complete_names:
             raise RuntimeError(
-                f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage.Refusing to save/load the model since you could be storing much more memory than needed. Please refer to https://huggingface.co/docs/safetensors/torch_shared_tensors for more information. Or open an issue."
+                "Error while trying to find names to remove to save state dict, but found no suitable name to keep"
+                f" for saving amongst: {shared}. None is covering the entire storage.Refusing to save/load the model"
+                " since you could be storing much more memory than needed. Please refer to"
+                " https://huggingface.co/docs/safetensors/torch_shared_tensors for more information. Or open an"
+                " issue."
             )
 
         keep_name = sorted(list(complete_names))[0]

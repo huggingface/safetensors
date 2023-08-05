@@ -5,10 +5,10 @@ import torch
 
 from safetensors import safe_open
 from safetensors.torch import (
+    _end_ptr,
     _find_shared_tensors,
     _is_complete,
     _remove_duplicate_names,
-    _end_ptr,
     load_model,
     save_file,
     save_model,
