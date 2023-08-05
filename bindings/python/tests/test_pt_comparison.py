@@ -43,13 +43,11 @@ class TorchTestCase(unittest.TestCase):
     def test_disjoint_tensors_shared_storage(self):
         A = torch.zeros((10, 10))
         data = {
-            "test": A[:, :0],
-            "test2": A[:0],
+            "test": A[1:],
+            "test2": A[:1],
         }
         local = "./tests/data/out_safe_pt_mmap_small4.safetensors"
-        with self.assertRaises(RuntimeError) as ex:
-            save_file(data, local)
-        self.assertIn("tensors share memory", str(ex.exception))
+        save_file(data, local)
 
     def test_meta_tensor(self):
         A = torch.zeros((10, 10), device=torch.device("meta"))
