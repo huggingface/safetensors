@@ -21,7 +21,10 @@ def storage_ptr(tensor: torch.Tensor) -> int:
 
 
 def _end_ptr(tensor: torch.Tensor) -> int:
-    stop = tensor.view(-1)[-1].data_ptr() + _SIZE[tensor.dtype]
+    if tensor.nelement():
+        stop = tensor.view(-1)[-1].data_ptr() + _SIZE[tensor.dtype]
+    else:
+        stop = tensor.data_ptr()
     return stop
 
 
