@@ -84,8 +84,13 @@ jobs:
       - name: Install QEMU
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          docker pull --platform linux/s390x s390x/python
 
       - name: Run test build
         run: |
-          docker pull --platform linux/s390x s390x/python
           docker build --platform linux/s390x . -t s390x-safetensors -f Dockerfile.s390x.test
+      - name: Run test build
+        uses: docker/build-push-action@v4
+        with:
+          cache-from: type=registry,mode=max
+          cache-to: type=registry,mode=max
