@@ -94,5 +94,6 @@ jobs:
       - name: Run test build
         uses: docker/build-push-action@v4
         with:
+          push: true
           cache-from: type=registry,mode=max
           cache-to: type=registry,mode=max
