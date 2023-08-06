@@ -87,4 +87,4 @@ jobs:
 
       - name: Run test build
         run: |
-          docker build . -t s390x-safetensors -f Dockerfile.s390x.test
+          docker build --plateform linux/s390x . -t s390x-safetensors -f Dockerfile.s390x.test
