@@ -34,7 +34,7 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     """
     for tensor in tensor_dict.values():
         if not _is_little_endian(tensor):
-            raise ValueError("Safetensor format only accepts little endian")
+            tensor.byteswap(inplace=True)
     flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
@@ -72,7 +72,7 @@ def save_file(
     """
     for tensor in tensor_dict.values():
         if not _is_little_endian(tensor):
-            raise ValueError("Safetensor format only accepts little endian")
+            tensor.byteswap(inplace=True)
     flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
     serialize_file(flattened, filename, metadata=metadata)
 

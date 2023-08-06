@@ -379,13 +379,12 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
         return b""
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
-
+    if sys.byteorder == "big":
+        data.byteswap(inplace=True)
     return data.tobytes()
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
-    if sys.byteorder == "big":
-        raise ValueError("Big endian is not supported, serialization need to be in little endian")
     if not isinstance(tensors, dict):
         raise ValueError(f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}")
 

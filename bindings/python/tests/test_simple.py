@@ -80,9 +80,15 @@ class TestCase(unittest.TestCase):
 
     def test_serialization_no_big_endian(self):
         # Big endian tensor
-        data = np.zeros((2, 2), dtype=">u4")
-        with self.assertRaises(ValueError):
-            save({"test1": data})
+        data = np.zeros((2, 2), dtype=">i4")
+        out1 = save({"test1": data}, metadata={"framework": "pt"})
+        self.assertEqual(
+            out1,
+            b'`\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{"framework":"pt"},"test1":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}'
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+        self.assertEqual(out1[8:].index(b"\x00") + 8, 104)
+        self.assertEqual((out1[8:].index(b"\x00") + 8) % 8, 0)
 
     def test_accept_path(self):
         tensors = {

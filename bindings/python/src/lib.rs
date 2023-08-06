@@ -376,12 +376,35 @@ impl Open {
                     } else {
                         (intern!(py, "size"), intern!(py, "ByteStorage"))
                     };
-                    let kwargs =
-                        [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py);
-                    let storage = module
-                        .getattr(storage_name)?
-                        .getattr(intern!(py, "from_file"))?
-                        .call((py_filename,), Some(kwargs))?;
+
+                    let sys = PyModule::import(py, intern!(py, "sys"))?;
+                    let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
+
+                    let storage = if byteorder == "big" {
+                        let torch_uint8: PyObject = get_pydtype(module, Dtype::U8)?;
+                        let kwargs = [
+                            (intern!(py, "dtype"), torch_uint8),
+                            (intern!(py, "byte_order"), "big".into_py(py)),
+                        ]
+                        .into_py_dict(py);
+                        let builtins = PyModule::import(py, intern!(py, "builtins"))?;
+                        let py_buffer = builtins
+                            .getattr(intern!(py, "open"))?
+                            .call1((py_filename, intern!(py, "rb")))?
+                            .getattr(intern!(py, "read"))?
+                            .call0()?;
+                        module
+                            .getattr(storage_name)?
+                            .getattr(intern!(py, "from_buffer"))?
+                            .call((py_buffer,), Some(kwargs))?
+                    } else {
+                        let kwargs =
+                            [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py);
+                        module
+                            .getattr(storage_name)?
+                            .getattr(intern!(py, "from_file"))?
+                            .call((py_filename,), Some(kwargs))?
+                    };
 
                     let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
                         Ok(untyped) => untyped,
