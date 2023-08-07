@@ -116,10 +116,11 @@ jobs:
           registry: registry.internal.huggingface.tech
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
-      - name: Update upstream (CPU)
+      - name: Test big endian
         uses: docker/build-push-action@v4
         with:
           push: true
+          platform: linux/s390x
           file: Dockerfile.s390x.test
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
