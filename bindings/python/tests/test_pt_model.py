@@ -5,6 +5,7 @@ import torch
 
 from safetensors import safe_open
 from safetensors.torch import (
+    _end_ptr,
     _find_shared_tensors,
     _is_complete,
     _remove_duplicate_names,
@@ -73,6 +74,50 @@ class TorchModelTestCase(unittest.TestCase):
         self.assertEqual(_find_shared_tensors({"C": C, "D": D}), [])
         self.assertEqual(_find_shared_tensors({"C": C}), [])
         self.assertEqual(_find_shared_tensors({"D": D}), [])
+
+    def test_find_shared_non_shared_tensors(self):
+        A = torch.zeros((4,))
+        B = A[:2]
+        C = A[2:]
+        # Shared storage but do not overlap
+        self.assertEqual(_find_shared_tensors({"B": B, "C": C}), [{"B"}, {"C"}])
+
+        B = A[:2]
+        C = A[1:]
+        # Shared storage but *do* overlap
+        self.assertEqual(_find_shared_tensors({"B": B, "C": C}), [{"B", "C"}])
+
+        B = A[:2]
+        C = A[2:]
+        D = A[:1]
+        # Shared storage but *do* overlap
+        self.assertEqual(_find_shared_tensors({"B": B, "C": C, "D": D}), [{"B", "D"}, {"C"}])
+
+    def test_end_ptr(self):
+        A = torch.zeros((4,))
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        self.assertEqual(end - start, 16)
+        B = torch.zeros((16,))
+        A = B[::4]
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        # Jump 3 times 16 byes (the stride of B)
+        # Then add the size of the datapoint 4 bytes
+        self.assertEqual(end - start, 16 * 3 + 4)
+
+        ## FLOAT16
+        A = torch.zeros((4,), dtype=torch.float16)
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        self.assertEqual(end - start, 8)
+        B = torch.zeros((16,), dtype=torch.float16)
+        A = B[::4]
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        # Jump 3 times 8 bytes (the stride of B)
+        # Then add the size of the datapoint 4 bytes
+        self.assertEqual(end - start, 8 * 3 + 2)
 
     def test_remove_duplicate_names(self):
         A = torch.zeros((3, 3))

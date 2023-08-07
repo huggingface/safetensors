@@ -20,6 +20,14 @@ def storage_ptr(tensor: torch.Tensor) -> int:
             return 0
 
 
+def _end_ptr(tensor: torch.Tensor) -> int:
+    if tensor.nelement():
+        stop = tensor.view(-1)[-1].data_ptr() + _SIZE[tensor.dtype]
+    else:
+        stop = tensor.data_ptr()
+    return stop
+
+
 def storage_size(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().nbytes()
@@ -33,6 +41,32 @@ def storage_size(tensor: torch.Tensor) -> int:
             return tensor.nelement() * _SIZE[tensor.dtype]
 
 
+def _filter_shared_not_shared(tensors: List[Set[str]], state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
+    filtered_tensors = []
+    for shared in tensors:
+
+        if len(shared) < 2:
+            filtered_tensors.append(shared)
+            continue
+
+        areas = []
+        for name in shared:
+            tensor = state_dict[name]
+            areas.append((tensor.data_ptr(), _end_ptr(tensor), name))
+        areas.sort()
+
+        _, last_stop, last_name = areas[0]
+        filtered_tensors.append({last_name})
+        for start, stop, name in areas[1:]:
+            if start >= last_stop:
+                filtered_tensors.append({name})
+            else:
+                filtered_tensors[-1].add(name)
+            last_stop = stop
+
+    return filtered_tensors
+
+
 def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     tensors = defaultdict(set)
     for k, v in state_dict.items():
@@ -40,6 +74,7 @@ def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
             # Need to add device as key because of multiple GPU.
             tensors[(v.device, storage_ptr(v), storage_size(v))].add(k)
     tensors = list(sorted(tensors.values()))
+    tensors = _filter_shared_not_shared(tensors, state_dict)
     return tensors
 
 
@@ -50,8 +85,8 @@ def _is_complete(tensor: torch.Tensor) -> bool:
 def _remove_duplicate_names(
     state_dict: Dict[str, torch.Tensor],
     *,
-    preferred_names: List[str] = None,
-    discard_names: List[str] = None,
+    preferred_names: Optional[List[str]] = None,
+    discard_names: Optional[List[str]] = None,
 ) -> Dict[str, List[str]]:
     if preferred_names is None:
         preferred_names = []
@@ -66,7 +101,11 @@ def _remove_duplicate_names(
         complete_names = set([name for name in shared if _is_complete(state_dict[name])])
         if not complete_names:
             raise RuntimeError(
-                f"Error while trying to find names to remove to save state dict, but found no suitable name to keep for saving amongst: {shared}. None is covering the entire storage.Refusing to save/load the model since you could be storing much more memory than needed. Please refer to https://huggingface.co/docs/safetensors/torch_shared_tensors for more information. Or open an issue."
+                "Error while trying to find names to remove to save state dict, but found no suitable name to keep"
+                f" for saving amongst: {shared}. None is covering the entire storage.Refusing to save/load the model"
+                " since you could be storing much more memory than needed. Please refer to"
+                " https://huggingface.co/docs/safetensors/torch_shared_tensors for more information. Or open an"
+                " issue."
             )
 
         keep_name = sorted(list(complete_names))[0]

@@ -43,13 +43,11 @@ class TorchTestCase(unittest.TestCase):
     def test_disjoint_tensors_shared_storage(self):
         A = torch.zeros((10, 10))
         data = {
-            "test": A[:, :0],
-            "test2": A[:0],
+            "test": A[1:],
+            "test2": A[:1],
         }
         local = "./tests/data/out_safe_pt_mmap_small4.safetensors"
-        with self.assertRaises(RuntimeError) as ex:
-            save_file(data, local)
-        self.assertIn("tensors share memory", str(ex.exception))
+        save_file(data, local)
 
     def test_meta_tensor(self):
         A = torch.zeros((10, 10), device=torch.device("meta"))
@@ -69,7 +67,8 @@ class TorchTestCase(unittest.TestCase):
         self.assertEqual(
             binary,
             # Spaces are for forcing the alignment.
-            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}    \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
         )
         reloaded = load(binary)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
@@ -91,8 +90,8 @@ class TorchTestCase(unittest.TestCase):
             save_file(data, local)
         self.assertEqual(
             str(ctx.exception),
-            "You are trying to save a sparse tensors: `['test']` which this library does not support. You can make it a"
-            " dense tensor before saving with `.to_dense()` but be aware this might make a much larger file than"
+            "You are trying to save a sparse tensors: `['test']` which this library does not support. You can make it"
+            " a dense tensor before saving with `.to_dense()` but be aware this might make a much larger file than"
             " needed.",
         )
 
