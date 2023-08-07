@@ -88,9 +88,6 @@ jobs:
           docker buildx create --use --driver=docker-container
 
 
-      - name: Run test build
-        run: |
-          docker build --platform linux/s390x . -t s390x-safetensors -f Dockerfile.s390x.test
       - uses: tailscale/github-action@v1
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
@@ -123,6 +120,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           push: true
+          file: Dockerfile.s390x.test
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=registry.internal.huggingface.tech/safetensors/s390x:cache,mode=max
