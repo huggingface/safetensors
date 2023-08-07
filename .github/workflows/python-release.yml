@@ -1,9 +1,9 @@
-name: Python Release
+??? from here until ???END lines may have been inserted/deleted
 
 on:
   push:
-    # tags:
-    #   - v*
+    tags:
+      - python-v*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -19,9 +19,9 @@ jobs:
     name: Create wheels for manylinux2014
     container: quay.io/pypa/manylinux2014_x86_64
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v1
 
-      - name: Install dependencies
+      - name: Install dependencieud
         run: yum install -y openssl-devel
 
       - name: Build and audit wheels
@@ -108,7 +108,7 @@ jobs:
       - name: Rename wheels
         shell: bash
         working-directory: ./bindings/python/dist
-        run: for file in *macos*.whl ; do mv $file ${file//macosx_10_1[0-9]/macosx_10_11} ; done
+        run: for file in *.whl ; do mv $file ${file//macosx_10_1[0-9]/macosx_10_11} || true; done
 
       - name: Upload wheels
         shell: bash
@@ -121,9 +121,13 @@ jobs:
     runs-on: macos-arm64
     strategy:
       matrix:
-        python: ["3.8.16", "3.9.13", "3.10.6", "3.11.0"]
+        python: ["3.9.13", "3.10.6", "3.11.0"]
     steps:
-      - name: Checkout repository
+    steps:
+???
+??? lines may be missing
+???END
+??? from here until ???END lines may have been inserted/deleted
         uses: actions/checkout@v2
 
       - name: Install Rust
@@ -181,3 +185,7 @@ jobs:
         run: |
           pip install twine
           twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
+
+???
+??? lines may be missing
+???END
