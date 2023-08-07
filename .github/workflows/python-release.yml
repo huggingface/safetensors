@@ -18,9 +18,9 @@ jobs:
     name: Create wheels for manylinux2014
     container: quay.io/pypa/manylinux2014_x86_64
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
 
-      - name: Install dependencieud
+      - name: Install dependencies
         run: yum install -y openssl-devel
 
       - name: Build and audit wheels
@@ -122,12 +122,8 @@ jobs:
       matrix:
         python: ["3.9.13", "3.10.6", "3.11.0"]
     steps:
-    steps:
-???
-??? lines may be missing
-???END
-??? from here until ???END lines may have been inserted/deleted
-        uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -157,7 +153,7 @@ jobs:
     needs: [create_wheels_manylinux, create_wheels_windows_32bit, create_wheels_others_64bit, create_wheels_macos_arm64]
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
 
       - name: Install Python
         uses: actions/setup-python@v4
