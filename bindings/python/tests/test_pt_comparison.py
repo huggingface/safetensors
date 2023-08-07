@@ -1,4 +1,5 @@
 import unittest
+import sys
 
 import torch
 
@@ -211,13 +212,17 @@ class SliceTestCase(unittest.TestCase):
             self.assertEqual(_slice.get_dtype(), "F32")
             tensor = _slice[:, :, 1:2]
 
-        self.assertEqual(
-            tensor.numpy().tobytes(),
-            b"\x00\x00\x80?\x00\x00\x80@",
-        )
-
         self.assertTrue(torch.equal(tensor, torch.Tensor([[[1.0], [4.0]]])))
         self.assertTrue(torch.equal(tensor, self.tensor[:, :, 1:2]))
+
+        buffer = tensor.numpy()
+        if sys.byteorder == "big":
+            buffer.byteswap(inplace=True)
+        buffer = buffer.tobytes()
+        self.assertEqual(
+            buffer,
+            b"\x00\x00\x80?\x00\x00\x80@",
+        )
 
     def test_deserialization_metadata(self):
         with safe_open(self.local, framework="pt") as f:

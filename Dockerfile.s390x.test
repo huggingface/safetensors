@@ -1,0 +1,14 @@
+FROM s390x/python
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py311_23.5.2-0-Linux-s390x.sh \
+    && bash Miniconda3-py311_23.5.2-0-Linux-s390x.sh -b \
+    && rm -f Miniconda3-py311_23.5.2-0-Linux-s390x.sh
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
+RUN /root/miniconda3/bin/conda install pytorch cpuonly -c pytorch -y
+WORKDIR /safetensors/
+RUN /root/miniconda3/bin/pip install -U pip pytest
+COPY . .
+SHELL ["/bin/bash", "-c"]
+WORKDIR /safetensors/bindings/python/
+RUN source /root/.cargo/env && /root/miniconda3/bin/pip install -e .
+RUN /root/miniconda3/bin/pytest -sv tests/test_pt_* tests/test_simple.py
+ENTRYPOINT /bin/bash
