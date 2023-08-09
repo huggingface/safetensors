@@ -144,7 +144,7 @@ jobs:
           which python
           pip install -U setuptools wheel setuptools-rust awscli
           cd ./bindings/python
-        MACOSX_DEPLOYMENT_TARGET=${{ matrix.target }} python setup.py bdist_wheel
+          MACOSX_DEPLOYMENT_TARGET=${{ matrix.target }} python setup.py bdist_wheel
           cd ../../
           aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
 
