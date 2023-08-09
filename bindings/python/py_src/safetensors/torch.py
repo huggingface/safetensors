@@ -7,6 +7,13 @@ import torch
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
 
+try:
+    from torch._guards import detect_fake_mode
+except Exception:
+    # Pytorch older than 2.x does not support FakeTensorMode
+    def detect_fake_mode():
+        return False
+
 
 def storage_ptr(tensor: torch.Tensor) -> int:
     try:
@@ -308,7 +315,13 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torc
     result = {}
     with safe_open(filename, framework="pt", device=device) as f:
         for k in f.keys():
-            result[k] = f.get_tensor(k)
+            fake_mode = detect_fake_mode()
+            if not fake_mode:
+                result[k] = f.get_tensor(k)
+            else:
+                empty_tensor = f.get_slice(k)
+                result[k] = torch.empty(tuple(empty_tensor.get_shape()),
+                                        dtype=_getdtype(empty_tensor.get_dtype()))
     return result
 
 
