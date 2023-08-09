@@ -199,8 +199,8 @@ jobs:
       # - create_wheels_manylinux
       # - create_wheels_windows_32bit
       # - create_wheels_others_64bit
-      # - create_wheels_macos_arm64
-      - create_wheels_macos_13
+      - create_wheels_macos_arm64
+      # - create_wheels_macos_13
 
     steps:
       - uses: actions/checkout@v3
