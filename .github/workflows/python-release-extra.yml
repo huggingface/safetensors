@@ -2,8 +2,8 @@ name: Python Release extra
 
 on:
   push:
-    # tags:
-    #   - v*
+    tags:
+      - v*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
