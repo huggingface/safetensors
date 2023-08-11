@@ -71,14 +71,14 @@ def rename(pt_filename: str) -> str:
 
 
 def convert_multi(model_id: str, folder: str, token: Optional[str]) -> ConversionResult:
-    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json", token=token)
+    filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin.index.json", token=token, cache_dir=folder)
     with open(filename, "r") as f:
         data = json.load(f)
 
     filenames = set(data["weight_map"].values())
     local_filenames = []
     for filename in filenames:
-        pt_filename = hf_hub_download(repo_id=model_id, filename=filename, token=token)
+        pt_filename = hf_hub_download(repo_id=model_id, filename=filename, token=token, cache_dir=folder)
 
         sf_filename = rename(pt_filename)
         sf_filename = os.path.join(folder, sf_filename)
@@ -102,7 +102,7 @@ def convert_multi(model_id: str, folder: str, token: Optional[str]) -> Conversio
 
 
 def convert_single(model_id: str, folder: str, token: Optional[str]) -> ConversionResult:
-    pt_filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin", token=token)
+    pt_filename = hf_hub_download(repo_id=model_id, filename="pytorch_model.bin", token=token, cache_dir=folder)
 
     sf_name = "model.safetensors"
     sf_filename = os.path.join(folder, sf_name)
@@ -156,7 +156,7 @@ def create_diff(pt_infos: Dict[str, List[str]], sf_infos: Dict[str, List[str]]) 
 
 
 def check_final_model(model_id: str, folder: str, token: Optional[str]):
-    config = hf_hub_download(repo_id=model_id, filename="config.json", token=token)
+    config = hf_hub_download(repo_id=model_id, filename="config.json", token=token, cache_dir=folder)
     shutil.copy(config, os.path.join(folder, "config.json"))
     config = AutoConfig.from_pretrained(folder)
 
@@ -243,7 +243,7 @@ def convert_generic(model_id: str, folder: str, filenames: Set[str], token: Opti
     for filename in filenames:
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
-            pt_filename = hf_hub_download(model_id, filename=filename, token=token)
+            pt_filename = hf_hub_download(model_id, filename=filename, token=token, cache_dir=folder)
             dirname, raw_filename = os.path.split(filename)
             if raw_filename == "pytorch_model.bin":
                 # XXX: This is a special case to handle `transformers` and the
