@@ -378,6 +378,8 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
     for k, v in safeview:
         dtype = _getdtype(v["dtype"])
         arr = torch.frombuffer(v["data"], dtype=dtype).reshape(v["shape"])
+        if sys.byteorder == "big":
+            arr = torch.from_numpy(arr.numpy().byteswap(inplace=False))
         result[k] = arr
 
     return result
@@ -419,7 +421,23 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
-        data.byteswap(inplace=True)
+        NPDTYPES = {
+            torch.int64: np.int64,
+            torch.float32: np.float32,
+            torch.int32: np.int32,
+            # torch.bfloat16: np.bfloat16,
+            torch.float16: np.float16,
+            torch.int16: np.int16,
+            torch.uint8: np.uint8,
+            torch.int8: np.int8,
+            torch.bool: bool,
+            torch.float64: np.float64,
+        }
+        if tensor.dtype not in NPDTYPES:
+            raise NotImplementedError("Bfloat16 + bigendian is not supported due to the use of numpy as byteswapping engine")
+        npdtype = NPDTYPES[tensor.dtype]
+        # Not in place as that would potentially modify a live running model
+        data = data.view(npdtype).byteswap(inplace=False)
     return data.tobytes()
 
 

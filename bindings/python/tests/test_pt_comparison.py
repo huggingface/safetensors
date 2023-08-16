@@ -8,6 +8,40 @@ from safetensors.torch import load, load_file, save, save_file
 
 
 class TorchTestCase(unittest.TestCase):
+    def test_serialization(self):
+        data = torch.zeros((2, 2), dtype=torch.int32)
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+
+        save_file({"test": data}, "serialization.safetensors")
+        out = open("serialization.safetensors", "rb").read()
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+
+        data[1, 1] = 1
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00",
+        )
+        save_file({"test": data}, "serialization.safetensors")
+        out = open("serialization.safetensors", "rb").read()
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00",
+        )
+
     def test_odd_dtype(self):
         data = {
             "test": torch.zeros((2, 2), dtype=torch.bfloat16),
@@ -15,11 +49,16 @@ class TorchTestCase(unittest.TestCase):
             "test3": torch.zeros((2, 2), dtype=torch.bool),
         }
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
-        save_file(data, local)
-        reloaded = load_file(local)
-        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
-        self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
-        self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
+
+        if sys.byteorder == "big":
+            with self.assertRaises(Exception):
+                save_file(data, local)
+        else:
+            save_file(data, local)
+            reloaded = load_file(local)
+            self.assertTrue(torch.equal(data["test"], reloaded["test"]))
+            self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
+            self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
 
     def test_zero_sized(self):
         data = {

@@ -15,12 +15,19 @@ from safetensors.torch import (
 )
 
 
+class OnesModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.a = torch.nn.Linear(4, 4)
+        self.a.weight = torch.nn.Parameter(torch.ones((4, 4)))
+        self.a.bias = torch.nn.Parameter(torch.ones((4, )))
+        self.b = self.a
+
 class Model(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.a = torch.nn.Linear(100, 100)
         self.b = self.a
-
 
 class NonContiguousModel(torch.nn.Module):
     def __init__(self):
@@ -141,6 +148,23 @@ class TorchModelTestCase(unittest.TestCase):
     #     with self.assertRaises(RuntimeError) as ctx:
     #         save_model(model, "tmp4.safetensors")
     #     self.assertIn(".Refusing to save/load the model since you could be storing much more memory than needed.", str(ctx.exception))
+
+    def test_save(self):
+        # Just testing the actual saved file to make sure we're ok on big endian
+        model = OnesModel()
+        save_model(model, "tmp_ones.safetensors")
+        with safe_open("tmp_ones.safetensors", framework="pt") as f:
+            self.assertEqual(f.metadata(), {"b.bias": "a.bias", "b.weight": "a.weight"})
+
+        # 192 hardcoded to skip the header, metadata order is random.
+        self.assertEqual(open("tmp_ones.safetensors", "rb").read()[192:], b"""\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?""")
+
+        model2 = OnesModel()
+        load_model(model2, "tmp_ones.safetensors")
+
+        state_dict = model.state_dict()
+        for k, v in model2.state_dict().items():
+            torch.testing.assert_close(v, state_dict[k])
 
     def test_workaround(self):
         model = Model()

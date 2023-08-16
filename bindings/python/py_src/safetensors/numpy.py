@@ -7,6 +7,11 @@ import numpy as np
 from safetensors import deserialize, safe_open, serialize, serialize_file
 
 
+def _tobytes(tensor: np.ndarray) -> bytes:
+    if not _is_little_endian(tensor):
+        tensor = tensor.byteswap(inplace=False)
+    return tensor.tobytes()
+
 def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.
@@ -32,10 +37,7 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     byte_data = save(tensors)
     ```
     """
-    for tensor in tensor_dict.values():
-        if not _is_little_endian(tensor):
-            tensor.byteswap(inplace=True)
-    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
+    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
@@ -70,10 +72,7 @@ def save_file(
     save(tensors, "model.safetensors")
     ```
     """
-    for tensor in tensor_dict.values():
-        if not _is_little_endian(tensor):
-            tensor.byteswap(inplace=True)
-    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
+    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
     serialize_file(flattened, filename, metadata=metadata)
 
 
