@@ -50,15 +50,11 @@ class TorchTestCase(unittest.TestCase):
         }
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
 
-        if sys.byteorder == "big":
-            with self.assertRaises(Exception):
-                save_file(data, local)
-        else:
-            save_file(data, local)
-            reloaded = load_file(local)
-            self.assertTrue(torch.equal(data["test"], reloaded["test"]))
-            self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
-            self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
+        save_file(data, local)
+        reloaded = load_file(local)
+        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
+        self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
+        self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
 
     def test_zero_sized(self):
         data = {
