@@ -554,6 +554,24 @@ impl<'data> View for &TensorView<'data> {
     }
 }
 
+impl<'data> View for TensorView<'data> {
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn data(&self) -> Cow<[u8]> {
+        self.data.into()
+    }
+
+    fn data_len(&self) -> usize {
+        self.data.len()
+    }
+}
+
 impl<'data> TensorView<'data> {
     /// Create new tensor view
     pub fn new(
