@@ -25,9 +25,24 @@ class TestCase(unittest.TestCase):
             b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
         )
 
+        save_file({"test": data}, "serialization.safetensors")
+        out = open("serialization.safetensors", "rb").read()
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+
         data[1, 1] = 1
         out = save({"test": data})
 
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00",
+        )
+        save_file({"test": data}, "serialization.safetensors")
+        out = open("serialization.safetensors", "rb").read()
         self.assertEqual(
             out,
             b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}   '

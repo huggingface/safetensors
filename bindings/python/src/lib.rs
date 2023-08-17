@@ -377,34 +377,12 @@ impl Open {
                         (intern!(py, "size"), intern!(py, "ByteStorage"))
                     };
 
-                    let sys = PyModule::import(py, intern!(py, "sys"))?;
-                    let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
-
-                    let storage = if byteorder == "big" {
-                        let torch_uint8: PyObject = get_pydtype(module, Dtype::U8)?;
-                        let kwargs = [
-                            (intern!(py, "dtype"), torch_uint8),
-                            (intern!(py, "byte_order"), "big".into_py(py)),
-                        ]
-                        .into_py_dict(py);
-                        let builtins = PyModule::import(py, intern!(py, "builtins"))?;
-                        let py_buffer = builtins
-                            .getattr(intern!(py, "open"))?
-                            .call1((py_filename, intern!(py, "rb")))?
-                            .getattr(intern!(py, "read"))?
-                            .call0()?;
-                        module
-                            .getattr(storage_name)?
-                            .getattr(intern!(py, "from_buffer"))?
-                            .call((py_buffer,), Some(kwargs))?
-                    } else {
-                        let kwargs =
-                            [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py);
-                        module
-                            .getattr(storage_name)?
-                            .getattr(intern!(py, "from_file"))?
-                            .call((py_filename,), Some(kwargs))?
-                    };
+                    let kwargs =
+                        [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py);
+                    let storage = module
+                        .getattr(storage_name)?
+                        .getattr(intern!(py, "from_file"))?
+                        .call((py_filename,), Some(kwargs))?;
 
                     let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
                         Ok(untyped) => untyped,
@@ -509,18 +487,47 @@ impl Open {
                         .get(py)
                         .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                     let storage: &PyAny = storage.as_ref(py);
-
                     let storage_slice = storage
                         .getattr(intern!(py, "__getitem__"))?
                         .call1((slice,))?;
+
+                    let sys = PyModule::import(py, intern!(py, "sys"))?;
+                    let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
 
                     let mut tensor = torch
                         .getattr(intern!(py, "asarray"))?
                         .call((storage_slice,), Some(kwargs))?
                         .getattr(intern!(py, "view"))?
-                        .call((), Some(view_kwargs))?
-                        .getattr(intern!(py, "reshape"))?
-                        .call1((shape,))?;
+                        .call((), Some(view_kwargs))?;
+
+                    if byteorder == "big" {
+                        let inplace_kwargs =
+                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py);
+                        if info.dtype == Dtype::BF16 {
+                            let torch_f16: PyObject = get_pydtype(torch, Dtype::F16)?;
+                            tensor = tensor.getattr(intern!(py, "to"))?.call(
+                                (),
+                                Some([(intern!(py, "dtype"), torch_f16)].into_py_dict(py)),
+                            )?;
+                        }
+
+                        let numpy = tensor
+                            .getattr(intern!(py, "numpy"))?
+                            .call0()?
+                            .getattr("byteswap")?
+                            .call((), Some(inplace_kwargs))?;
+                        tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
+
+                        if info.dtype == Dtype::BF16 {
+                            let torch_bf16: PyObject = get_pydtype(torch, Dtype::BF16)?;
+                            tensor = tensor.getattr(intern!(py, "to"))?.call(
+                                (),
+                                Some([(intern!(py, "dtype"), torch_bf16)].into_py_dict(py)),
+                            )?;
+                        }
+                    }
+
+                    tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
                     if self.device != Device::Cpu {
                         let device: PyObject = self.device.clone().into_py(py);
                         let kwargs = PyDict::new(py);
@@ -809,11 +816,27 @@ impl PySafeSlice {
                     .call1((slice,))?;
 
                 let slices = slices.into_py(py);
+
+                let sys = PyModule::import(py, intern!(py, "sys"))?;
+                let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
+
                 let mut tensor = torch
                     .getattr(intern!(py, "asarray"))?
                     .call((storage_slice,), Some(kwargs))?
                     .getattr(intern!(py, "view"))?
-                    .call((), Some(view_kwargs))?
+                    .call((), Some(view_kwargs))?;
+                if byteorder == "big" {
+                    let inplace_kwargs =
+                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py);
+
+                    let numpy = tensor
+                        .getattr(intern!(py, "numpy"))?
+                        .call0()?
+                        .getattr("byteswap")?
+                        .call((), Some(inplace_kwargs))?;
+                    tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
+                }
+                tensor = tensor
                     .getattr(intern!(py, "reshape"))?
                     .call1((shape,))?
                     .getattr(intern!(py, "__getitem__"))?

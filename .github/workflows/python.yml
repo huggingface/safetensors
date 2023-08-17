@@ -114,5 +114,5 @@ jobs:
           file: Dockerfile.s390x.test
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=registry.internal.huggingface.tech/safetensors/s390x:cache,mode=max
-          cache-to: type=registry,ref=registry.internal.huggingface.tech/safetensors/s390x:cache,mode=max
+          cache-from: type=registry,ref=registry.internal.huggingface.tech/safetensors/s390x:cache,mode=min
+          cache-to: type=registry,ref=registry.internal.huggingface.tech/safetensors/s390x:cache,mode=min

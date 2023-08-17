@@ -44,7 +44,6 @@ def storage_size(tensor: torch.Tensor) -> int:
 def _filter_shared_not_shared(tensors: List[Set[str]], state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     filtered_tensors = []
     for shared in tensors:
-
         if len(shared) < 2:
             filtered_tensors.append(shared)
             continue
@@ -378,6 +377,8 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
     for k, v in safeview:
         dtype = _getdtype(v["dtype"])
         arr = torch.frombuffer(v["data"], dtype=dtype).reshape(v["shape"])
+        if sys.byteorder == "big":
+            arr = torch.from_numpy(arr.numpy().byteswap(inplace=False))
         result[k] = arr
 
     return result
@@ -419,7 +420,22 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
-        data.byteswap(inplace=True)
+        NPDTYPES = {
+            torch.int64: np.int64,
+            torch.float32: np.float32,
+            torch.int32: np.int32,
+            # XXX: This is ok because both have the same width
+            torch.bfloat16: np.float16,
+            torch.float16: np.float16,
+            torch.int16: np.int16,
+            torch.uint8: np.uint8,
+            torch.int8: np.int8,
+            torch.bool: bool,
+            torch.float64: np.float64,
+        }
+        npdtype = NPDTYPES[tensor.dtype]
+        # Not in place as that would potentially modify a live running model
+        data = data.view(npdtype).byteswap(inplace=False)
     return data.tobytes()
 
 
