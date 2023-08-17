@@ -198,6 +198,19 @@ class ReadmeTestCase(unittest.TestCase):
         loaded = load(out)
         self.assertTensorEqual(tensors, loaded, np.allclose)
 
+    def test_numpy_bool(self):
+        tensors = {"a": np.asarray(False)}
+
+        save_file(tensors, "./out_bool.safetensors")
+        out = save(tensors)
+
+        # Now loading
+        loaded = load_file("./out_bool.safetensors")
+        self.assertTensorEqual(tensors, loaded, np.allclose)
+
+        loaded = load(out)
+        self.assertTensorEqual(tensors, loaded, np.allclose)
+
     def test_torch_example(self):
         tensors = {
             "a": torch.zeros((2, 2)),
