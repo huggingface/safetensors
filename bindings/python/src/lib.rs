@@ -503,9 +503,12 @@ impl Open {
                     if byteorder == "big" {
                         let inplace_kwargs =
                             [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py);
-                        if info.dtype == Dtype::BF16{
+                        if info.dtype == Dtype::BF16 {
                             let torch_f16: PyObject = get_pydtype(torch, Dtype::F16)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call((), Some([(intern!(py, "dtype"), torch_f16)].into_py_dict(py)))?;
+                            tensor = tensor.getattr(intern!(py, "to"))?.call(
+                                (),
+                                Some([(intern!(py, "dtype"), torch_f16)].into_py_dict(py)),
+                            )?;
                         }
 
                         let numpy = tensor
@@ -515,9 +518,12 @@ impl Open {
                             .call((), Some(inplace_kwargs))?;
                         tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
 
-                        if info.dtype == Dtype::BF16{
+                        if info.dtype == Dtype::BF16 {
                             let torch_bf16: PyObject = get_pydtype(torch, Dtype::BF16)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call((), Some([(intern!(py, "dtype"), torch_bf16)].into_py_dict(py)))?;
+                            tensor = tensor.getattr(intern!(py, "to"))?.call(
+                                (),
+                                Some([(intern!(py, "dtype"), torch_bf16)].into_py_dict(py)),
+                            )?;
                         }
                     }
 
