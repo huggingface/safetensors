@@ -44,7 +44,6 @@ def storage_size(tensor: torch.Tensor) -> int:
 def _filter_shared_not_shared(tensors: List[Set[str]], state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
     filtered_tensors = []
     for shared in tensors:
-
         if len(shared) < 2:
             filtered_tensors.append(shared)
             continue

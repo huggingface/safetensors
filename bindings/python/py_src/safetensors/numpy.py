@@ -12,6 +12,7 @@ def _tobytes(tensor: np.ndarray) -> bytes:
         tensor = tensor.byteswap(inplace=False)
     return tensor.tobytes()
 
+
 def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
     Saves a dictionnary of tensors into raw bytes in safetensors format.

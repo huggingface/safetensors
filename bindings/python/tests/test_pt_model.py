@@ -20,14 +20,16 @@ class OnesModel(torch.nn.Module):
         super().__init__()
         self.a = torch.nn.Linear(4, 4)
         self.a.weight = torch.nn.Parameter(torch.ones((4, 4)))
-        self.a.bias = torch.nn.Parameter(torch.ones((4, )))
+        self.a.bias = torch.nn.Parameter(torch.ones((4,)))
         self.b = self.a
+
 
 class Model(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.a = torch.nn.Linear(100, 100)
         self.b = self.a
+
 
 class NonContiguousModel(torch.nn.Module):
     def __init__(self):
@@ -113,7 +115,7 @@ class TorchModelTestCase(unittest.TestCase):
         # Then add the size of the datapoint 4 bytes
         self.assertEqual(end - start, 16 * 3 + 4)
 
-        ## FLOAT16
+        # FLOAT16
         A = torch.zeros((4,), dtype=torch.float16)
         start = A.data_ptr()
         end = _end_ptr(A)
@@ -157,7 +159,10 @@ class TorchModelTestCase(unittest.TestCase):
             self.assertEqual(f.metadata(), {"b.bias": "a.bias", "b.weight": "a.weight"})
 
         # 192 hardcoded to skip the header, metadata order is random.
-        self.assertEqual(open("tmp_ones.safetensors", "rb").read()[192:], b"""\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?""")
+        self.assertEqual(
+            open("tmp_ones.safetensors", "rb").read()[192:],
+            b"""\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?""",
+        )
 
         model2 = OnesModel()
         load_model(model2, "tmp_ones.safetensors")
