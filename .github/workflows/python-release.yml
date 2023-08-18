@@ -45,7 +45,7 @@ jobs:
           override: true
 
       - name: Override toolchain
-        if: ${{ matrix.os == "32" }}
+        if: ${{ matrix.os == '32' }}
         shell: bash
         working-directory: ./bindings/python
         run: echo "stable-i686-pc-windows-msvc" > rust-toolchain
