@@ -28,7 +28,7 @@ jobs:
         run: sh build-wheels.sh
 
   create_wheels_windows:
-    name: Create wheels for windows (64-bit/32-bit)
+    name: Windows 
     runs-on: windows-latest
     strategy:
       matrix:
@@ -38,7 +38,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Install Rust
+      - name: Install Rust 32bits
+        if: ${{ matrix.os == '32' }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable-i686-pc-windows-msvc
+          override: true
+
+      - name: Install Rust 64bits
+        if: ${{ matrix.os == '32' }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable-i686-pc-windows-msvc
@@ -125,7 +133,7 @@ jobs:
 
 
   create_wheels_macos_arm64:
-    name: Create wheels for MacOS M1
+    name: MacOS M1
     runs-on: macos-arm64
     strategy:
       matrix:
