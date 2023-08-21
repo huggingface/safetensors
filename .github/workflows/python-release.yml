@@ -86,6 +86,7 @@ jobs:
     strategy:
       matrix:
         python: ["3.7", "3.8", "3.9", "3.10", "3.11"]
+        os: ["macos-12", "macos-13", "macos-latest"]
         include:
           - os: macos-12
             target: 10.11
