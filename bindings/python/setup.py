@@ -36,11 +36,11 @@ def deps_list(*pkgs):
 
 
 extras = {}
-extras["torch"] = deps_list("torch")
 extras["numpy"] = deps_list("numpy")
-extras["tensorflow"] = deps_list("tensorflow")
-extras["jax"] = deps_list("jax", "flax", "jaxlib")
-extras["paddlepaddle"] = deps_list("paddlepaddle")
+extras["torch"] = deps_list("torch") + extras["numpy"]
+extras["tensorflow"] = deps_list("tensorflow") + extras["numpy"]
+extras["jax"] = deps_list("jax", "flax", "jaxlib") + extras["numpy"]
+extras["paddlepaddle"] = deps_list("paddlepaddle") + extras["numpy"]
 extras["quality"] = deps_list("black", "isort", "flake8", "click")
 extras["testing"] = (
     deps_list("setuptools_rust", "huggingface_hub", "pytest", "pytest-benchmark", "h5py") + extras["numpy"]
