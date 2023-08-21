@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1692255886255,
+  "lastUpdate": 1692602431494,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -10572,6 +10572,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012517490983671725",
             "extra": "mean: 412.7108579999913 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "clowman1993@gmail.com",
+            "name": "Corey Lowman",
+            "username": "coreylowman"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34a2a0a29014faa342ebfb1a0cc22b9574da96d6",
+          "message": "impl `View` for `TensorView` (#329)\n\nThe existing impl only exists for `&TensorView`, which means you cannot pass a `Vec<(String, TensorView)>` into `serialize_to_file`. With this new impl, you can.",
+          "timestamp": "2023-08-21T09:14:25+02:00",
+          "tree_id": "e89e2d056a9f745f51efa9ad2e707198dc1901e7",
+          "url": "https://github.com/huggingface/safetensors/commit/34a2a0a29014faa342ebfb1a0cc22b9574da96d6"
+        },
+        "date": 1692602430375,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1234651558888427,
+            "unit": "iter/sec",
+            "range": "stddev: 0.037431328136382565",
+            "extra": "mean: 890.1032620000024 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.092953190943798,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061855776614343556",
+            "extra": "mean: 323.31559460001245 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.9480309547024866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023881604096171065",
+            "extra": "mean: 339.20946399998684 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.4510971629062923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01910690619529209",
+            "extra": "mean: 407.9805628000031 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 5.3122635249210175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03884329324300021",
+            "extra": "mean: 188.24367340000663 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 100.78756613619653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00022200339080932007",
+            "extra": "mean: 9.921858800009886 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.3774366669372502,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04344914499938044",
+            "extra": "mean: 725.9861916000204 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 2.830856976743855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01175357509457722",
+            "extra": "mean: 353.24991979998686 msec\nrounds: 5"
           }
         ]
       }
