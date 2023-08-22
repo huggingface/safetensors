@@ -82,20 +82,11 @@ jobs:
 
   create_wheels_macos:
     name: MacOS
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os.os }}
     strategy:
       matrix:
         python: ["3.7", "3.8", "3.9", "3.10", "3.11"]
-        os: ["macos-12", "macos-13", "macos-latest"]
-        include:
-          - os: macos-12
-            target: 10.11
-          - os: macos-12
-            target: 11.0
-          - os: macos-12
-          - os: macos-13
-          - os: macos-13
-            target: 14.0
+        os: [{os: "macos-11", target: "10.11"}, {os: "macos-11", target: "11.0"}, {os: "macos-12"}, {os: "macos-13"}, {os: "macos-13", target: "14.0"}]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -117,9 +108,9 @@ jobs:
           pip install setuptools wheel setuptools-rust --ignore-installed --force-reinstall
 
       - name: Override target
-        if: ${{ matrix.target }}
+        if: ${{ matrix.os.target }}
         working-directory: ./bindings/python
-        run: echo "MACOSX_DEPLOYMENT_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+        run: echo "MACOSX_DEPLOYMENT_TARGET=${{ matrix.os.target }}" >> $GITHUB_ENV
 
       - name: Build wheel
         working-directory: ./bindings/python
