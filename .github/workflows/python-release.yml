@@ -122,7 +122,7 @@ jobs:
         shell: bash -l {0}
         working-directory: ./bindings/python
         run: |
-          python setup.py bdist_wheel
+          MACOSX_DEPLOYMENT_TARGET=10.11 python setup.py bdist_wheel
 
       - name: Upload wheels
         shell: bash
