@@ -114,8 +114,8 @@ jobs:
         working-directory: ./bindings/python
         run: echo "MACOSX_DEPLOYMENT_TARGET=${{ matrix.os.target }}" >> $GITHUB_ENV
 
-     - name: Setup tmate session
-       uses: mxschmitt/action-tmate@v3
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
 
       - name: Build wheel
         working-directory: ./bindings/python
