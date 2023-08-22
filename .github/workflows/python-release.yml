@@ -238,4 +238,5 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install twine
-          twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
+          for f in dist/*; do twine upload $f -u __token__ -p "$PYPI_TOKEN" || true; done
+          # twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
