@@ -12,9 +12,18 @@ env:
   DIST_DIR: ${{ github.sha }}
 
 jobs:
+  lock_exists:
+    runs-on: ubuntu-latest
+    name: Cargo.lock
+    steps:
+      - uses: actions/checkout@v3
+      - name: Cargo.lock lock exists 
+        run: cat Cargo.lock
+        working-directory: ./bindings/python
 
   create_wheels_manylinux:
     runs-on: ubuntu-latest
+    needs: [lock_exists]
     name: Create wheels for manylinux2014
     container: quay.io/pypa/manylinux2014_x86_64
     steps:
@@ -30,6 +39,7 @@ jobs:
   create_wheels_windows:
     name: Windows 
     runs-on: windows-latest
+    needs: [lock_exists]
     strategy:
       matrix:
         python: ["3.7", "3.8", "3.9", "3.10", "3.11"]
@@ -82,6 +92,7 @@ jobs:
   create_wheels_macos_conda:
     name: MacOS - Conda
     runs-on: ${{ matrix.os }}
+    needs: [lock_exists]
     strategy:
       matrix:
         os: [macos-latest]
@@ -133,6 +144,7 @@ jobs:
   create_wheels_macos:
     name: MacOS
     runs-on: ${{ matrix.os.os }}
+    needs: [lock_exists]
     strategy:
       matrix:
         python: ["3.7", "3.8", "3.9", "3.10", "3.11"]
@@ -176,6 +188,7 @@ jobs:
   create_wheels_macos_arm64:
     name: MacOS M1
     runs-on: macos-arm64
+    needs: [lock_exists]
     strategy:
       matrix:
         python: ["3.9.13", "3.10.6", "3.11.0"]
