@@ -305,9 +305,10 @@ impl<'data> SafeTensors<'data> {
         let string =
             std::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
         // Assert the string starts with {
-        if !string.starts_with('{') {
-            return Err(SafeTensorError::InvalidHeaderStart);
-        }
+        // NOTE: Add when we move to 0.4.0
+        // if !string.starts_with('{') {
+        //     return Err(SafeTensorError::InvalidHeaderStart);
+        // }
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
         let buffer_end = metadata.validate()?;
@@ -1119,17 +1120,19 @@ mod tests {
         assert_eq!(loaded.len(), 0);
     }
 
-    #[test]
-    /// Test that the JSON header must begin with a `{` character.
-    fn test_whitespace_start_padded_header_is_not_allowed() {
-        let serialized = b"\x06\x00\x00\x00\x00\x00\x00\x00\x09\x0A{}\x0D\x20";
-        match SafeTensors::deserialize(serialized) {
-            Err(SafeTensorError::InvalidHeaderStart) => {
-                // Correct error
-            },
-            _ => panic!("This should not be able to be deserialized"),
-        }
-    }
+    // Reserver for 0.4.0
+    // #[test]
+    // /// Test that the JSON header must begin with a `{` character.
+    // fn test_whitespace_start_padded_header_is_not_allowed() {
+    //     let serialized = b"\x06\x00\x00\x00\x00\x00\x00\x00\x09\x0A{}\x0D\x20";
+    //     match SafeTensors::deserialize(serialized) {
+    //         Err(SafeTensorError::InvalidHeaderStart) => {
+    //             // Correct error
+    //         }
+    //         _ => panic!("This should not be able to be deserialized"),
+    //     }
+    // }
+
     #[test]
     fn test_zero_sized_tensor() {
         let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,0],\"data_offsets\":[0, 0]}}";
