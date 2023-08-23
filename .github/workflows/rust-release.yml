@@ -27,6 +27,7 @@ jobs:
           key: ubuntu-latest-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Publish package rust
+        if: ${{ !contains(github.ref, 'rc') }}
         working-directory: ./safetensors
         run: cargo publish --token ${CRATES_TOKEN}
 
