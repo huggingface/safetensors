@@ -50,16 +50,15 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Install Rust 32bits
-        if: ${{ matrix.os == '32' }}
+        if: ${{ matrix.bits == '32' }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable-i686-pc-windows-msvc
           override: true
 
       - name: Install Rust 64bits
-        if: ${{ matrix.os == '64' }}
+        if: ${{ matrix.bits == '64' }}
         uses: actions-rs/toolchain@v1
-
 
       - name: Install Python
         uses: actions/setup-python@v4
