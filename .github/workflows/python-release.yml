@@ -52,13 +52,13 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.bits == '32' && "stable-i686-pc-windows-msvc" || "stable-x86_64-pc-windows-msvc" }}
+          toolchain: ${{ matrix.bits == '32' && 'stable-i686-pc-windows-msvc' || 'stable-x86_64-pc-windows-msvc' }}
           override: true
 
       - name: Override toolchain
         shell: bash
         working-directory: ./bindings/python
-        run: echo ${{ matrix.bits == '32' && "stable-i686-pc-windows-msvc" || "stable-x86_64-pc-windows-msvc" }} > rust-toolchain
+        run: echo ${{ matrix.bits == '32' && 'stable-i686-pc-windows-msvc' || 'stable-x86_64-pc-windows-msvc' }} > rust-toolchain
 
       - name: Install Python
         uses: actions/setup-python@v4
