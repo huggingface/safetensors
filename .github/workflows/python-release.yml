@@ -55,18 +55,16 @@ jobs:
           toolchain: stable-i686-pc-windows-msvc
           override: true
 
-      - name: Install Rust 64bits
-        if: ${{ matrix.os == '32' }}
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable-i686-pc-windows-msvc
-          override: true
-
       - name: Override toolchain
         if: ${{ matrix.os == '32' }}
         shell: bash
         working-directory: ./bindings/python
         run: echo "stable-i686-pc-windows-msvc" > rust-toolchain
+
+      - name: Install Rust 64bits
+        if: ${{ matrix.os == '64' }}
+        uses: actions-rs/toolchain@v1
+
 
       - name: Install Python
         uses: actions/setup-python@v4
