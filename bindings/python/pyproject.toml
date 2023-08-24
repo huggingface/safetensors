@@ -22,7 +22,6 @@ dynamic = [
     'description',
     'license',
     'readme',
-    'version'
 ]
 
 [project.urls]
@@ -90,7 +89,7 @@ build-backend = "maturin"
 
 [tool.maturin]
 python-source = "py_src"
-module-name = "safetensors.safetensors_rust"
+module-name = "safetensors._safetensors_rust"
 bindings = 'pyo3'
 features = ["pyo3/extension-module"]
 
@@ -99,5 +98,4 @@ line-length = 119
 target-version = ['py35']
 
 [tool.setuptools.dynamic]
-version = {attr = "safetensors.__version__"}
 readme = {file = ["README.rst"]}

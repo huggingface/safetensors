@@ -590,7 +590,6 @@ impl Open {
 ///         The device on which you want the tensors.
 #[pyclass]
 #[allow(non_camel_case_types)]
-#[pyo3(text_signature = "(self, filename, framework, device=\"cpu\")")]
 struct safe_open {
     inner: Option<Open>,
 }
@@ -608,6 +607,7 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
+    #[pyo3(text_signature = "(self, filename, framework, device=\"cpu\")")]
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
         let inner = Some(Open::new(filename, framework, device)?);
         Ok(Self { inner })
@@ -1000,6 +1000,7 @@ fn _safetensors_rust(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add("SafetensorError", py.get_type::<SafetensorError>())?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
 
