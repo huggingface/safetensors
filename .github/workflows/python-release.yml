@@ -179,7 +179,7 @@ jobs:
           #         aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
 
 
-cr        # eate_wheels_macos_arm64:
+          # create_wheels_macos_arm64:
           # name: MacOS M1
           # runs-on: macos-arm64
           # needs: [lock_exists]
