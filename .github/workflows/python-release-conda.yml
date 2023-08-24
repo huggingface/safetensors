@@ -2,8 +2,8 @@ name: Python Release - Conda
 
 on:
   push:
-    tags:
-      - v*
+    # tags:
+    #   - v*
 
 env:
   ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_API_TOKEN }}
@@ -125,8 +125,8 @@ jobs:
           conda list
           conda-build .github/conda --python=${{ matrix.python }}
 
-      - name: Upload to Anaconda
-        shell: bash -l {0}
-        run: |
-          source $HOME/miniconda/bin/activate
-          anaconda upload `conda-build .github/conda --output` --force
+          # - name: Upload to Anaconda
+          #   shell: bash -l {0}
+          #   run: |
+          #     source $HOME/miniconda/bin/activate
+          #     anaconda upload `conda-build .github/conda --output` --force
