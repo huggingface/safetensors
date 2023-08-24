@@ -726,7 +726,7 @@ mod tests {
                 let mut start = 0;
                 let tensors: Vec<TensorInfo> = dtypes
                     .iter()
-                    .zip(shapes.into_iter())
+                    .zip(shapes)
                     .map(|(dtype, shape)| {
                         // This cannot overflow because the size of
                         // the vector and elements are so small.

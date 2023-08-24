@@ -130,13 +130,27 @@ jobs:
           #   with:
           #     name: pypi_files
           #     path: dist
-
+  build-sdist:
+    name: build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          rust-toolchain: stable
+      - name: Upload wheels
+        shell: bash
+        run: |
+          pip install awscli
+          aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
 
 
   upload_package:
     name: Upload package to PyPi
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build, build-sdist]
 
     steps:
       - uses: actions/checkout@v3
