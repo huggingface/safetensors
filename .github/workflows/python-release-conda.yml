@@ -45,7 +45,7 @@ jobs:
       - name: Extract version
         shell: bash -l {0}
         working-directory: ./bindings/python
-        run: echo "SAFETENSORS_VERSION=`python setup.py --version`" >> $GITHUB_ENV
+        run: echo "SAFETENSORS_VERSION=`grep -m 1 version Cargo.toml | grep -e '".*"' -o | tr -d '"'`" >> $GITHUB_ENV
 
       - name: Build conda packages
         shell: bash -l {0}
