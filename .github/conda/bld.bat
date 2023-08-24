@@ -1,2 +1,2 @@
 cd bindings\python
-%PYTHON% -m pip install --prefix=%PREFIX%
+%PYTHON% -m pip install . --prefix=%PREFIX%
