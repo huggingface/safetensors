@@ -167,14 +167,6 @@ jobs:
           pip install awscli
           aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
 
-      - name: Install dependencies
-        run: |
-          pip install setuptools wheel setuptools-rust
-
-      - name: Create source distribution
-        working-directory: ./bindings/python
-        run: sh build-sdist.sh
-
       - name: Upload to PyPi
         working-directory: ./bindings/python
         run: |
