@@ -115,7 +115,7 @@ jobs:
         working-directory: ./bindings/python
         run: |
           source $HOME/miniconda/bin/activate
-          echo "SAFETENSORS_VERSION=`python setup.py --version`" >> $GITHUB_ENV
+          echo "SAFETENSORS_VERSION=`grep -m 1 version Cargo.toml | grep -e '".*"' -o | tr -d '"'`" >> $GITHUB_ENV
 
       - name: Build conda packages
         shell: bash -l {0}
