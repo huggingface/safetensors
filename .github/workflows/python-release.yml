@@ -26,9 +26,6 @@ jobs:
     # only run on push to main and on release
     # needs: [lock_exists]
     # if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'Full Build')
-    defaults: 
-      run: 
-        working-directory: ./bindings/python
     strategy:
       fail-fast: false
       matrix:
@@ -109,6 +106,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
+          working-directory: ./bindings/python
           manylinux: ${{ matrix.manylinux || 'auto' }}
           container: ${{ matrix.container }}
           args: --release --out dist --interpreter ${{ matrix.interpreter || '3.7 3.8 3.9 3.10 3.11 3.12 pypy3.7 pypy3.8 pypy3.9 pypy3.10' }} ${{ matrix.extra-build-args }}
