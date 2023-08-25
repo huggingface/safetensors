@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1692865306665,
+  "lastUpdate": 1692948753605,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -11372,6 +11372,86 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.05814304445849321",
             "extra": "mean: 283.77447099999245 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "73db0c8592f1a2380cfe5c4d7ab3de4e700df69a",
+          "message": "Trying out maturin. (#344)\n\n* Trying out maturin.\r\n\r\n* Yaml.\r\n\r\n* We don't need lock right now.\r\n\r\n* Dont skip.\r\n\r\n* Working dir.\r\n\r\n* Default working dir.\r\n\r\n* Wroking dir here ?\r\n\r\n* Fix ls\r\n\r\n* Maturin makes things simpler.\r\n\r\n* Clippy.\r\n\r\n* New version number\r\n\r\n* Update conda build.\r\n\r\n* Conda.\r\n\r\n* Conda.\r\n\r\n* Drop 3.7, add 3.11\r\n\r\n* Linux update 3.11\r\n\r\n* Version\r\n\r\n* Done.\r\n\r\n* Remove afl\r\n\r\n* Put rust code also in dev mode.\r\n\r\n* Pre-release requires explicit everywhere.\r\n\r\n* Remove manual sdist\r\n\r\n* Remove custom builds\r\n\r\n* Requires lock\r\n\r\n* Fix sdist.\r\n\r\n* Sed.",
+          "timestamp": "2023-08-25T09:26:20+02:00",
+          "tree_id": "b8916db5be3ac4ae7a111e930173f8b2d2456efb",
+          "url": "https://github.com/huggingface/safetensors/commit/73db0c8592f1a2380cfe5c4d7ab3de4e700df69a"
+        },
+        "date": 1692948752319,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 0.9586003147046626,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06818702202635803",
+            "extra": "mean: 1.043187639999985 sec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.1646089317138917,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08509345121074427",
+            "extra": "mean: 315.99481060000016 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.8196443950545866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022446096665915537",
+            "extra": "mean: 354.65465139998287 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.327505794460618,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011639014826287132",
+            "extra": "mean: 429.6444728000097 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 4.91780249183813,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05480485397375703",
+            "extra": "mean: 203.34285519999185 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 71.68682012577803,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003113268029489804",
+            "extra": "mean: 13.949565600000824 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.290484084978176,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12486100376685459",
+            "extra": "mean: 774.9030085999948 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 2.669871869917424,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05473093329216316",
+            "extra": "mean: 374.5498094000027 msec\nrounds: 5"
           }
         ]
       }
