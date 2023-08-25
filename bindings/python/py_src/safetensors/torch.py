@@ -12,6 +12,11 @@ def storage_ptr(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().data_ptr()
     except Exception:
+        if tensor.device.type == 'xla':
+            # this is a XLA tensor, it must be created using torch_xla's
+            # device. So the following import is safe:
+            import torch_xla
+            return torch_xla._XLAC._xla_get_tensor_id(tensor)
         # Fallback for torch==1.10
         try:
             return tensor.storage().data_ptr()
