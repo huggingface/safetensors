@@ -154,28 +154,28 @@ jobs:
           aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
 
 
-          # upload_package:
-          #   name: Upload package to PyPi
-          #   runs-on: ubuntu-latest
-          #   needs: [build, build-sdist]
+  upload_package:
+    name: Upload package to PyPi
+    runs-on: ubuntu-latest
+    needs: [build, build-sdist]
 
-          #   steps:
-          #     - uses: actions/checkout@v3
+    steps:
+      - uses: actions/checkout@v3
 
-          #     - name: Install Python
-          #       uses: actions/setup-python@v4
-          #       with:
-          #         python-version: "3.10"
-          #         architecture: x64
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          architecture: x64
 
-          #     - name: Retrieve all wheels
-          #       shell: bash
-          #       run: |
-          #         pip install awscli
-          #         aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
+      - name: Retrieve all wheels
+        shell: bash
+        run: |
+          pip install awscli
+          aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
 
-          #     - name: Upload to PyPi
-          #       working-directory: ./bindings/python
-          #       run: |
-          #         pip install twine
-          #         twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
+      - name: Upload to PyPi
+        working-directory: ./bindings/python
+        run: |
+          pip install twine
+          twine upload dist/* -u __token__ -p "$PYPI_TOKEN"
