@@ -1,5 +1,9 @@
-__version__ = "0.3.4.dev0"
-
-
 # Re-export this
-from ._safetensors_rust import SafetensorError, deserialize, safe_open, serialize, serialize_file  # noqa: F401
+from ._safetensors_rust import (  # noqa: F401
+    SafetensorError,
+    __version__,
+    deserialize,
+    safe_open,
+    serialize,
+    serialize_file,
+)
