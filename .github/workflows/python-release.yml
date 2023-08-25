@@ -42,11 +42,16 @@ jobs:
             ls: dir
             target: i686
             python-architecture: x86
-            interpreter: 3.7 3.8 3.9 3.10 3.11 3.12
+            interpreter: 3.7 3.8 3.9 3.10 3.11
           - os: windows
             ls: dir
-            target: aarch64
-            interpreter: 3.11 3.12
+            target: x86_86
+            python-architecture: x64
+            interpreter: 3.7 3.8 3.9 3.10 3.11
+              # - os: windows
+              #   ls: dir
+              #   target: aarch64
+              #   interpreter: 3.11 3.12
           - os: macos
             target: aarch64
             interpreter: 3.7 3.8 3.9 3.10 3.11 3.12 pypy3.8 pypy3.9 pypy3.10
@@ -78,17 +83,17 @@ jobs:
             platform: linux
             target: s390x
             interpreter: 3.7 3.8 3.9 3.10 3.11 3.12
-              # exclude:
-              #   # Optimized PGO builds for x86_64 manylinux and windows follow a different matrix,
-              #   # maybe in future maturin-action can support this automatically
-              #   - os: ubuntu
-              #     target: x86_64
-              #     manylinux: auto
-              #   - os: windows
-              #     target: x86_64
-              #   # Windows on arm64 only supports Python 3.11+
-              #   - os: windows
-              #     target: aarch64
+        exclude:
+          # Optimized PGO builds for x86_64 manylinux and windows follow a different matrix,
+          # maybe in future maturin-action can support this automatically
+          # - os: ubuntu
+          #   target: x86_64
+          #   manylinux: auto
+          # - os: windows
+          #   target: x86_64
+          # Windows on arm64 only supports Python 3.11+
+          - os: windows
+            target: aarch64
 
     runs-on: ${{ matrix.os }}-latest
     steps:
