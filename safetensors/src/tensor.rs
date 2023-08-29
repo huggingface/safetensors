@@ -349,7 +349,7 @@ impl<'data> SafeTensors<'data> {
     /// The tensors returned are merely views and the data is not owned by this
     /// structure.
     pub fn tensors(&self) -> Vec<(String, TensorView<'_>)> {
-        let mut tensors = vec![];
+        let mut tensors = Vec::with_capacity(self.metadata.index_map.len());
         for (name, &index) in &self.metadata.index_map {
             let info = &self.metadata.tensors[index];
             let tensorview = TensorView {
@@ -464,7 +464,7 @@ impl Metadata {
         metadata: Option<HashMap<String, String>>,
         tensors: Vec<(String, TensorInfo)>,
     ) -> Result<Self, SafeTensorError> {
-        let mut index_map = HashMap::new();
+        let mut index_map = HashMap::with_capacity(tensors.len());
 
         let tensors: Vec<_> = tensors
             .into_iter()
@@ -938,7 +938,7 @@ mod tests {
             .sum::<usize>()
             * dtype.size(); // 4
         let all_data = vec![0; n];
-        let mut metadata: HashMap<String, TensorView> = HashMap::new();
+        let mut metadata = HashMap::with_capacity(tensors_desc.len());
         let mut offset = 0;
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();

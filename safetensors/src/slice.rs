@@ -260,7 +260,8 @@ impl<'data> SliceIterator<'data> {
                         indices.push((offset, offset + small_span));
                     }
                 } else {
-                    let mut newindices = vec![];
+                    let capacity = (stop - start) * indices.len();
+                    let mut newindices = Vec::with_capacity(capacity);
                     for n in start..stop {
                         let offset = n * span;
                         for (old_start, old_stop) in &indices {

@@ -23,7 +23,7 @@ static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, TensorView<'_>>> {
-    let mut tensors = HashMap::new();
+    let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in tensor_dict {
         let mut shape: Option<Vec<usize>> = None;
         let mut dtype: Option<Dtype> = None;
@@ -144,19 +144,21 @@ fn serialize_file(
 fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let safetensor = SafeTensors::deserialize(bytes)
         .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e:?}")))?;
-    let mut items = vec![];
 
-    for (tensor_name, tensor) in safetensor.tensors() {
-        let mut map = HashMap::new();
+    let tensors = safetensor.tensors();
+    let mut items = Vec::with_capacity(tensors.len());
 
+    for (tensor_name, tensor) in tensors {
         let pyshape: PyObject = PyList::new(py, tensor.shape().iter()).into();
         let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_py(py);
 
         let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
 
-        map.insert("shape".to_string(), pyshape);
-        map.insert("dtype".to_string(), pydtype);
-        map.insert("data".to_string(), pydata);
+        let map = HashMap::from([
+            ("shape".to_string(), pyshape),
+            ("dtype".to_string(), pydtype),
+            ("data".to_string(), pydata),
+        ]);
         items.push((tensor_name, map));
     }
     Ok(items)
