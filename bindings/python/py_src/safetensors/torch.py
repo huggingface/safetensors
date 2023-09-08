@@ -109,7 +109,7 @@ def _remove_duplicate_names(
 
         keep_name = sorted(list(complete_names))[0]
 
-        # Mecanism to preferentially select keys to keep
+        # Mechanism to preferentially select keys to keep
         # coming from the on-disk file to allow
         # loading models saved with a different choice
         # of keep_name
@@ -173,7 +173,7 @@ def save_model(
         raise ValueError(msg)
 
 
-def load_model(model: torch.nn.Module, filename: str, strict=True) -> Tuple[List[str], List[str]]:
+def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict=True) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
     This method exists specifically to avoid tensor sharing issues which are
@@ -182,7 +182,7 @@ def load_model(model: torch.nn.Module, filename: str, strict=True) -> Tuple[List
     Args:
         model (`torch.nn.Module`):
             The model to load onto.
-        filename (`str`):
+        filename (`str`, or `os.PathLike`):
             The filename location to load the file from.
         strict (`bool`, *optional*, defaults to True):
             Wether to fail if you're missing keys or having unexpected ones
@@ -286,7 +286,7 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torc
     Loads a safetensors file into torch format.
 
     Args:
-        filename (`str`, or `os.PathLike`)):
+        filename (`str`, or `os.PathLike`):
             The name of the file which contains the tensors
         device (`Dict[str, any]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
