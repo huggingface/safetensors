@@ -65,7 +65,7 @@ def save_file(
     from jax import numpy as jnp
 
     tensors = {"embedding": jnp.zeros((512, 1024)), "attention": jnp.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
     np_tensors = _jnp2np(tensors)
