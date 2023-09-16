@@ -306,8 +306,9 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torc
     """
     result = {}
     with safe_open(filename, framework="pt", device=device) as f:
-        for k in f.keys():
-            result[k] = f.get_tensor(k)
+        keys = f.keys()
+        for key, tensor in zip(keys, f.get_tensors(keys)):
+            result[key] = tensor
     return result
 
 

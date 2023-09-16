@@ -3,6 +3,7 @@ import tempfile
 
 import pytest
 import torch
+from functools import partial
 
 from safetensors.torch import load_file, save_file
 
@@ -29,10 +30,24 @@ def create_gpt2(n_layers: int):
     tensors["ln_f.bias"] = torch.zeros((768))
     return tensors
 
+def create_lora(n_layers: int):
+    tensors = {}
+    for i in range(n_layers):
+        tensors[f"lora.{i}.up.weight"] = torch.zeros((32, 32))
+        tensors[f"lora.{i}.down.weight"] = torch.zeros((32, 32))
+    return tensors
 
-def test_pt_pt_load_cpu(benchmark):
+
+@pytest.mark.parametrize(
+    "weight_creator",
+    [
+        partial(create_gpt2, 12),
+        partial(create_lora, 500)
+    ]
+)
+def test_pt_pt_load_cpu(benchmark, weight_creator):
     # benchmark something
-    weights = create_gpt2(12)
+    weights = weight_creator()
     with tempfile.NamedTemporaryFile(delete=False) as f:
         torch.save(weights, f)
         result = benchmark(torch.load, f.name)
@@ -42,10 +57,16 @@ def test_pt_pt_load_cpu(benchmark):
         tv = result[k]
         assert torch.allclose(v, tv)
 
-
-def test_pt_sf_load_cpu(benchmark):
+@pytest.mark.parametrize(
+    "weight_creator",
+    [
+        partial(create_gpt2, 12),
+        partial(create_lora, 500)
+    ]
+)
+def test_pt_sf_load_cpu(benchmark, weight_creator):
     # benchmark something
-    weights = create_gpt2(12)
+    weights = weight_creator()
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
@@ -86,7 +107,10 @@ def test_pt_sf_load_gpu(benchmark):
         assert torch.allclose(v, tv)
 
 
-@pytest.mark.skipif(not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(), reason="requires mps")
+@pytest.mark.skipif(
+    not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(),
+    reason="requires mps",
+)
 def test_pt_pt_load_mps(benchmark):
     # benchmark something
     weights = create_gpt2(12)
@@ -101,7 +125,10 @@ def test_pt_pt_load_mps(benchmark):
         assert torch.allclose(v, tv)
 
 
-@pytest.mark.skipif(not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(), reason="requires mps")
+@pytest.mark.skipif(
+    not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(),
+    reason="requires mps",
+)
 def test_pt_sf_load_mps(benchmark):
     # benchmark something
     weights = create_gpt2(12)

@@ -413,50 +413,7 @@ impl Open {
         })
     }
 
-    /// Return the special non tensor information in the header
-    ///
-    /// Returns:
-    ///     (`Dict[str, str]`):
-    ///         The freeform metadata.
-    pub fn metadata(&self) -> Option<HashMap<String, String>> {
-        self.metadata.metadata().clone()
-    }
-
-    /// Returns the names of the tensors in the file.
-    ///
-    /// Returns:
-    ///     (`List[str]`):
-    ///         The name of the tensors contained in that file
-    pub fn keys(&self) -> PyResult<Vec<String>> {
-        let mut keys: Vec<String> = self.metadata.tensors().keys().cloned().collect();
-        keys.sort();
-        Ok(keys)
-    }
-
-    /// Returns a full tensor
-    ///
-    /// Args:
-    ///     name (`str`):
-    ///         The name of the tensor you want
-    ///
-    /// Returns:
-    ///     (`Tensor`):
-    ///         The tensor in the framework you opened the file for.
-    ///
-    /// Example:
-    /// ```python
-    /// from safetensors import safe_open
-    ///
-    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
-    ///     tensor = f.get_tensor("embedding")
-    ///
-    /// ```
-    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        let tensors = self.metadata.tensors();
-        let info = tensors.get(name).ok_or_else(|| {
-            SafetensorError::new_err(format!("File does not contain tensor {name}",))
-        })?;
-
+    fn hydrate_tensor(&self, info: &TensorInfo) -> PyResult<PyObject> {
         match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {
                 let data =
@@ -542,6 +499,84 @@ impl Open {
                 })
             }
         }
+    }
+
+    /// Return the special non tensor information in the header
+    ///
+    /// Returns:
+    ///     (`Dict[str, str]`):
+    ///         The freeform metadata.
+    pub fn metadata(&self) -> Option<HashMap<String, String>> {
+        self.metadata.metadata().clone()
+    }
+
+    /// Returns the names of the tensors in the file.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn keys(&self) -> PyResult<Vec<String>> {
+        let mut keys: Vec<String> = self.metadata.tensors().keys().cloned().collect();
+        keys.sort();
+        Ok(keys)
+    }
+
+    /// Returns a full tensor
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (`Tensor`):
+    ///         The tensor in the framework you opened the file for.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor = f.get_tensor("embedding")
+    ///
+    /// ```
+    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
+        let tensors = self.metadata.tensors();
+        let info = tensors.get(name).ok_or_else(|| {
+            SafetensorError::new_err(format!("File does not contain tensor {name}",))
+        })?;
+        self.hydrate_tensor(info)
+    }
+
+    /// Returns a list of selected tensors
+    ///
+    /// Args:
+    ///     names (`List[str]`):
+    ///        The names of the tensors you want
+    ///
+    /// Returns:
+    ///     (`List[Tensor]`):
+    ///         The tensors in the framework you opened the file for.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensors = f.get_tensors(["embedding", "linear.weight"])
+    ///     embedding, linear_weight = tensors
+    /// ```
+    pub fn get_tensors(&self, names: Vec<&str>) -> PyResult<Vec<PyObject>> {
+        let tensors = self.metadata.tensors();
+        let mut tensors = names
+            .into_iter()
+            .map(|name| {
+                let info = tensors.get(name).ok_or_else(|| {
+                    SafetensorError::new_err(format!("File does not contain tensor {name}",))
+                })?;
+                self.hydrate_tensor(info)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(tensors)
     }
 
     /// Returns a full slice view object
@@ -653,6 +688,28 @@ impl safe_open {
     /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
         self.inner()?.get_tensor(name)
+    }
+
+    /// Returns a list of selected tensors
+    ///
+    /// Args:
+    ///     names (`List[str]`):
+    ///        The names of the tensors you want
+    ///
+    /// Returns:
+    ///     (`List[Tensor]`):
+    ///         The tensors in the framework you opened the file for.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensors = f.get_tensors(["embedding", "linear.weight"])
+    ///     embedding, linear_weight = tensors
+    /// ```
+    pub fn get_tensors(&self, names: Vec<&str>) -> PyResult<Vec<PyObject>> {
+        self.inner()?.get_tensors(names)
     }
 
     /// Returns a full slice view object
