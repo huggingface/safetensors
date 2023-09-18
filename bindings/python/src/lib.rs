@@ -452,10 +452,12 @@ impl Open {
     ///
     /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        let tensors = self.metadata.tensors();
-        let info = tensors.get(name).ok_or_else(|| {
+        let info = self.metadata.info(name).ok_or_else(|| {
             SafetensorError::new_err(format!("File does not contain tensor {name}",))
         })?;
+        // let info = tensors.get(name).ok_or_else(|| {
+        //     SafetensorError::new_err(format!("File does not contain tensor {name}",))
+        // })?;
 
         match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {

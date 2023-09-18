@@ -514,6 +514,12 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
+    pub fn info(&self, name: &str) -> Option<&TensorInfo> {
+        let index = self.index_map.get(name)?;
+        self.tensors.get(*index)
+    }
+
+    /// Gives back the tensor metadata
     pub fn tensors(&self) -> HashMap<String, &TensorInfo> {
         self.index_map
             .iter()
