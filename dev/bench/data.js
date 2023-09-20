@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1695048737353,
+  "lastUpdate": 1695222855530,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -11946,6 +11946,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01394789032083462",
             "extra": "mean: 386.0969006000005 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "61748872+b-kamphorst@users.noreply.github.com",
+            "name": "bart",
+            "username": "b-kamphorst"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7345225f457b8f5084a2eb9bdb26148bef3474bf",
+          "message": "fix: add py.typed (#365)",
+          "timestamp": "2023-09-20T17:07:58+02:00",
+          "tree_id": "c03bc76b1bb64fe82193a9ff3f558f376959958f",
+          "url": "https://github.com/huggingface/safetensors/commit/7345225f457b8f5084a2eb9bdb26148bef3474bf"
+        },
+        "date": 1695222854046,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.1257308004012478,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05425516392732626",
+            "extra": "mean: 888.3118412000158 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 1.8644030344861493,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012505276905528686",
+            "extra": "mean: 536.3647137999919 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 2.740870090602706,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015480874891145989",
+            "extra": "mean: 364.8476457999891 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 1.5879000169125432,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01085071803405719",
+            "extra": "mean: 629.7625727999957 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 3.0382821281589627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023154525548894158",
+            "extra": "mean: 329.1333581999993 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 162.87443407259272,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00023878649379773296",
+            "extra": "mean: 6.13969899999347 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 23.13753480537783,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000520182106434004",
+            "extra": "mean: 43.21981613043629 msec\nrounds: 23"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 29.547240743310088,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006029521847720642",
+            "extra": "mean: 33.84410776923101 msec\nrounds: 26"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.2100711462540694,
+            "unit": "iter/sec",
+            "range": "stddev: 0.047775876362823114",
+            "extra": "mean: 826.3976899999875 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.919108211315693,
+            "unit": "iter/sec",
+            "range": "stddev: 0.038556278488069966",
+            "extra": "mean: 255.16008900001452 msec\nrounds: 5"
           }
         ]
       }
