@@ -1183,4 +1183,36 @@ mod tests {
             _ => panic!("This should not be able to be deserialized"),
         }
     }
+
+    #[test]
+    fn test_memmap_gpu() {
+        // let serialized = b"\x01\x00\x00\x00\x00\x00\x00\x00{";
+        let filename = "/home/nicolas/.cache/huggingface/hub/models--BAAI--bge-base-en/snapshots/90e113f4f9cd0c83220c873b94ca7bc37f85de97/model.safetensors";
+        let file = std::fs::File::open(filename).unwrap();
+        let size = file.metadata().unwrap().len() as usize;
+        let device = cudarc::driver::safe::CudaDevice::new(0).unwrap();
+        let dev_ptr: cudarc::driver::safe::CudaSlice<f32> =
+            unsafe { device.managed(size).unwrap() };
+        use std::os::fd::AsRawFd;
+        unsafe {
+            libc::mmap(
+                dev_ptr.cu_device_ptr as *mut std::ffi::c_void,
+                size,
+                libc::PROT_READ,
+                libc::MAP_PRIVATE,
+                file.as_raw_fd(),
+                0,
+            );
+        }
+
+        let serialized: &[u8] =
+            unsafe { std::slice::from_raw_parts(dev_ptr.cu_device_ptr as *const u8, size) };
+
+        match SafeTensors::deserialize(serialized) {
+            Ok(_) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should be able to be deserialized"),
+        }
+    }
 }
