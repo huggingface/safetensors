@@ -220,20 +220,43 @@ enum Device {
     Cpu,
     Cuda(usize),
     Mps,
+    Npu(usize),
 }
 
 impl<'source> FromPyObject<'source> for Device {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        if let Ok(name) = ob.extract::<String>() {
+        let name = if let Ok(name) = ob.extract::<String>() {
+            Ok(name)
+        } else {
+            Python::with_gil(|py| {
+                ob.getattr(intern!(py, "__str__"))?
+                    .call0()?
+                    .extract::<String>()
+            })
+        };
+
+        if let Ok(name) = name {
             match &name[..] {
                 "cpu" => Ok(Device::Cpu),
                 "cuda" => Ok(Device::Cuda(0)),
                 "mps" => Ok(Device::Mps),
+                "npu" => Ok(Device::Npu(0)),
                 name if name.starts_with("cuda:") => {
                     let tokens: Vec<_> = name.split(':').collect();
                     if tokens.len() == 2 {
                         let device: usize = tokens[1].parse()?;
                         Ok(Device::Cuda(device))
+                    } else {
+                        Err(SafetensorError::new_err(format!(
+                            "device {name} is invalid"
+                        )))
+                    }
+                }
+                name if name.starts_with("npu:") => {
+                    let tokens: Vec<_> = name.split(':').collect();
+                    if tokens.len() == 2 {
+                        let device: usize = tokens[1].parse()?;
+                        Ok(Device::Npu(device))
                     } else {
                         Err(SafetensorError::new_err(format!(
                             "device {name} is invalid"
@@ -258,6 +281,7 @@ impl IntoPy<PyObject> for Device {
             Device::Cpu => "cpu".into_py(py),
             Device::Cuda(n) => format!("cuda:{n}").into_py(py),
             Device::Mps => "mps".into_py(py),
+            Device::Npu(n) => format!("npu:{n}").into_py(py),
         }
     }
 }
