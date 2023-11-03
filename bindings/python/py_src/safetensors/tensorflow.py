@@ -64,7 +64,7 @@ def save_file(
     import tensorflow as tf
 
     tensors = {"embedding": tf.zeros((512, 1024)), "attention": tf.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
     np_tensors = _tf2np(tensors)
