@@ -962,7 +962,16 @@ fn get_pydtype(module: &PyModule, dtype: Dtype, is_numpy: bool) -> PyResult<PyOb
         let dtype: PyObject = match dtype {
             Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
             Dtype::F32 => module.getattr(intern!(py, "float32"))?.into(),
-            Dtype::BF16 => module.getattr(intern!(py, "bfloat16"))?.into(),
+            Dtype::BF16 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("bfloat16",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "bfloat16"))?.into()
+                }
+            }
             Dtype::F16 => module.getattr(intern!(py, "float16"))?.into(),
             Dtype::U64 => module.getattr(intern!(py, "uint64"))?.into(),
             Dtype::I64 => module.getattr(intern!(py, "int64"))?.into(),
