@@ -62,6 +62,20 @@ class SafeTestCase(unittest.TestCase):
             tv = tf_weights[k]
             self.assertTrue(np.allclose(v, tv))
 
+    def test_bfloat16(self):
+        data = {
+            "test": tf.zeros((1024, 1024), dtype=tf.bfloat16),
+        }
+        save_file(data, self.sf_filename)
+        weights = {}
+        with safe_open(self.sf_filename, framework="tf") as f:
+            for k in f.keys():
+                weights[k] = f.get_tensor(k)
+
+        for k, v in weights.items():
+            tv = data[k]
+            self.assertTrue(tf.experimental.numpy.allclose(v, tv))
+
     def test_deserialization_safe_open(self):
         weights = {}
         with safe_open(self.sf_filename, framework="tf") as f:

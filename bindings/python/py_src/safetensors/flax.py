@@ -5,7 +5,7 @@ import numpy as np
 
 import jax.numpy as jnp
 from jax import Array
-from safetensors import numpy
+from safetensors import numpy, safe_open
 
 
 def save(tensors: Dict[str, Array], metadata: Optional[Dict[str, str]] = None) -> bytes:
@@ -122,8 +122,11 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, Array]:
     loaded = load_file(file_path)
     ```
     """
-    flat = numpy.load_file(filename)
-    return _np2jnp(flat)
+    result = {}
+    with safe_open(filename, framework="flax") as f:
+        for k in f.keys():
+            result[k] = f.get_tensor(k)
+    return result
 
 
 def _np2jnp(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, Array]:
