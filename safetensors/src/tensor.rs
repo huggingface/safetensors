@@ -641,6 +641,12 @@ pub enum Dtype {
     U8,
     /// Signed byte
     I8,
+    /// FP8 <https://arxiv.org/pdf/2209.05433.pdf>_
+    #[allow(non_camel_case_types)]
+    F8_E5M2,
+    /// FP8 <https://arxiv.org/pdf/2209.05433.pdf>_
+    #[allow(non_camel_case_types)]
+    F8_E4M3,
     /// Signed integer (16-bit)
     I16,
     /// Unsigned integer (16-bit)
@@ -670,6 +676,8 @@ impl Dtype {
             Dtype::BOOL => 1,
             Dtype::U8 => 1,
             Dtype::I8 => 1,
+            Dtype::F8_E5M2 => 1,
+            Dtype::F8_E4M3 => 1,
             Dtype::I16 => 2,
             Dtype::U16 => 2,
             Dtype::I32 => 4,

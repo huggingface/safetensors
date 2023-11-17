@@ -99,7 +99,10 @@ Notes:
  from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
  - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
  - The byte buffer needs to be entirely indexed, and cannot contain holes. This prevents
- the creation of polyglot files.
+the creation of polyglot files.
+ - Endianness: Little-endian.
+ moment.
+ - Order: 'C' or row-major.
 
 
 ### Yet another format ?
@@ -113,7 +116,7 @@ formats.
 Let's take a look at alternatives and why this format is deemed interesting.
 This is my very personal and probably biased view:
 
-| Format                  | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16
+| Format                  | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16/Fp8
 | ----------------------- | --- | --- | --- | --- | --- | --- | --- |
 | pickle (PyTorch)        | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 | 🗸 |
 | H5 (Tensorflow)         | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ | ✗ |
@@ -133,7 +136,7 @@ some tensors in it without scanning the whole file (distributed setting) ?
 - Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling the layout to keep fast access to single tensors is important.
 - No file size limit: Is there a limit to the file size ?
 - Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
-- Bfloat16: Does the format support native bfloat16 (meaning no weird workarounds are
+- Bfloat16/Fp8: Does the format support native bfloat16/fp8 (meaning no weird workarounds are
 necessary)? This is becoming increasingly important in the ML world.
 
 
