@@ -70,7 +70,7 @@ def save_file(
     import numpy as np
 
     tensors = {"embedding": np.zeros((512, 1024)), "attention": np.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
     flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
