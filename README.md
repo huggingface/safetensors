@@ -99,6 +99,7 @@ Notes:
  from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
  - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
  - The byte buffer needs to be entirely indexed, and cannot contain holes. This prevents
+the creation of polyglot files.
  - Endianness: Little-endian.
  moment.
  - Order: 'C' or row-major.
