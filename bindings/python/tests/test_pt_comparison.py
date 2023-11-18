@@ -130,14 +130,16 @@ class TorchTestCase(unittest.TestCase):
     @unittest.skipIf(not npu_present, "Npu is not available")
     def test_npu(self):
         data = {
-            "test": torch.arange(4).view((2, 2)).to("npu:0"),
+            "test1": torch.zeros((2, 2), dtype=torch.float32).to("npu:0"),
+            "test2": torch.zeros((2, 2), dtype=torch.float16).to("npu:0"),
+            "test3": torch.zeros((2, 2), dtype=torch.bfloat16).to("npu:0"),
         }
         local = "./tests/data/out_safe_pt_mmap_small_npu.safetensors"
         save_file(data, local)
 
-        device = torch.device("npu:0")
-        reloaded = load_file(local, device=device)
-        self.assertTrue(torch.equal(torch.arange(4).view((2, 2)).to(device=device), reloaded["test"]))
+        reloaded = load_file(local, device="npu:0")
+        for k, v in reloaded.items():
+            self.assertTrue(torch.allclose(data[k], reloaded[k]))
 
     def test_sparse(self):
         data = {"test": torch.sparse_coo_tensor(size=(2, 3))}
