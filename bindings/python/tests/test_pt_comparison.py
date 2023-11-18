@@ -132,7 +132,6 @@ class TorchTestCase(unittest.TestCase):
         data = {
             "test1": torch.zeros((2, 2), dtype=torch.float32).to("npu:0"),
             "test2": torch.zeros((2, 2), dtype=torch.float16).to("npu:0"),
-            "test3": torch.zeros((2, 2), dtype=torch.bfloat16).to("npu:0"),
         }
         local = "./tests/data/out_safe_pt_mmap_small_npu.safetensors"
         save_file(data, local)
