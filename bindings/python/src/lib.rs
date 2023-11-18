@@ -225,17 +225,7 @@ enum Device {
 
 impl<'source> FromPyObject<'source> for Device {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        let name = if let Ok(name) = ob.extract::<String>() {
-            Ok(name)
-        } else {
-            Python::with_gil(|py| {
-                ob.getattr(intern!(py, "__str__"))?
-                    .call0()?
-                    .extract::<String>()
-            })
-        };
-
-        if let Ok(name) = name {
+        if let Ok(name) = ob.extract::<String>() {
             match &name[..] {
                 "cpu" => Ok(Device::Cpu),
                 "cuda" => Ok(Device::Cuda(0)),
