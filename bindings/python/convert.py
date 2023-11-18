@@ -162,7 +162,7 @@ def convert_multi(
     local_filenames.append(index)
 
     operations = [
-        CommitOperationAdd(path_in_repo=local.split("/")[-1], path_or_fileobj=local) for local in local_filenames
+        CommitOperationAdd(path_in_repo=os.path.basename(local), path_or_fileobj=local) for local in local_filenames
     ]
     errors: List[Tuple[str, "Exception"]] = []
 
