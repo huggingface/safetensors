@@ -663,6 +663,8 @@ pub enum Dtype {
     F32,
     /// Floating point (64-bit)
     F64,
+    /// Complex Floating point (64-bit)
+    C64,
     /// Signed integer (64-bit)
     I64,
     /// Unsigned integer (64-bit)
@@ -688,6 +690,7 @@ impl Dtype {
             Dtype::BF16 => 2,
             Dtype::F32 => 4,
             Dtype::F64 => 8,
+            Dtype::C64 => 8,
         }
     }
 }
@@ -717,6 +720,7 @@ mod tests {
             Just(Dtype::BF16),
             Just(Dtype::F32),
             Just(Dtype::F64),
+            Just(Dtype::C64),
         ]
     }
 

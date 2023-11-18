@@ -349,9 +349,11 @@ _SIZE = {
     torch.int8: 1,
     torch.bool: 1,
     torch.float64: 8,
+    torch.complex64: 8,
 }
 
 _TYPES = {
+    "C64": torch.complex64,
     "F64": torch.float64,
     "F32": torch.float32,
     "F16": torch.float16,
@@ -432,6 +434,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
             torch.int8: np.int8,
             torch.bool: bool,
             torch.float64: np.float64,
+            torch.complex64: np.complex64,
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model

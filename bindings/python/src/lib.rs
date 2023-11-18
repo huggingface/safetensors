@@ -47,6 +47,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
                         "float16" => Some(Dtype::F16),
                         "float32" => Some(Dtype::F32),
                         "float64" => Some(Dtype::F64),
+                        "complex64" => Some(Dtype::C64),
                         "bfloat16" => Some(Dtype::BF16),
                         dtype_str => {
                             return Err(SafetensorError::new_err(format!(
@@ -960,6 +961,7 @@ fn create_tensor(
 fn get_pydtype(module: &PyModule, dtype: Dtype, is_numpy: bool) -> PyResult<PyObject> {
     Python::with_gil(|py| {
         let dtype: PyObject = match dtype {
+            Dtype::C64 => module.getattr(intern!(py, "complex64"))?.into(),
             Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
             Dtype::F32 => module.getattr(intern!(py, "float32"))?.into(),
             Dtype::BF16 => {
