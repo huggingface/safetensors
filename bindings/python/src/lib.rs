@@ -16,6 +16,7 @@ use std::iter::FromIterator;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::collections::BTreeMap;
 
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
@@ -92,10 +93,10 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
 fn serialize<'b>(
     py: Python<'b>,
     tensor_dict: HashMap<String, &PyDict>,
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
 ) -> PyResult<&'b PyBytes> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_map = metadata.map(HashMap::from_iter);
+    let metadata_map = metadata.map(BTreeMap::from_iter);
     let out = safetensors::tensor::serialize(&tensors, &metadata_map)
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
     let pybytes = PyBytes::new(py, &out);
@@ -121,7 +122,7 @@ fn serialize<'b>(
 fn serialize_file(
     tensor_dict: HashMap<String, &PyDict>,
     filename: PathBuf,
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
     safetensors::tensor::serialize_to_file(&tensors, &metadata, filename.as_path())
@@ -418,7 +419,7 @@ impl Open {
     /// Returns:
     ///     (`Dict[str, str]`):
     ///         The freeform metadata.
-    pub fn metadata(&self) -> Option<HashMap<String, String>> {
+    pub fn metadata(&self) -> Option<BTreeMap<String, String>> {
         self.metadata.metadata().clone()
     }
 
@@ -622,7 +623,7 @@ impl safe_open {
     /// Returns:
     ///     (`Dict[str, str]`):
     ///         The freeform metadata.
-    pub fn metadata(&self) -> PyResult<Option<HashMap<String, String>>> {
+    pub fn metadata(&self) -> PyResult<Option<BTreeMap<String, String>>> {
         Ok(self.inner()?.metadata())
     }
 

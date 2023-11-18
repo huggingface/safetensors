@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::collections::BTreeMap;
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 
@@ -166,7 +167,7 @@ pub trait View {
 
 fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Item = (S, V)>>(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: &Option<BTreeMap<String, String>>,
     // ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
 ) -> Result<(PreparedData, Vec<V>), SafeTensorError> {
     // Make sure we're sorting by descending dtype alignment
@@ -217,7 +218,7 @@ pub fn serialize<
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: &Option<BTreeMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
     let (
         PreparedData {
@@ -246,7 +247,7 @@ pub fn serialize_to_file<
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: &Option<BTreeMap<String, String>>,
     filename: &Path,
 ) -> Result<(), SafeTensorError> {
     let (
@@ -405,7 +406,7 @@ impl<'data> SafeTensors<'data> {
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Clone)]
 pub struct Metadata {
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
     tensors: Vec<TensorInfo>,
     index_map: HashMap<String, usize>,
 }
@@ -415,7 +416,7 @@ pub struct Metadata {
 struct HashMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "__metadata__")]
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
     #[serde(flatten)]
     tensors: HashMap<String, TensorInfo>,
 }
@@ -461,7 +462,7 @@ impl Serialize for Metadata {
 
 impl Metadata {
     fn new(
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<BTreeMap<String, String>>,
         tensors: Vec<(String, TensorInfo)>,
     ) -> Result<Self, SafeTensorError> {
         let mut index_map = HashMap::with_capacity(tensors.len());
@@ -528,7 +529,7 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
-    pub fn metadata(&self) -> &Option<HashMap<String, String>> {
+    pub fn metadata(&self) -> &Option<BTreeMap<String, String>> {
         &self.metadata
     }
 }
