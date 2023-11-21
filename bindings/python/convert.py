@@ -146,12 +146,7 @@ def convert_multi(
         sf_filename = os.path.join(folder, sf_filename)
         convert_file(pt_filename, sf_filename, discard_names=discard_names)
 
-        if 'snapshots' in sf_filename.split(os.sep):
-            new_sf_path = os.path.join(folder, os.path.basename(sf_filename))
-            shutil.move(sf_filename, new_sf_path)
-            local_filenames.append(new_sf_path)
-        else:
-            local_filenames.append(sf_filename)
+        local_filenames.append(sf_filename)
 
     index = os.path.join(folder, "model.safetensors.index.json")
     with open(index, "w") as f:
