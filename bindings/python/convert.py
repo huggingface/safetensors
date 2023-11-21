@@ -145,7 +145,6 @@ def convert_multi(
         sf_filename = rename(pt_filename)
         sf_filename = os.path.join(folder, sf_filename)
         convert_file(pt_filename, sf_filename, discard_names=discard_names)
-
         local_filenames.append(sf_filename)
 
     index = os.path.join(folder, "model.safetensors.index.json")
