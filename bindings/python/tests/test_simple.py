@@ -215,7 +215,7 @@ class ReadmeTestCase(unittest.TestCase):
         tensors = {
             "a": torch.zeros((2, 2)),
             "b": torch.zeros((2, 3), dtype=torch.uint8),
-            "c": torch.randn(2,2, dtype=torch.complex64),
+            "c": torch.randn(2, 2, dtype=torch.complex64),
         }
         # Saving modifies the tensors to type numpy, so we must copy for the
         # test to be correct.
