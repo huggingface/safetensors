@@ -2,10 +2,17 @@ import unittest
 
 import numpy as np
 
-import paddle
-from safetensors.paddle import load_file, save_file
+
+try:
+    import paddle
+    from safetensors.paddle import load_file, save_file
+
+    HAS_PADDLE = True
+except ImportError:
+    HAS_PADDLE = False
 
 
+@unittest.skipIf(not HAS_PADDLE, "Paddle is not available")
 class SafeTestCase(unittest.TestCase):
     def setUp(self):
         data = {
