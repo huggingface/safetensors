@@ -10,7 +10,7 @@ from safetensors import numpy, safe_open
 
 def save(tensors: Dict[str, Array], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, Array]`):
@@ -43,7 +43,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, Array]`):
