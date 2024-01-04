@@ -16,6 +16,7 @@ jobs:
       package: safetensors
       notebook_folder: safetensors_doc
       package_path: safetensors/bindings/python/
+      version_tag_suffix: bindings/python/py_src
       install_rust: true
     secrets:
       token: ${{ secrets.HUGGINGFACE_PUSH }}
