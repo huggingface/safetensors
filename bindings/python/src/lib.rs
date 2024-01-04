@@ -21,6 +21,7 @@ static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, TensorView<'_>>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
@@ -190,6 +191,7 @@ enum Framework {
     Numpy,
     Tensorflow,
     Flax,
+    Mlx,
 }
 
 impl<'source> FromPyObject<'source> for Framework {
@@ -208,6 +210,7 @@ impl<'source> FromPyObject<'source> for Framework {
 
             "jax" => Ok(Framework::Flax),
             "flax" => Ok(Framework::Flax),
+            "mlx" => Ok(Framework::Mlx),
             name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
             ))),
@@ -954,6 +957,17 @@ fn create_tensor(
                     .getattr(intern!(py, "convert_to_tensor"))?
                     .call1((tensor,))?
             }
+            Framework::Mlx => {
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "mlx"))?;
+                    Ok(MLX_MODULE.get_or_init(py, || module.into()))
+                })?
+                .as_ref(py);
+                module
+                    .getattr(intern!(py, "core"))?
+                    .getattr(intern!(py, "array"))?
+                    .call1((tensor,))?
+            }
             Framework::Pytorch => {
                 if device != &Device::Cpu {
                     let device: PyObject = device.clone().into_py(py);
@@ -964,7 +978,7 @@ fn create_tensor(
                 }
                 tensor
             }
-            _ => tensor,
+            Framework::Numpy => tensor,
         };
         let tensor = tensor.into_py(py);
         Ok(tensor)
