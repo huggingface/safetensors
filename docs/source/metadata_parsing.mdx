@@ -97,6 +97,8 @@ Use [`get_safetensors_metadata`](https://huggingface.co/docs/huggingface_hub/pac
 Depending on if the model is sharded or not, one or multiple safetensors files will be parsed.
 
 ```python
+>>> from huggingface_hub import get_safetensors_metadata
+
 # Parse repo with single weights file
 >>> metadata = get_safetensors_metadata("bigscience/bloomz-560m")
 >>> metadata
