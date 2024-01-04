@@ -111,7 +111,7 @@ SafetensorsRepoMetadata(
 >>> metadata.files_metadata["model.safetensors"].metadata
 {'format': 'pt'}
 
-# Parse repo with sharded model
+# Parse repo with sharded model (i.e. multiple weights files)
 >>> metadata = get_safetensors_metadata("bigscience/bloom")
 Parse safetensors files: 100%|██████████████████████████████████████████| 72/72 [00:12<00:00,  5.78it/s]
 >>> metadata
