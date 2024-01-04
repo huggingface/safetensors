@@ -92,39 +92,38 @@ export type SafetensorsShardedHeaders = Record<FileName, SafetensorsFileHeader>;
 
 ### Python
 
-In this example python script, we are parsing metadata of [gpt2](https://huggingface.co/gpt2/blob/main/model.safetensors).
+[`huggingface_hub`](https://huggingface.co/docs/huggingface_hub/index) provides a Python API to parse safetensors metadata.
+Use [`get_safetensors_metadata`](https://huggingface.co/docs/huggingface_hub/package_reference/hf_api#huggingface_hub.HfApi.get_safetensors_metadata) in order to get all the metadata of the repo.
+Depending on if the model is sharded or not, one or multiple safetensors files will be parsed.
 
 ```python
-import requests # pip install requests
-import struct
+# Parse repo with single weights file
+>>> metadata = get_safetensors_metadata("bigscience/bloomz-560m")
+>>> metadata
+SafetensorsRepoMetadata(
+    metadata=None,
+    sharded=False,
+    weight_map={'h.0.input_layernorm.bias': 'model.safetensors', ...},
+    files_metadata={'model.safetensors': SafetensorsFileMetadata(...)}
+)
+>>> metadata.files_metadata["model.safetensors"].metadata
+{'format': 'pt'}
 
-def parse_single_file(url):
-    # Fetch the first 8 bytes of the file
-    headers = {'Range': 'bytes=0-7'}
-    response = requests.get(url, headers=headers)
-    # Interpret the bytes as a little-endian unsigned 64-bit integer
-    length_of_header = struct.unpack('<Q', response.content)[0]
-    # Fetch length_of_header bytes starting from the 9th byte
-    headers = {'Range': f'bytes=8-{7 + length_of_header}'}
-    response = requests.get(url, headers=headers)
-    # Interpret the response as a JSON object
-    header = response.json()
-    return header
+# Parse repo with sharded model
+>>> metadata = get_safetensors_metadata("bigscience/bloom")
+Parse safetensors files: 100%|██████████████████████████████████████████| 72/72 [00:12<00:00,  5.78it/s]
+>>> metadata
+SafetensorsRepoMetadata(metadata={'total_size': 352494542848}, sharded=True, weight_map={...}, files_metadata={...})
+>>> len(metadata.files_metadata)
+72  # All safetensors files have been fetched
 
-url = "https://huggingface.co/gpt2/resolve/main/model.safetensors"
-header = parse_single_file(url)
-
-print(header)
-# {
-#   "__metadata__": { "format": "pt" },
-#   "h.10.ln_1.weight": {
-#     "dtype": "F32",
-#     "shape": [768],
-#     "data_offsets": [223154176, 223157248]
-#   },
-#   ...
-# }
+# Parse repo that is not a safetensors repo
+>>> get_safetensors_metadata("runwayml/stable-diffusion-v1-5")
+NotASafetensorsRepoError: 'runwayml/stable-diffusion-v1-5' is not a safetensors repo. Couldn't find 'model.safetensors.index.json' or 'model.safetensors' files.
 ```
+
+To parse the metadata of a single safetensors file, use [`parse_safetensors_file_metadata`](https://huggingface.co/docs/huggingface_hub/package_reference/hf_api#huggingface_hub.HfApi.parse_safetensors_file_metadata).
+
 
 ## Example output
 
