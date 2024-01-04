@@ -92,7 +92,7 @@ export type SafetensorsShardedHeaders = Record<FileName, SafetensorsFileHeader>;
 
 ### Python
 
-[`huggingface_hub`](https://huggingface.co/docs/huggingface_hub/index) provides a Python API to parse safetensors metadata.
+[`huggingface_hub`](https://huggingface.co/docs/huggingface_hub) provides a Python API to parse safetensors metadata.
 Use [`get_safetensors_metadata`](https://huggingface.co/docs/huggingface_hub/package_reference/hf_api#huggingface_hub.HfApi.get_safetensors_metadata) in order to get all the metadata of the repo.
 Depending on if the model is sharded or not, one or multiple safetensors files will be parsed.
 
