@@ -9,7 +9,7 @@ from safetensors import numpy, safe_open
 
 def save(tensors: Dict[str, mx.array], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, mx.array]`):
@@ -42,7 +42,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, mx.array]`):
@@ -85,7 +85,7 @@ def load(data: bytes) -> Dict[str, mx.array]:
     Example:
 
     ```python
-    from safetensors.flax import load
+    from safetensors.mlx import load
 
     file_path = "./my_folder/bert.safetensors"
     with open(file_path, "rb") as f:
@@ -100,14 +100,11 @@ def load(data: bytes) -> Dict[str, mx.array]:
 
 def load_file(filename: Union[str, os.PathLike]) -> Dict[str, mx.array]:
     """
-    Loads a safetensors file into flax format.
+    Loads a safetensors file into MLX format.
 
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
-            The device where the tensors need to be located after load.
-            available options are all regular flax device locations
 
     Returns:
         `Dict[str, mx.array]`: dictionary that contains name as key, value as `mx.array`

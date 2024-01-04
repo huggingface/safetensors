@@ -10,7 +10,7 @@ if platform.system() == "Darwin":
     from safetensors.mlx import load_file, save_file
 
 
-# Jax doesn't not exist on Windows
+# MLX only exists on Mac
 @unittest.skipIf(platform.system() != "Darwin", "Mlx is not available on non Mac")
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
