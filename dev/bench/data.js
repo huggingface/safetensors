@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701788635931,
+  "lastUpdate": 1704366252439,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -12980,6 +12980,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.028644859149264085",
             "extra": "mean: 321.8564308000282 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dmishig@gmail.com",
+            "name": "Mishig",
+            "username": "mishig25"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1006cd7053d3fdc389f82884429902e0eae95c76",
+          "message": "[docs] Update list of projects using safetensors (#418)\n\nAdd `mlx` & `candle`",
+          "timestamp": "2024-01-04T03:00:24-08:00",
+          "tree_id": "8db8627aca932decef15e91f0c3696c046a6f20c",
+          "url": "https://github.com/huggingface/safetensors/commit/1006cd7053d3fdc389f82884429902e0eae95c76"
+        },
+        "date": 1704366251812,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.8266266919887324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012012576088805493",
+            "extra": "mean: 547.4572360000138 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.741336850449512,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011483088826576381",
+            "extra": "mean: 364.78552419999914 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 7.771142304453371,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012256045593810607",
+            "extra": "mean: 128.6812106666654 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 3.1086187990617438,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012066469440230602",
+            "extra": "mean: 321.6862744000082 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 8.689272476479035,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009961439889042545",
+            "extra": "mean: 115.0844334444451 msec\nrounds: 9"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 233.50423597629532,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000607038712337175",
+            "extra": "mean: 4.282577555044942 msec\nrounds: 218"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 31.965268232841847,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025536000177523898",
+            "extra": "mean: 31.28395459458642 msec\nrounds: 37"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 49.11455914241579,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015254664271826905",
+            "extra": "mean: 20.36056146000078 msec\nrounds: 50"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.286890707247862,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04458251956212431",
+            "extra": "mean: 437.2749413999941 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.0237814886610765,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013883324605558111",
+            "extra": "mean: 330.71172759999854 msec\nrounds: 5"
           }
         ]
       }
