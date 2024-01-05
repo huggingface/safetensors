@@ -73,7 +73,7 @@ def save_file(
 
 def load(data: bytes) -> Dict[str, mx.array]:
     """
-    Loads a safetensors file into flax format from pure bytes.
+    Loads a safetensors file into MLX format from pure bytes.
 
     Args:
         data (`bytes`):
