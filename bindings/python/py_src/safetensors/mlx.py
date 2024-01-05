@@ -80,7 +80,7 @@ def load(data: bytes) -> Dict[str, mx.array]:
             The content of a safetensors file
 
     Returns:
-        `Dict[str, mx.array]`: dictionary that contains name as key, value as `mx.array` on cpu
+        `Dict[str, mx.array]`: dictionary that contains name as key, value as `mx.array`
 
     Example:
 
