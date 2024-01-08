@@ -18,5 +18,5 @@ jobs:
       pr_number: ${{ github.event.number }}
       package: safetensors
       package_path: safetensors/bindings/python/
-      version_tag_suffix: bindings/python/py_src
+      version_tag_suffix: bindings/python/py_src/
       install_rust: true
