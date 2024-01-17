@@ -105,9 +105,6 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, tf.Tensor]:
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
-            The device where the tensors need to be located after load.
-            available options are all regular tensorflow device locations
 
     Returns:
         `Dict[str, tf.Tensor]`: dictionary that contains name as key, value as `tf.Tensor`

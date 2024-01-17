@@ -106,9 +106,6 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, Array]:
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
-            The device where the tensors need to be located after load.
-            available options are all regular flax device locations
 
     Returns:
         `Dict[str, Array]`: dictionary that contains name as key, value as `Array`

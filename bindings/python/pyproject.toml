@@ -50,6 +50,9 @@ jax = [
     "jax>=0.3.25",
     "jaxlib>=0.3.25",
 ]
+mlx = [
+    "mlx>=0.0.9",
+]
 paddlepaddle = [
     "safetensors[numpy]",
     "paddlepaddle>=2.4.1",
