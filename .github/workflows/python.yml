@@ -58,6 +58,12 @@ jobs:
           pip install .[jax]
         shell: bash
 
+      - name: Install (mlx)
+        if: matrix.os == 'macos-latest'
+        run: |
+          pip install .[mlx]
+        shell: bash
+
       - name: Check style
         run: |
           pip install .[quality]
