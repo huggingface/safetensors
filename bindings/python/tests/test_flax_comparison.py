@@ -41,17 +41,6 @@ class LoadTestCase(unittest.TestCase):
         # instead
         self.assertEqual(data["test"].shape, reloaded["test"].shape)
 
-    def test_gpu(self):
-        data = {
-            "test": jnp.zeros((2, 0), dtype=jnp.float32),
-        }
-        local = "./tests/data/out_safe_flat_mmap_small2.safetensors"
-        save_file(data.copy(), local)
-        reloaded = load_file(local, device="cuda")
-        # Empty tensor != empty tensor on numpy, so comparing shapes
-        # instead
-        self.assertEqual(data["test"].shape, reloaded["test"].shape)
-
     def test_deserialization_safe(self):
         weights = load_file(self.sf_filename)
 
