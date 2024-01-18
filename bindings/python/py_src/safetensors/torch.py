@@ -337,6 +337,9 @@ def load(data: bytes) -> Dict[str, torch.Tensor]:
     flat = deserialize(data)
     return _view2torch(flat)
 
+# torch.float8 formats require 2.1; we do not support these dtypes on earlier versions
+_float8_e4m3fn = getattr(torch, "float8_e4m3fn", None)
+_float8_e5m2 = getattr(torch, "float8_e5m2", None)
 
 _SIZE = {
     torch.int64: 8,
@@ -349,6 +352,8 @@ _SIZE = {
     torch.int8: 1,
     torch.bool: 1,
     torch.float64: 8,
+    _float8_e4m3fn: 1,
+    _float8_e5m2: 1,
 }
 
 _TYPES = {
@@ -365,6 +370,8 @@ _TYPES = {
     "I8": torch.int8,
     "U8": torch.uint8,
     "BOOL": torch.bool,
+    "F8_E4M3": _float8_e4m3fn,
+    "F8_E5M2": _float8_e5m2,
 }
 
 
@@ -432,6 +439,9 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
             torch.int8: np.int8,
             torch.bool: bool,
             torch.float64: np.float64,
+            # XXX: This is ok because both have the same width and byteswap is a no-op anyway
+            _float8_e4m3fn: np.uint8,
+            _float8_e5m2: np.uint8,
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model

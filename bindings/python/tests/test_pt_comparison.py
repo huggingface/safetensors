@@ -64,6 +64,24 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
 
+    def test_odd_dtype_fp8(self):
+        if torch.__version__ < "2.1":
+            return # torch.float8 requires 2.1
+
+        data = {
+            "test1": torch.tensor([-0.5], dtype=torch.float8_e4m3fn),
+            "test2": torch.tensor([-0.5], dtype=torch.float8_e5m2),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small.safetensors"
+
+        save_file(data, local)
+        reloaded = load_file(local)
+        # note: PyTorch doesn't implement torch.equal for float8 so we just compare the single element
+        self.assertEqual(data["test1"].dtype, torch.float8_e4m3fn)
+        self.assertEqual(data["test1"].item(), -0.5)
+        self.assertEqual(data["test2"].dtype, torch.float8_e5m2)
+        self.assertEqual(data["test2"].item(), -0.5)
+
     def test_zero_sized(self):
         data = {
             "test": torch.zeros((2, 0), dtype=torch.float),

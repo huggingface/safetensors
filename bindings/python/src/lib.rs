@@ -49,6 +49,8 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
                         "float32" => Some(Dtype::F32),
                         "float64" => Some(Dtype::F64),
                         "bfloat16" => Some(Dtype::BF16),
+                        "float8_e4m3fn" => Some(Dtype::F8_E4M3),
+                        "float8_e5m2" => Some(Dtype::F8_E5M2),
                         dtype_str => {
                             return Err(SafetensorError::new_err(format!(
                                 "dtype {dtype_str} is not covered",
@@ -1016,6 +1018,8 @@ fn get_pydtype(module: &PyModule, dtype: Dtype, is_numpy: bool) -> PyResult<PyOb
                     module.getattr(intern!(py, "bool"))?.into()
                 }
             }
+            Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
+            Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {dtype:?}"
