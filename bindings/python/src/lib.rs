@@ -261,15 +261,15 @@ impl<'source> FromPyObject<'source> for Device {
                     }
                 }
                 name if name.starts_with("xpu:") => {
-                  let tokens: Vec<_> = name.split(':').collect();
-                  if tokens.len() == 2 {
-                      let device: usize = tokens[1].parse()?;
-                      Ok(Device::Xpu(device))
-                  } else {
-                      Err(SafetensorError::new_err(format!(
-                          "device {name} is invalid"
-                      )))
-                  }
+                    let tokens: Vec<_> = name.split(':').collect();
+                    if tokens.len() == 2 {
+                        let device: usize = tokens[1].parse()?;
+                        Ok(Device::Xpu(device))
+                    } else {
+                        Err(SafetensorError::new_err(format!(
+                            "device {name} is invalid"
+                        )))
+                    }
                 }
                 name => Err(SafetensorError::new_err(format!(
                     "device {name} is invalid"
