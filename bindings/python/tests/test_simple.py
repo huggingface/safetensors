@@ -231,3 +231,87 @@ class ReadmeTestCase(unittest.TestCase):
 
         with self.assertRaises(SafetensorError):
             serialize(flattened)
+
+    def test_torch_slice(self):
+        A = torch.randn((10, 5))
+        tensors = {
+            "a": A,
+        }
+        save_file_pt(tensors, "./slice.safetensors")
+
+        # Now loading
+        with safe_open("./slice.safetensors", framework="pt", device="cpu") as f:
+            slice_ = f.get_slice("a")
+            tensor = slice_[:]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            torch.testing.assert_close(tensor, A)
+
+            tensor = slice_[:2]
+            self.assertEqual(list(tensor.shape), [2, 5])
+            torch.testing.assert_close(tensor, A[:2])
+
+            tensor = slice_[:, :2]
+            self.assertEqual(list(tensor.shape), [10, 2])
+            torch.testing.assert_close(tensor, A[:, :2])
+
+            tensor = slice_[0, :2]
+            self.assertEqual(list(tensor.shape), [2])
+            torch.testing.assert_close(tensor, A[0, :2])
+
+            tensor = slice_[2:, 0]
+            self.assertEqual(list(tensor.shape), [8])
+            torch.testing.assert_close(tensor, A[2:, 0])
+
+            tensor = slice_[2:, 1]
+            self.assertEqual(list(tensor.shape), [8])
+            torch.testing.assert_close(tensor, A[2:, 1])
+
+            tensor = slice_[2:, -1]
+            self.assertEqual(list(tensor.shape), [8])
+            torch.testing.assert_close(tensor, A[2:, -1])
+
+    def test_numpy_slice(self):
+        A = np.random.rand(10, 5)
+        tensors = {
+            "a": A,
+        }
+        save_file(tensors, "./slice.safetensors")
+
+        # Now loading
+        with safe_open("./slice.safetensors", framework="np", device="cpu") as f:
+            slice_ = f.get_slice("a")
+            tensor = slice_[:]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            self.assertTrue(np.allclose(tensor, A))
+
+            tensor = slice_[:2]
+            self.assertEqual(list(tensor.shape), [2, 5])
+            self.assertTrue(np.allclose(tensor, A[:2]))
+
+            tensor = slice_[:, :2]
+            self.assertEqual(list(tensor.shape), [10, 2])
+            self.assertTrue(np.allclose(tensor, A[:, :2]))
+
+            tensor = slice_[0, :2]
+            self.assertEqual(list(tensor.shape), [2])
+            self.assertTrue(np.allclose(tensor, A[0, :2]))
+
+            tensor = slice_[2:, 0]
+            self.assertEqual(list(tensor.shape), [8])
+            self.assertTrue(np.allclose(tensor, A[2:, 0]))
+
+            tensor = slice_[2:, 1]
+            self.assertEqual(list(tensor.shape), [8])
+            self.assertTrue(np.allclose(tensor, A[2:, 1]))
+
+            tensor = slice_[2:, -1]
+            self.assertEqual(list(tensor.shape), [8])
+            self.assertTrue(np.allclose(tensor, A[2:, -1]))
+
+            tensor = slice_[2:, -5]
+            self.assertEqual(list(tensor.shape), [8])
+            self.assertTrue(np.allclose(tensor, A[2:, -5]))
+
+            with self.assertRaises(SafetensorError) as cm:
+                tensor = slice_[2:, -6]
+            self.assertEqual(str(cm.exception), "Invalid index -6 for dimension 1 of size 5")

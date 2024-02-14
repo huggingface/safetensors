@@ -14,17 +14,18 @@ pub enum InvalidSlice {
 #[derive(Debug, Clone)]
 /// Generic structure used to index a slice of the tensor
 pub enum TensorIndexer {
-    //Select(usize),
+    /// This is selecting an entire dimension
+    Select(usize),
     /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
     //IndexSelect(Tensor),
 }
 
-// impl From<usize> for TensorIndexer {
-//     fn from(index: usize) -> Self {
-//         TensorIndexer::Select(index)
-//     }
-// }
+impl From<usize> for TensorIndexer {
+    fn from(index: usize) -> Self {
+        TensorIndexer::Select(index)
+    }
+}
 
 // impl From<&[usize]> for TensorIndexer {
 //     fn from(index: &[usize]) -> Self {
@@ -249,8 +250,11 @@ impl<'data> SliceIterator<'data> {
                     TensorIndexer::Narrow(Bound::Excluded(s), Bound::Included(stop)) => {
                         (*s + 1, *stop + 1)
                     }
+                    TensorIndexer::Select(s) => (*s, *s + 1),
                 };
-                newshape.push(stop - start);
+                if let TensorIndexer::Narrow(..) = slice {
+                    newshape.push(stop - start);
+                }
                 if indices.is_empty() {
                     if start == 0 && stop == shape {
                         // We haven't started to slice yet, just increase the span
@@ -485,6 +489,49 @@ mod tests {
         .unwrap();
         assert_eq!(iterator.next(), Some(&data[4..12]));
         assert_eq!(iterator.next(), Some(&data[16..24]));
+        assert_eq!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_slice_select() {
+        let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+
+        let attn_0 = TensorView::new(Dtype::F32, vec![2, 3], &data).unwrap();
+
+        let mut iterator = SliceIterator::new(
+            &attn_0,
+            &[
+                TensorIndexer::Select(1),
+                TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(3)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(iterator.next(), Some(&data[16..24]));
+        assert_eq!(iterator.next(), None);
+
+        let mut iterator = SliceIterator::new(
+            &attn_0,
+            &[
+                TensorIndexer::Select(0),
+                TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(3)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(iterator.next(), Some(&data[4..12]));
+        assert_eq!(iterator.next(), None);
+
+        let mut iterator = SliceIterator::new(
+            &attn_0,
+            &[
+                TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(2)),
+                TensorIndexer::Select(0),
+            ],
+        )
+        .unwrap();
+        assert_eq!(iterator.next(), Some(&data[12..16]));
         assert_eq!(iterator.next(), None);
     }
 }
