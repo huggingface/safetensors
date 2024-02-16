@@ -315,3 +315,10 @@ class ReadmeTestCase(unittest.TestCase):
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[2:, -6]
             self.assertEqual(str(cm.exception), "Invalid index -6 for dimension 1 of size 5")
+
+            with self.assertRaises(SafetensorError) as cm:
+                tensor = slice_[2:, 20]
+            self.assertEqual(
+                str(cm.exception),
+                "Error during slicing [2:20] with shape [10, 5]:  SliceOutOfRange { dim_index: 1, asked: 20, dim_size: 5 }",
+            )

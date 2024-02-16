@@ -758,6 +758,21 @@ enum Slice<'a> {
     Slices(Vec<SliceIndex<'a>>),
 }
 
+use std::fmt;
+struct Disp(Vec<TensorIndexer>);
+
+/// Should be more readable that the standard
+/// `Debug`
+impl fmt::Display for Disp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+        for item in &self.0 {
+            write!(f, "{item}")?;
+        }
+        write!(f, "]")
+    }
+}
+
 #[pymethods]
 impl PySafeSlice {
     /// Returns the shape of the full underlying tensor
@@ -828,8 +843,10 @@ impl PySafeSlice {
 
                 let iterator = tensor.sliced_data(&slices).map_err(|e| {
                     SafetensorError::new_err(format!(
-                        "Error during slicing {slices:?} vs {:?}:  {:?}",
-                        self.info.shape, e
+                        "Error during slicing {} with shape {:?}:  {:?}",
+                        Disp(slices),
+                        self.info.shape,
+                        e
                     ))
                 })?;
                 let newshape = iterator.newshape();

@@ -1,5 +1,6 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
 use crate::tensor::TensorView;
+use std::fmt;
 use std::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
@@ -9,6 +10,15 @@ use std::ops::{
 pub enum InvalidSlice {
     /// When the client asked for more slices than the tensors has dimensions
     TooManySlices,
+    /// When the client asked for a slice that exceeds the allowed bounds
+    SliceOutOfRange {
+        /// The rank of the dimension that has the out of bounds
+        dim_index: usize,
+        /// The problematic value
+        asked: usize,
+        /// The dimension size we shouldn't go over.
+        dim_size: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -19,6 +29,28 @@ pub enum TensorIndexer {
     /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
     //IndexSelect(Tensor),
+}
+
+fn display_bound(bound: &Bound<usize>) -> String {
+    match bound {
+        Bound::Unbounded => "".to_string(),
+        Bound::Excluded(n) => format!("{n}"),
+        Bound::Included(n) => format!("{n}"),
+    }
+}
+
+/// Intended for Python users mostly or at least for its conventions
+impl fmt::Display for TensorIndexer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TensorIndexer::Select(n) => {
+                write!(f, "{n}")
+            }
+            TensorIndexer::Narrow(left, right) => {
+                write!(f, "{}:{}", display_bound(left), display_bound(right))
+            }
+        }
+    }
 }
 
 impl From<usize> for TensorIndexer {
@@ -252,6 +284,13 @@ impl<'data> SliceIterator<'data> {
                     }
                     TensorIndexer::Select(s) => (*s, *s + 1),
                 };
+                if start >= shape && stop > shape {
+                    return Err(InvalidSlice::SliceOutOfRange {
+                        dim_index: i,
+                        asked: stop.saturating_sub(1),
+                        dim_size: shape,
+                    });
+                }
                 if let TensorIndexer::Narrow(..) = slice {
                     newshape.push(stop - start);
                 }
