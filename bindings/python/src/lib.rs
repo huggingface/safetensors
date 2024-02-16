@@ -167,24 +167,41 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
     Ok(items)
 }
 
-fn slice_to_indexer(slice: &PySlice) -> Result<TensorIndexer, PyErr> {
-    let py_start = slice.getattr(intern!(slice.py(), "start"))?;
-    let start: Option<usize> = py_start.extract()?;
-    let start = if let Some(start) = start {
-        Bound::Included(start)
-    } else {
-        Bound::Unbounded
-    };
+fn slice_to_indexer(
+    (dim_idx, (slice_index, dim)): (usize, (SliceIndex, usize)),
+) -> Result<TensorIndexer, PyErr> {
+    match slice_index {
+        SliceIndex::Slice(slice) => {
+            let py_start = slice.getattr(intern!(slice.py(), "start"))?;
+            let start: Option<usize> = py_start.extract()?;
+            let start = if let Some(start) = start {
+                Bound::Included(start)
+            } else {
+                Bound::Unbounded
+            };
 
-    let py_stop = slice.getattr(intern!(slice.py(), "stop"))?;
-    let stop: Option<usize> = py_stop.extract()?;
-    let stop = if let Some(stop) = stop {
-        Bound::Excluded(stop)
-    } else {
-        Bound::Unbounded
-    };
-
-    Ok(TensorIndexer::Narrow(start, stop))
+            let py_stop = slice.getattr(intern!(slice.py(), "stop"))?;
+            let stop: Option<usize> = py_stop.extract()?;
+            let stop = if let Some(stop) = stop {
+                Bound::Excluded(stop)
+            } else {
+                Bound::Unbounded
+            };
+            Ok(TensorIndexer::Narrow(start, stop))
+        }
+        SliceIndex::Index(idx) => {
+            if idx < 0 {
+                let idx = dim
+                    .checked_add_signed(idx as isize)
+                    .ok_or(SafetensorError::new_err(format!(
+                        "Invalid index {idx} for dimension {dim_idx} of size {dim}"
+                    )))?;
+                Ok(TensorIndexer::Select(idx))
+            } else {
+                Ok(TensorIndexer::Select(idx as usize))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -730,10 +747,30 @@ struct PySafeSlice {
 }
 
 #[derive(FromPyObject)]
-enum Slice<'a> {
-    // Index(usize),
+enum SliceIndex<'a> {
     Slice(&'a PySlice),
-    Slices(Vec<&'a PySlice>),
+    Index(i32),
+}
+
+#[derive(FromPyObject)]
+enum Slice<'a> {
+    Slice(SliceIndex<'a>),
+    Slices(Vec<SliceIndex<'a>>),
+}
+
+use std::fmt;
+struct Disp(Vec<TensorIndexer>);
+
+/// Should be more readable that the standard
+/// `Debug`
+impl fmt::Display for Disp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+        for item in &self.0 {
+            write!(f, "{item}")?;
+        }
+        write!(f, "]")
+    }
 }
 
 #[pymethods]
@@ -780,16 +817,18 @@ impl PySafeSlice {
         Ok(dtype)
     }
 
-    pub fn __getitem__(&self, slices: Slice) -> PyResult<PyObject> {
-        let slices: Vec<&PySlice> = match slices {
-            Slice::Slice(slice) => vec![slice],
-            Slice::Slices(slices) => slices,
-        };
-
+    pub fn __getitem__(&self, slices: &PyAny) -> PyResult<PyObject> {
         match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {
+                let slices: Slice = slices.extract()?;
+                let slices: Vec<SliceIndex> = match slices {
+                    Slice::Slice(slice) => vec![slice],
+                    Slice::Slices(slices) => slices,
+                };
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
+
+                let shape = self.info.shape.clone();
 
                 let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
                     .map_err(|e| {
@@ -797,20 +836,23 @@ impl PySafeSlice {
                     })?;
                 let slices: Vec<TensorIndexer> = slices
                     .into_iter()
+                    .zip(shape)
+                    .enumerate()
                     .map(slice_to_indexer)
                     .collect::<Result<_, _>>()?;
 
                 let iterator = tensor.sliced_data(&slices).map_err(|e| {
                     SafetensorError::new_err(format!(
-                        "Error during slicing {slices:?} vs {:?}:  {:?}",
-                        self.info.shape, e
+                        "Error during slicing {} with shape {:?}:  {:?}",
+                        Disp(slices),
+                        self.info.shape,
+                        e
                     ))
                 })?;
                 let newshape = iterator.newshape();
 
                 let mut offset = 0;
                 let length = iterator.remaining_byte_len();
-
                 Python::with_gil(|py| {
                     let array: PyObject =
                         PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
