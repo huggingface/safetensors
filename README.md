@@ -107,7 +107,7 @@ the creation of polyglot files.
 
 ### Yet another format ?
 
-The main rationale for this crate is to remove the need to use
+The main rationale for this create is to remove the need to use
 `pickle` on `PyTorch` which is used by default.
 There are other formats out there used by machine learning and more general
 formats.
