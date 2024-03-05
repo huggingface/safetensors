@@ -187,7 +187,7 @@ def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict
         strict (`bool`, *optional*, defaults to True):
             Whether to fail if you're missing keys or having unexpected ones.
             When false, the function simply returns missing and unexpected names.
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
+        device (`Union[Dict[str, any], str]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
 
@@ -291,7 +291,7 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torc
     Args:
         filename (`str`, or `os.PathLike`):
             The name of the file which contains the tensors
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
+        device (`Union[Dict[str, any], str]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
 
