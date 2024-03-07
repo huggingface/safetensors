@@ -173,7 +173,7 @@ def save_model(
         raise ValueError(msg)
 
 
-def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict: bool = True, device="cpu") -> Tuple[List[str], List[str]]:
+def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict: bool = True, device: Union[str, int] = "cpu") -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
     This method exists specifically to avoid tensor sharing issues which are
@@ -187,7 +187,7 @@ def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict
         strict (`bool`, *optional*, defaults to True):
             Whether to fail if you're missing keys or having unexpected ones.
             When false, the function simply returns missing and unexpected names.
-        device (`Union[Dict[str, any], str]`, *optional*, defaults to `cpu`):
+        device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
 
@@ -284,14 +284,14 @@ def save_file(
     serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
-def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, torch.Tensor]:
+def load_file(filename: Union[str, os.PathLike], device: Union[str, int] = "cpu") -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
 
     Args:
         filename (`str`, or `os.PathLike`):
             The name of the file which contains the tensors
-        device (`Union[Dict[str, any], str]`, *optional*, defaults to `cpu`):
+        device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
 
