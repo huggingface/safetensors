@@ -354,6 +354,7 @@ _SIZE = {
     torch.float64: 8,
     _float8_e4m3fn: 1,
     _float8_e5m2: 1,
+    torch.complex64: 8,
 }
 
 _TYPES = {
