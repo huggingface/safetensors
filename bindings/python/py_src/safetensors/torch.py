@@ -354,6 +354,7 @@ _SIZE = {
     torch.float64: 8,
     _float8_e4m3fn: 1,
     _float8_e5m2: 1,
+    torch.complex64: 8,
 }
 
 _TYPES = {
@@ -372,6 +373,7 @@ _TYPES = {
     "BOOL": torch.bool,
     "F8_E4M3": _float8_e4m3fn,
     "F8_E5M2": _float8_e5m2,
+    "C64": torch.complex64,
 }
 
 
