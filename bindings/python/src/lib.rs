@@ -542,47 +542,40 @@ impl Open {
                         .get(py)
                         .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                     let storage: &PyBound<PyAny> = storage.bind(py);
-                    let storage_slice = storage
+                    let mut storage_slice = storage
                         .getattr(intern!(py, "__getitem__"))?
                         .call1((slice,))?;
 
                     let sys = PyModule::import_bound(py, intern!(py, "sys"))?;
                     let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
 
+                    if byteorder == "big" {
+                        let module = PyModule::import(py, intern!(py, "torch"))?;
+                        let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
+                        let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
+
+                        if version >= Version::new(2, 1, 0) {
+                            // PyTorch 2.1 or later implements Storage.byteswap()
+                            storage_slice = storage_slice
+                                .getattr(intern!(py, "clone"))?
+                                .call0()?;
+                            let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
+                            storage_slice
+                                .getattr(intern!(py, "byteswap"))?
+                                .call1((dtype,))?;
+                            // storage_slice.clone().byteswap(dtype)
+                        } else {
+                            return Err(SafetensorError::new_err("PyTorch 2.1 or later is required for big-endian machine"));
+                        }
+                    }
+
                     let mut tensor = torch
                         .getattr(intern!(py, "asarray"))?
                         .call((storage_slice,), Some(&kwargs))?
                         .getattr(intern!(py, "view"))?
-                        .call((), Some(&view_kwargs))?;
-
-                    if byteorder == "big" {
-                        let inplace_kwargs =
-                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
-                        if info.dtype == Dtype::BF16 {
-                            let torch_f16: PyObject = get_pydtype(torch, Dtype::F16, false)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call(
-                                (),
-                                Some(&[(intern!(py, "dtype"), torch_f16)].into_py_dict_bound(py)),
-                            )?;
-                        }
-
-                        let numpy = tensor
-                            .getattr(intern!(py, "numpy"))?
-                            .call0()?
-                            .getattr("byteswap")?
-                            .call((), Some(&inplace_kwargs))?;
-                        tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-
-                        if info.dtype == Dtype::BF16 {
-                            let torch_bf16: PyObject = get_pydtype(torch, Dtype::BF16, false)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call(
-                                (),
-                                Some(&[(intern!(py, "dtype"), torch_bf16)].into_py_dict_bound(py)),
-                            )?;
-                        }
-                    }
-
-                    tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+                        .call((), Some(view_kwargs))?
+                        .getattr(intern!(py, "reshape"))?
+                        .call1((shape,))?;
                     if self.device != Device::Cpu {
                         let device: PyObject = self.device.clone().into_py(py);
                         let kwargs = PyDict::new_bound(py);
@@ -890,7 +883,7 @@ impl PySafeSlice {
                     .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                 let storage: &PyBound<'_, PyAny> = storage.bind(py);
 
-                let storage_slice = storage
+                let mut storage_slice = storage
                     .getattr(intern!(py, "__getitem__"))?
                     .call1((slice,))?;
 
@@ -899,23 +892,31 @@ impl PySafeSlice {
                 let sys = PyModule::import_bound(py, intern!(py, "sys"))?;
                 let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
 
+                if byteorder == "big" {
+                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
+                    let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
+
+                    if version >= Version::new(2, 1, 0) {
+                        // PyTorch 2.1 or later implements Storage.byteswap()
+                        storage_slice = storage_slice
+                            .getattr(intern!(py, "clone"))?
+                            .call0()?;
+                        let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
+                        storage_slice
+                            .getattr(intern!(py, "byteswap"))?
+                            .call1((dtype,))?;
+                        // storage_slice.clone().byteswap(dtype)
+                    } else {
+                        return Err(SafetensorError::new_err("PyTorch 2.1 or later is required for big-endian machine"));
+                    }
+                }
+
                 let mut tensor = torch
                     .getattr(intern!(py, "asarray"))?
                     .call((storage_slice,), Some(&kwargs))?
                     .getattr(intern!(py, "view"))?
-                    .call((), Some(&view_kwargs))?;
-                if byteorder == "big" {
-                    let inplace_kwargs =
-                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
-
-                    let numpy = tensor
-                        .getattr(intern!(py, "numpy"))?
-                        .call0()?
-                        .getattr("byteswap")?
-                        .call((), Some(&inplace_kwargs))?;
-                    tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-                }
-                tensor = tensor
+                    .call((), Some(view_kwargs))?
                     .getattr(intern!(py, "reshape"))?
                     .call1((shape,))?
                     .getattr(intern!(py, "__getitem__"))?
