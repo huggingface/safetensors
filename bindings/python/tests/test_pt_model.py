@@ -171,6 +171,19 @@ class TorchModelTestCase(unittest.TestCase):
         for k, v in model2.state_dict().items():
             torch.testing.assert_close(v, state_dict[k])
 
+        # test tensors in bfloat16
+        model = OnesModel()
+        for k, v in model2.state_dict().items():
+            v = v.to(torch.bfloat16)
+        save_model(model, "tmp_ones_bf16.safetensors")
+
+        model2 = OnesModel()
+        load_model(model2, "tmp_ones_bf16.safetensors")
+
+        state_dict = model.state_dict()
+        for k, v in model2.state_dict().items():
+            torch.testing.assert_close(v, state_dict[k])
+
     def test_workaround(self):
         model = Model()
         save_model(model, "tmp.safetensors")
