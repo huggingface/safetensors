@@ -1,34 +1,34 @@
 import datetime
 import sys
 import tempfile
-from collections import defaultdict
+import time
+from collections import Counter
+import threading
 
 import atheris
 
-
-with atheris.instrument_imports():
-    from safetensors.torch import load_file
-
-
-EXCEPTIONS = defaultdict(int)
-START = datetime.datetime.now()
-DT = datetime.timedelta(seconds=30)
-
+EXCEPTIONS = Counter()
+START = time.time()
+DT = 30
+LOCK = threading.Lock()
 
 def TestOneInput(data):
     global START
-    with tempfile.NamedTemporaryFile() as f:
+    global EXCEPTIONS
+    with tempfile.NamedTemporaryFile(mode="wb") as f:
         f.write(data)
         f.seek(0)
         try:
             load_file(f.name, device=0)
         except Exception as e:
-            EXCEPTIONS[str(e)] += 1
+            with LOCK:
+                EXCEPTIONS[str(e)] += 1
 
-    if datetime.datetime.now() - START > DT:
-        for e, n in EXCEPTIONS.items():
-            print(e, n)
-        START = datetime.datetime.now()
+    if time.time() - START > DT:
+        with LOCK:
+            for e, n in EXCEPTIONS.items():
+                print(e, n)
+            START = time.time()
 
 
 atheris.Setup(sys.argv, TestOneInput)
