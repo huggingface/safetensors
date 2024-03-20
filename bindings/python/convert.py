@@ -88,7 +88,7 @@ def get_discard_names(model_id: str, revision: Optional[str], folder: str, token
         import transformers
 
         config_filename = hf_hub_download(
-            model_id, revision=revision, filename="config.json", token=token, cache_dir=folder
+            model_id, revision=revision, filename="config.json", token=token,
         )
         with open(config_filename, "r") as f:
             config = json.load(f)
@@ -132,7 +132,7 @@ def convert_multi(
     model_id: str, *, revision=Optional[str], folder: str, token: Optional[str], discard_names: List[str]
 ) -> ConversionResult:
     filename = hf_hub_download(
-        repo_id=model_id, revision=revision, filename="pytorch_model.bin.index.json", token=token, cache_dir=folder
+        repo_id=model_id, revision=revision, filename="pytorch_model.bin.index.json", token=token, 
     )
     with open(filename, "r") as f:
         data = json.load(f)
@@ -140,7 +140,7 @@ def convert_multi(
     filenames = set(data["weight_map"].values())
     local_filenames = []
     for filename in filenames:
-        pt_filename = hf_hub_download(repo_id=model_id, filename=filename, token=token, cache_dir=folder)
+        pt_filename = hf_hub_download(repo_id=model_id, filename=filename, token=token, )
 
         sf_filename = rename(pt_filename)
         sf_filename = os.path.join(folder, sf_filename)
@@ -167,7 +167,7 @@ def convert_single(
     model_id: str, *, revision: Optional[str], folder: str, token: Optional[str], discard_names: List[str]
 ) -> ConversionResult:
     pt_filename = hf_hub_download(
-        repo_id=model_id, revision=revision, filename="pytorch_model.bin", token=token, cache_dir=folder
+        repo_id=model_id, revision=revision, filename="pytorch_model.bin", token=token, 
     )
 
     sf_name = "model.safetensors"
@@ -251,7 +251,7 @@ def convert_generic(
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
             pt_filename = hf_hub_download(
-                model_id, revision=revision, filename=filename, token=token, cache_dir=folder
+                model_id, revision=revision, filename=filename, token=token, 
             )
             dirname, raw_filename = os.path.split(filename)
             if raw_filename == "pytorch_model.bin":
