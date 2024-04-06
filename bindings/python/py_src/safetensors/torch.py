@@ -185,7 +185,7 @@ def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict
         filename (`str`, or `os.PathLike`):
             The filename location to load the file from.
         strict (`bool`, *optional*, defaults to True):
-            Wether to fail if you're missing keys or having unexpected ones
+            Whether to fail if you're missing keys or having unexpected ones
             When false, the function simply returns missing and unexpected names.
 
     Returns:

@@ -63,7 +63,7 @@ def _remove_duplicate_names(
 
         keep_name = sorted(list(complete_names))[0]
 
-        # Mecanism to preferentially select keys to keep
+        # Mechanism to preferentially select keys to keep
         # coming from the on-disk file to allow
         # loading models saved with a different choice
         # of keep_name
@@ -96,7 +96,7 @@ def get_discard_names(model_id: str, revision: Optional[str], folder: str, token
 
         class_ = getattr(transformers, architecture)
 
-        # Name for this varible depends on transformers version.
+        # Name for this variable depends on transformers version.
         discard_names = getattr(class_, "_tied_weights_keys", [])
 
     except Exception:

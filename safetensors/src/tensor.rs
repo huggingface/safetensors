@@ -210,7 +210,7 @@ fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Ite
     ))
 }
 
-/// Serialize to an owned byte buffer the dictionnary of tensors.
+/// Serialize to an owned byte buffer the dictionary of tensors.
 pub fn serialize<
     S: AsRef<str> + Ord + std::fmt::Display,
     V: View,
@@ -237,7 +237,7 @@ pub fn serialize<
     Ok(buffer)
 }
 
-/// Serialize to a regular file the dictionnary of tensors.
+/// Serialize to a regular file the dictionary of tensors.
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
 pub fn serialize_to_file<
@@ -401,7 +401,7 @@ impl<'data> SafeTensors<'data> {
     }
 }
 
-/// The stuct representing the header of safetensor files which allow
+/// The struct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Clone)]
 pub struct Metadata {
@@ -635,7 +635,7 @@ pub struct TensorInfo {
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[non_exhaustive]
 pub enum Dtype {
-    /// Boolan type
+    /// Boolean type
     BOOL,
     /// Unsigned byte
     U8,
@@ -834,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialization_forced_alignement() {
+    fn test_serialization_forced_alignment() {
         let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
             .into_iter()
             .flat_map(|f| f.to_le_bytes())
@@ -852,7 +852,7 @@ mod tests {
                 72, 0, 0, 0, 0, 0, 0, 0, 123, 34, 97, 116, 116, 110, 48, 34, 58, 123, 34, 100, 116,
                 121, 112, 101, 34, 58, 34, 70, 51, 50, 34, 44, 34, 115, 104, 97, 112, 101, 34, 58,
                 91, 49, 44, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102,
-                // All the 32 are forcing alignement of the tensor data for casting to f32, f64
+                // All the 32 are forcing alignment of the tensor data for casting to f32, f64
                 // etc..
                 115, 101, 116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 32, 32, 32, 32, 32,
                 32, 32, 0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0,

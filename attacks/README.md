@@ -57,7 +57,7 @@ A few things can be abused:
                 file a few megs tops, but defining many tensors on the same overlapping part of the file, it was essentially a DOS attack. The mitigation is rather simple, we sanitize the fact
                 that the offsets must be contiguous and non overlapping.
 - Proposal 5: The offsets could mismatch the declared shapes + dtype. This validated against.
-- Proposal 6: The file being mmaped could be modified while it's opened (attacker has access to your filesystem, seems like you're already pwned).
+- Proposal 6: The file being mapped could be modified while it's opened (attacker has access to your filesystem, seems like you're already pwned).
 - Proposal 7: serde JSON deserialization abuse (nothing so far: https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=serde). It doesn't mean there isn't a flaw. Same goes for the actual rust compiled binary.
 
 ```
