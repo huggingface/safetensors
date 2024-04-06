@@ -635,7 +635,7 @@ pub struct TensorInfo {
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[non_exhaustive]
 pub enum Dtype {
-    /// Boolan type
+    /// Boolean type
     BOOL,
     /// Unsigned byte
     U8,
