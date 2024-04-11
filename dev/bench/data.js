@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708075098399,
+  "lastUpdate": 1712822894158,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -13450,6 +13450,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.014244939689056789",
             "extra": "mean: 322.18962179999835 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c3fca011785fbfe73ea9d14f8b77029caab8c224",
+          "message": "Updating doc. (#465)",
+          "timestamp": "2024-04-11T10:04:18+02:00",
+          "tree_id": "95959c02b5da356ac8521d524ac8ac4ea8397258",
+          "url": "https://github.com/huggingface/safetensors/commit/c3fca011785fbfe73ea9d14f8b77029caab8c224"
+        },
+        "date": 1712822892972,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.833775909770111,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0023272342818149994",
+            "extra": "mean: 545.3229015999909 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.7771648127603203,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0032193135667236837",
+            "extra": "mean: 360.0794578000091 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 6.463262103367902,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008224870148711335",
+            "extra": "mean: 154.72063239999443 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 2.966811060194096,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003904895347666798",
+            "extra": "mean: 337.0622461999915 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 9.613950001429282,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009610353142462379",
+            "extra": "mean: 104.0155190999883 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 237.00357013842498,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008028531847557216",
+            "extra": "mean: 4.219345723002979 msec\nrounds: 213"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 29.986848016921936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02255286584322318",
+            "extra": "mean: 33.34795305714319 msec\nrounds: 35"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 40.451449920641394,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025488050929335468",
+            "extra": "mean: 24.72099274468093 msec\nrounds: 47"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.456955584085145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011054628160224048",
+            "extra": "mean: 407.00776460000725 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.10464828730163,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007621330401275226",
+            "extra": "mean: 322.09767659999216 msec\nrounds: 5"
           }
         ]
       }
