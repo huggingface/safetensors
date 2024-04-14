@@ -448,7 +448,8 @@ impl Serialize for Metadata {
         }
 
         let tensors: Vec<_> = names.iter().zip(self.tensors.iter()).collect();
-        let mut map = serializer.serialize_map(Some(tensors.len()))?;
+        let n_entries = tensors.len() + self.metadata.is_some() as usize;
+        let mut map = serializer.serialize_map(Some(n_entries))?;
         if let Some(metadata) = &self.metadata {
             map.serialize_entry("__metadata__", metadata)?;
         }
@@ -829,6 +830,26 @@ mod tests {
                 101, 116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 0, 0, 0, 0, 0, 0, 128, 63,
                 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0, 160, 64
             ]
+        );
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_serialization_empty_contents() {
+        let out = serialize(&HashMap::<String, TensorView>::new(), &None).unwrap();
+        assert_eq!(out, b"\x08\x00\x00\x00\x00\x00\x00\x00{}      ");
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_serialization_data_info_only() {
+        let data_info = [("format".to_string(), "pt".to_string())]
+            .into_iter()
+            .collect();
+        let out = serialize(&HashMap::<String, TensorView>::new(), &Some(data_info)).unwrap();
+        assert_eq!(
+            out,
+            b"\x20\x00\x00\x00\x00\x00\x00\x00{\"__metadata__\":{\"format\":\"pt\"}}"
         );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
     }
