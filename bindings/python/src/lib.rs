@@ -2,7 +2,7 @@
 //! Dummy doc
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
-use pyo3::once_cell::GILOnceCell;
+use pyo3::sync::GILOnceCell;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PySlice;
@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
+use pyo3::{Bound as PyBound};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -58,7 +59,7 @@ fn prepare(tensor_dict: HashMap<String, &PyDict>) -> PyResult<HashMap<String, Te
                         }
                     }
                 }
-                "data" => data = value.extract()?,
+                "data" => data = Some(value.extract::<&[u8]>()?),
                 _ => println!("Ignored unknown kwarg option {key}"),
             };
         }
@@ -96,12 +97,12 @@ fn serialize<'b>(
     py: Python<'b>,
     tensor_dict: HashMap<String, &PyDict>,
     metadata: Option<HashMap<String, String>>,
-) -> PyResult<&'b PyBytes> {
+) -> PyResult<PyBound<'b, PyBytes>> {
     let tensors = prepare(tensor_dict)?;
     let metadata_map = metadata.map(HashMap::from_iter);
     let out = safetensors::tensor::serialize(&tensors, &metadata_map)
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
-    let pybytes = PyBytes::new(py, &out);
+    let pybytes = PyBytes::new_bound(py, &out);
     Ok(pybytes)
 }
 
@@ -152,10 +153,10 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
     let mut items = Vec::with_capacity(tensors.len());
 
     for (tensor_name, tensor) in tensors {
-        let pyshape: PyObject = PyList::new(py, tensor.shape().iter()).into();
+        let pyshape: PyObject = PyList::new_bound(py, tensor.shape().iter()).into();
         let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_py(py);
 
-        let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
+        let pydata: PyObject = PyByteArray::new_bound(py, tensor.data()).into();
 
         let map = HashMap::from([
             ("shape".to_string(), pyshape),
@@ -397,11 +398,11 @@ impl Open {
         Python::with_gil(|py| -> PyResult<()> {
             match framework {
                 Framework::Pytorch => {
-                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    let module = PyModule::import_bound(py, intern!(py, "torch"))?;
                     TORCH_MODULE.get_or_init(py, || module.into())
                 }
                 _ => {
-                    let module = PyModule::import(py, intern!(py, "numpy"))?;
+                    let module = PyModule::import_bound(py, intern!(py, "numpy"))?;
                     NUMPY_MODULE.get_or_init(py, || module.into())
                 }
             };
@@ -430,13 +431,13 @@ impl Open {
                     };
 
                     let kwargs =
-                        [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py);
+                        [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict_bound(py);
                     let storage = module
                         .getattr(storage_name)?
-                        .getattr(intern!(py, "from_file"))?
-                        .call((py_filename,), Some(kwargs))?;
+                        // .getattr(intern!(py, "from_file"))?
+                        .call_method("from_file", (py_filename,), Some(&kwargs))?;
 
-                    let untyped: &PyAny = match storage.getattr(intern!(py, "untyped")) {
+                    let untyped: PyBound<'_, PyAny> = match storage.getattr(intern!(py, "untyped")) {
                         Ok(untyped) => untyped,
                         Err(_) => storage.getattr(intern!(py, "_untyped"))?,
                     };
@@ -514,7 +515,7 @@ impl Open {
                 let data =
                     &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-                let array: PyObject = Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
+                let array: PyObject = Python::with_gil(|py| PyByteArray::new_bound(py, data).into_py(py));
 
                 create_tensor(
                     &self.framework,
@@ -529,39 +530,39 @@ impl Open {
                     let torch = get_module(py, &TORCH_MODULE)?;
                     let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
                     let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
-                    let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py);
-                    let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
+                    let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict_bound(py);
+                    let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
                     let shape = info.shape.to_vec();
                     let shape: PyObject = shape.into_py(py);
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
                     let stop = (info.data_offsets.1 + self.offset) as isize;
-                    let slice = PySlice::new(py, start, stop, 1);
+                    let slice = PySlice::new_bound(py, start, stop, 1);
                     let storage: &PyObject = storage
                         .get(py)
                         .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
-                    let storage: &PyAny = storage.as_ref(py);
+                    let storage: &PyBound<PyAny> = storage.bind(py);
                     let storage_slice = storage
                         .getattr(intern!(py, "__getitem__"))?
                         .call1((slice,))?;
 
-                    let sys = PyModule::import(py, intern!(py, "sys"))?;
+                    let sys = PyModule::import_bound(py, intern!(py, "sys"))?;
                     let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
 
                     let mut tensor = torch
                         .getattr(intern!(py, "asarray"))?
-                        .call((storage_slice,), Some(kwargs))?
+                        .call((storage_slice,), Some(&kwargs))?
                         .getattr(intern!(py, "view"))?
-                        .call((), Some(view_kwargs))?;
+                        .call((), Some(&view_kwargs))?;
 
                     if byteorder == "big" {
                         let inplace_kwargs =
-                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py);
+                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
                         if info.dtype == Dtype::BF16 {
                             let torch_f16: PyObject = get_pydtype(torch, Dtype::F16, false)?;
                             tensor = tensor.getattr(intern!(py, "to"))?.call(
                                 (),
-                                Some([(intern!(py, "dtype"), torch_f16)].into_py_dict(py)),
+                                Some(&[(intern!(py, "dtype"), torch_f16)].into_py_dict_bound(py)),
                             )?;
                         }
 
@@ -569,14 +570,14 @@ impl Open {
                             .getattr(intern!(py, "numpy"))?
                             .call0()?
                             .getattr("byteswap")?
-                            .call((), Some(inplace_kwargs))?;
+                            .call((), Some(&inplace_kwargs))?;
                         tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
 
                         if info.dtype == Dtype::BF16 {
                             let torch_bf16: PyObject = get_pydtype(torch, Dtype::BF16, false)?;
                             tensor = tensor.getattr(intern!(py, "to"))?.call(
                                 (),
-                                Some([(intern!(py, "dtype"), torch_bf16)].into_py_dict(py)),
+                                Some(&[(intern!(py, "dtype"), torch_bf16)].into_py_dict_bound(py)),
                             )?;
                         }
                     }
@@ -584,10 +585,9 @@ impl Open {
                     tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
                     if self.device != Device::Cpu {
                         let device: PyObject = self.device.clone().into_py(py);
-                        let kwargs = PyDict::new(py);
+                        let kwargs = PyDict::new_bound(py);
                         tensor = tensor
-                            .getattr(intern!(py, "to"))?
-                            .call((device,), Some(kwargs))?;
+                            .call_method("to", (device,), Some(&kwargs))?;
                     }
                     Ok(tensor.into_py(py))
                     // torch.asarray(storage[start + n : stop + n], dtype=torch.uint8).view(dtype=dtype).reshape(shape)
@@ -817,7 +817,7 @@ impl PySafeSlice {
         Ok(dtype)
     }
 
-    pub fn __getitem__(&self, slices: &PyAny) -> PyResult<PyObject> {
+    pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<PyObject> {
         match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {
                 let slices: Slice = slices.extract()?;
@@ -855,7 +855,7 @@ impl PySafeSlice {
                 let length = iterator.remaining_byte_len();
                 Python::with_gil(|py| {
                     let array: PyObject =
-                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                        PyByteArray::new_bound_with(py, length, |bytes: &mut [u8]| {
                             for slice in iterator {
                                 let len = slice.len();
                                 bytes[offset..offset + slice.len()].copy_from_slice(slice);
@@ -877,18 +877,18 @@ impl PySafeSlice {
                 let torch = get_module(py, &TORCH_MODULE)?;
                 let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
                 let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
-                let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py);
-                let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
+                let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict_bound(py);
+                let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
                 let shape = self.info.shape.to_vec();
                 let shape: PyObject = shape.into_py(py);
 
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
-                let slice = PySlice::new(py, start, stop, 1);
+                let slice = PySlice::new_bound(py, start, stop, 1);
                 let storage: &PyObject = storage
                     .get(py)
                     .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
-                let storage: &PyAny = storage.as_ref(py);
+                let storage: &PyBound<'_, PyAny> = storage.bind(py);
 
                 let storage_slice = storage
                     .getattr(intern!(py, "__getitem__"))?
@@ -896,23 +896,23 @@ impl PySafeSlice {
 
                 let slices = slices.into_py(py);
 
-                let sys = PyModule::import(py, intern!(py, "sys"))?;
+                let sys = PyModule::import_bound(py, intern!(py, "sys"))?;
                 let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
 
                 let mut tensor = torch
                     .getattr(intern!(py, "asarray"))?
-                    .call((storage_slice,), Some(kwargs))?
+                    .call((storage_slice,), Some(&kwargs))?
                     .getattr(intern!(py, "view"))?
-                    .call((), Some(view_kwargs))?;
+                    .call((), Some(&view_kwargs))?;
                 if byteorder == "big" {
                     let inplace_kwargs =
-                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py);
+                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
 
                     let numpy = tensor
                         .getattr(intern!(py, "numpy"))?
                         .call0()?
                         .getattr("byteswap")?
-                        .call((), Some(inplace_kwargs))?;
+                        .call((), Some(&inplace_kwargs))?;
                     tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
                 }
                 tensor = tensor
@@ -922,10 +922,9 @@ impl PySafeSlice {
                     .call1((slices,))?;
                 if self.device != Device::Cpu {
                     let device: PyObject = self.device.clone().into_py(py);
-                    let kwargs = PyDict::new(py);
+                    let kwargs = PyDict::new_bound(py);
                     tensor = tensor
-                        .getattr(intern!(py, "to"))?
-                        .call((device,), Some(kwargs))?;
+                        .call_method("to", (device,), Some(&kwargs))?;
                 }
                 Ok(tensor.into_py(py))
             }),
@@ -936,30 +935,30 @@ impl PySafeSlice {
 fn get_module<'a>(
     py: Python<'a>,
     cell: &'static GILOnceCell<Py<PyModule>>,
-) -> PyResult<&'a PyModule> {
-    let module: &PyModule = cell
+) -> PyResult<&'a PyBound<'a, PyModule>> {
+    let module: &PyBound<'a, PyModule> = cell
         .get(py)
         .ok_or_else(|| SafetensorError::new_err("Could not find module"))?
-        .as_ref(py);
+        .bind(py);
     Ok(module)
 }
 
-fn create_tensor(
-    framework: &Framework,
+fn create_tensor<'a>(
+    framework: &'a Framework,
     dtype: Dtype,
-    shape: &[usize],
+    shape: &'a [usize],
     array: PyObject,
-    device: &Device,
+    device: &'a Device,
 ) -> PyResult<PyObject> {
     Python::with_gil(|py| -> PyResult<PyObject> {
-        let (module, is_numpy): (&PyModule, bool) = match framework {
+        let (module, is_numpy): (&PyBound<'_, PyModule>, bool) = match framework {
             Framework::Pytorch => (
                 TORCH_MODULE
                     .get(py)
                     .ok_or_else(|| {
                         SafetensorError::new_err(format!("Could not find module {framework:?}",))
                     })?
-                    .as_ref(py),
+                    .bind(py),
                 false,
             ),
             _ => (
@@ -968,7 +967,7 @@ fn create_tensor(
                     .ok_or_else(|| {
                         SafetensorError::new_err(format!("Could not find module {framework:?}",))
                     })?
-                    .as_ref(py),
+                    .bind(py),
                 true,
             ),
         };
@@ -979,27 +978,27 @@ fn create_tensor(
         let tensor = if count == 0 {
             // Torch==1.10 does not allow frombuffer on empty buffers so we create
             // the tensor manually.
-            let zeros = module.getattr(intern!(py, "zeros"))?;
+            // let zeros = module.getattr(intern!(py, "zeros"))?;
             let args = (shape.clone(),);
-            let kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py);
-            zeros.call(args, Some(kwargs))?
+            let kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
+            module.call_method("zeros", args, Some(&kwargs))?
         } else {
-            let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
+            // let frombuffer = module.getattr(intern!(py, "frombuffer"))?;
             let kwargs = [
                 (intern!(py, "buffer"), array),
                 (intern!(py, "dtype"), dtype),
             ]
-            .into_py_dict(py);
-            frombuffer.call((), Some(kwargs))?
+            .into_py_dict_bound(py);
+            module.call_method("frombuffer", (), Some(&kwargs))?
         };
-        let mut tensor: &PyAny = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+        let mut tensor: PyBound<'_, PyAny> = tensor.call_method1("reshape", (shape,))?;
         let tensor = match framework {
             Framework::Flax => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "jax"))?;
+                    let module = PyModule::import_bound(py, intern!(py, "jax"))?;
                     Ok(FLAX_MODULE.get_or_init(py, || module.into()))
                 })?
-                .as_ref(py);
+                .bind(py);
                 module
                     .getattr(intern!(py, "numpy"))?
                     .getattr(intern!(py, "array"))?
@@ -1007,43 +1006,42 @@ fn create_tensor(
             }
             Framework::Tensorflow => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "tensorflow"))?;
+                    let module = PyModule::import_bound(py, intern!(py, "tensorflow"))?;
                     Ok(TENSORFLOW_MODULE.get_or_init(py, || module.into()))
                 })?
-                .as_ref(py);
+                .bind(py);
                 module
                     .getattr(intern!(py, "convert_to_tensor"))?
                     .call1((tensor,))?
             }
             Framework::Mlx => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "mlx"))?;
+                    let module = PyModule::import_bound(py, intern!(py, "mlx"))?;
                     Ok(MLX_MODULE.get_or_init(py, || module.into()))
                 })?
-                .as_ref(py);
+                .bind(py);
                 module
                     .getattr(intern!(py, "core"))?
-                    .getattr(intern!(py, "array"))?
-                    .call1((tensor,))?
+                    // .getattr(intern!(py, "array"))?
+                    .call_method1("array", (tensor,))?
             }
             Framework::Pytorch => {
                 if device != &Device::Cpu {
                     let device: PyObject = device.clone().into_py(py);
-                    let kwargs = PyDict::new(py);
+                    let kwargs = PyDict::new_bound(py);
                     tensor = tensor
-                        .getattr(intern!(py, "to"))?
-                        .call((device,), Some(kwargs))?;
+                        .call_method("to", (device,), Some(&kwargs))?;
                 }
                 tensor
             }
             Framework::Numpy => tensor,
         };
-        let tensor = tensor.into_py(py);
-        Ok(tensor)
+        // let tensor = tensor.into_py_bound(py);
+        Ok(tensor.into_py(py))
     })
 }
 
-fn get_pydtype(module: &PyModule, dtype: Dtype, is_numpy: bool) -> PyResult<PyObject> {
+fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> PyResult<PyObject> {
     Python::with_gil(|py| {
         let dtype: PyObject = match dtype {
             Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
@@ -1069,7 +1067,7 @@ fn get_pydtype(module: &PyModule, dtype: Dtype, is_numpy: bool) -> PyResult<PyOb
             Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
             Dtype::BOOL => {
                 if is_numpy {
-                    py.import("builtins")?.getattr(intern!(py, "bool"))?.into()
+                    py.import_bound("builtins")?.getattr(intern!(py, "bool"))?.into()
                 } else {
                     module.getattr(intern!(py, "bool"))?.into()
                 }
@@ -1095,12 +1093,12 @@ pyo3::create_exception!(
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn _safetensors_rust(py: Python, m: &PyModule) -> PyResult<()> {
+fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
-    m.add("SafetensorError", py.get_type::<SafetensorError>())?;
+    m.add("SafetensorError", m.py().get_type_bound::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
