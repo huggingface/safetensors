@@ -573,7 +573,7 @@ impl Open {
                         .getattr(intern!(py, "asarray"))?
                         .call((storage_slice,), Some(&kwargs))?
                         .getattr(intern!(py, "view"))?
-                        .call((), Some(view_kwargs))?
+                        .call((), Some(&view_kwargs))?
                         .getattr(intern!(py, "reshape"))?
                         .call1((shape,))?;
                     if self.device != Device::Cpu {
@@ -916,7 +916,7 @@ impl PySafeSlice {
                     .getattr(intern!(py, "asarray"))?
                     .call((storage_slice,), Some(&kwargs))?
                     .getattr(intern!(py, "view"))?
-                    .call((), Some(view_kwargs))?
+                    .call((), Some(&view_kwargs))?
                     .getattr(intern!(py, "reshape"))?
                     .call1((shape,))?
                     .getattr(intern!(py, "__getitem__"))?
