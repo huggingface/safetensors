@@ -448,7 +448,12 @@ impl Serialize for Metadata {
         }
 
         let tensors: Vec<_> = names.iter().zip(self.tensors.iter()).collect();
-        let mut map = serializer.serialize_map(Some(tensors.len()))?;
+        let length = if let Some(metadata) = &self.metadata {
+            metadata.len()
+        } else {
+            0
+        };
+        let mut map = serializer.serialize_map(Some(tensors.len() + length))?;
         if let Some(metadata) = &self.metadata {
             map.serialize_entry("__metadata__", metadata)?;
         }
@@ -828,6 +833,34 @@ mod tests {
                 58, 91, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102, 115,
                 101, 116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 0, 0, 0, 0, 0, 0, 128, 63,
                 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0, 160, 64
+            ]
+        );
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_empty() {
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+
+        let out = serialize(&tensors, &None).unwrap();
+        assert_eq!(
+            out,
+            [8, 0, 0, 0, 0, 0, 0, 0, 123, 125, 32, 32, 32, 32, 32, 32]
+        );
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+
+        let metadata: Option<HashMap<String, String>> = Some(
+            [("framework".to_string(), "pt".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let out = serialize(&tensors, &metadata).unwrap();
+        assert_eq!(
+            out,
+            [
+                40, 0, 0, 0, 0, 0, 0, 0, 123, 34, 95, 95, 109, 101, 116, 97, 100, 97, 116, 97, 95,
+                95, 34, 58, 123, 34, 102, 114, 97, 109, 101, 119, 111, 114, 107, 34, 58, 34, 112,
+                116, 34, 125, 125, 32, 32, 32, 32, 32
             ]
         );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
