@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1713175784192,
+  "lastUpdate": 1713947306981,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -13732,6 +13732,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.029139300841604165",
             "extra": "mean: 299.6670664000021 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "079781fd0dc455ba0fe851e2b4507c33d0c0d407",
+          "message": "Fixing empty serialization (no tensor) with some metadata. (#472)\n\n* Fixing empty serialization (no tensor) with some metadata.\r\n\r\n* Fixing test value\r\n\r\n* Add audit component.\r\n\r\n* Install cargo audit.",
+          "timestamp": "2024-04-24T10:24:00+02:00",
+          "tree_id": "b8d5fbd1de3c24df3a3b0d0cc8c0864648a56052",
+          "url": "https://github.com/huggingface/safetensors/commit/079781fd0dc455ba0fe851e2b4507c33d0c0d407"
+        },
+        "date": 1713947305830,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.5709920660450423,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003774657724147107",
+            "extra": "mean: 388.9549147999901 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 2.9678848592449754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002543847576893512",
+            "extra": "mean: 336.94029499998805 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 7.560035765471278,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002581469121212322",
+            "extra": "mean: 132.27450649999165 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 3.1026714157263515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005783121700627882",
+            "extra": "mean: 322.3029016000055 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 9.947699997108842,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012723479571734028",
+            "extra": "mean: 100.52574969999455 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 240.35409425552254,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006367292800610272",
+            "extra": "mean: 4.160528253522868 msec\nrounds: 213"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 29.0916576208118,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027522980376268765",
+            "extra": "mean: 34.374115529415995 msec\nrounds: 34"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 47.630905784263405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0013972949169695895",
+            "extra": "mean: 20.99477185106117 msec\nrounds: 47"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 1.9541726808285405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09728398865160078",
+            "extra": "mean: 511.7255039999918 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.3129861605925655,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03867999036707791",
+            "extra": "mean: 301.8424924000101 msec\nrounds: 5"
           }
         ]
       }
