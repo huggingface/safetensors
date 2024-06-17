@@ -149,7 +149,7 @@ necessary)? This is becoming increasingly important in the ML world.
 - Protobuf: Hard 2Go max file size limit
 - Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
 - Numpy (npz): No `bfloat16` support. Vulnerable to zip bombs (DOS). Not zero-copy.
-- Arrow: No `bfloat16` support. Seem to require decoding [link](https://arrow.apache.org/docs/python/parquet.html#reading-parquet-and-memory-mapping)
+- Arrow: No `bfloat16` support.
 
 ### Notes
 
