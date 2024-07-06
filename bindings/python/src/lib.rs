@@ -451,7 +451,7 @@ impl Open {
                         // .getattr(intern!(py, "from_file"))?
                         .call_method("from_file", (py_filename,), Some(&kwargs))?;
 
-                        let untyped: PyBound<'_, PyAny> = match storage.getattr(intern!(py, "untyped")) {
+                    let untyped: PyBound<'_, PyAny> = match storage.getattr(intern!(py, "untyped")) {
                         Ok(untyped) => untyped,
                         Err(_) => storage.getattr(intern!(py, "_untyped"))?,
                     };
