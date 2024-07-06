@@ -245,6 +245,7 @@ enum Device {
     Mps,
     Npu(usize),
     Xpu(usize),
+    Xla(usize),
 }
 
 impl<'source> FromPyObject<'source> for Device {
@@ -256,6 +257,7 @@ impl<'source> FromPyObject<'source> for Device {
                 "mps" => Ok(Device::Mps),
                 "npu" => Ok(Device::Npu(0)),
                 "xpu" => Ok(Device::Xpu(0)),
+                "xla" => Ok(Device::Xla(0)),
                 name if name.starts_with("cuda:") => {
                     let tokens: Vec<_> = name.split(':').collect();
                     if tokens.len() == 2 {
@@ -289,6 +291,17 @@ impl<'source> FromPyObject<'source> for Device {
                         )))
                     }
                 }
+                name if name.starts_with("xla:") => {
+                    let tokens: Vec<_> = name.split(':').collect();
+                    if tokens.len() == 2 {
+                        let device: usize = tokens[1].parse()?;
+                        Ok(Device::Xla(device))
+                    } else {
+                        Err(SafetensorError::new_err(format!(
+                            "device {name} is invalid"
+                        )))
+                    }
+                }
                 name => Err(SafetensorError::new_err(format!(
                     "device {name} is invalid"
                 ))),
@@ -309,6 +322,7 @@ impl IntoPy<PyObject> for Device {
             Device::Mps => "mps".into_py(py),
             Device::Npu(n) => format!("npu:{n}").into_py(py),
             Device::Xpu(n) => format!("xpu:{n}").into_py(py),
+            Device::Xla(n) => format!("xla:{n}").into_py(py),
         }
     }
 }
@@ -437,7 +451,7 @@ impl Open {
                         // .getattr(intern!(py, "from_file"))?
                         .call_method("from_file", (py_filename,), Some(&kwargs))?;
 
-                    let untyped: PyBound<'_, PyAny> = match storage.getattr(intern!(py, "untyped")) {
+                        let untyped: PyBound<'_, PyAny> = match storage.getattr(intern!(py, "untyped")) {
                         Ok(untyped) => untyped,
                         Err(_) => storage.getattr(intern!(py, "_untyped"))?,
                     };
