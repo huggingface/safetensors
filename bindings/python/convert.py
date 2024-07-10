@@ -205,7 +205,7 @@ def convert_file(
     for k in loaded:
         pt_tensor = loaded[k]
         sf_tensor = reloaded[k]
-        if pt_tensor.dtype != sf_tensor.dtype or not torch.equal(pt_tensor.to(torch.float16), sf_tensor.to(torch.float16)):
+        if pt_tensor.dtype != sf_tensor.dtype or not torch.equal(pt_tensor.to(torch.float32), sf_tensor.to(torch.float32)):
             raise RuntimeError(f"The output tensors do not match for key {k}")
 
 
