@@ -20,8 +20,45 @@ There can be many potential use cases. For instance, we use it on the HuggingFac
 
 ## Usage
 
-### JavaScript/TypeScript[[js]]
+<hfoptions id="metadata">
 
+<hfoption id="http">
+From [🤗 Hub](hf.co/models), you can get metadata of a model with [HTTP range requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests) instead of downloading the entire safetensors file with all the weights. In this example python script below (you can use any language that has HTTP requests support), we are parsing metadata of [gpt2](https://huggingface.co/gpt2/blob/main/model.safetensors). 
+
+```python
+import requests # pip install requests
+import struct
+
+def parse_single_file(url):
+    # Fetch the first 8 bytes of the file
+    headers = {'Range': 'bytes=0-7'}
+    response = requests.get(url, headers=headers)
+    # Interpret the bytes as a little-endian unsigned 64-bit integer
+    length_of_header = struct.unpack('<Q', response.content)[0]
+    # Fetch length_of_header bytes starting from the 9th byte
+    headers = {'Range': f'bytes=8-{7 + length_of_header}'}
+    response = requests.get(url, headers=headers)
+    # Interpret the response as a JSON object
+    header = response.json()
+    return header
+
+url = "https://huggingface.co/gpt2/resolve/main/model.safetensors"
+header = parse_single_file(url)
+
+print(header)
+# {
+#   "__metadata__": { "format": "pt" },
+#   "h.10.ln_1.weight": {
+#     "dtype": "F32",
+#     "shape": [768],
+#     "data_offsets": [223154176, 223157248]
+#   },
+#   ...
+# }
+```
+</hfoption>
+
+<hfoption id="javascript">
 Using [`huggingface.js`](https://huggingface.co/docs/huggingface.js)
 
 ```ts
@@ -87,44 +124,46 @@ interface SafetensorsIndexJson {
 }
 
 export type SafetensorsShardedHeaders = Record<FileName, SafetensorsFileHeader>;
-
 ```
+</hfoption>
 
-### Python
-
-In this example python script, we are parsing metadata of [gpt2](https://huggingface.co/gpt2/blob/main/model.safetensors).
+<hfoption id="python">
+[`huggingface_hub`](https://huggingface.co/docs/huggingface_hub) provides a Python API to parse safetensors metadata.
+Use [`get_safetensors_metadata`](https://huggingface.co/docs/huggingface_hub/package_reference/hf_api#huggingface_hub.HfApi.get_safetensors_metadata) to get all safetensors metadata of a model.
+Depending on if the model is sharded or not, one or multiple safetensors files will be parsed.
 
 ```python
-import requests # pip install requests
-import struct
+>>> from huggingface_hub import get_safetensors_metadata
 
-def parse_single_file(url):
-    # Fetch the first 8 bytes of the file
-    headers = {'Range': 'bytes=0-7'}
-    response = requests.get(url, headers=headers)
-    # Interpret the bytes as a little-endian unsigned 64-bit integer
-    length_of_header = struct.unpack('<Q', response.content)[0]
-    # Fetch length_of_header bytes starting from the 9th byte
-    headers = {'Range': f'bytes=8-{7 + length_of_header}'}
-    response = requests.get(url, headers=headers)
-    # Interpret the response as a JSON object
-    header = response.json()
-    return header
+# Parse repo with single weights file
+>>> metadata = get_safetensors_metadata("bigscience/bloomz-560m")
+>>> metadata
+SafetensorsRepoMetadata(
+    metadata=None,
+    sharded=False,
+    weight_map={'h.0.input_layernorm.bias': 'model.safetensors', ...},
+    files_metadata={'model.safetensors': SafetensorsFileMetadata(...)}
+)
+>>> metadata.files_metadata["model.safetensors"].metadata
+{'format': 'pt'}
 
-url = "https://huggingface.co/gpt2/resolve/main/model.safetensors"
-header = parse_single_file(url)
+# Parse repo with sharded model (i.e. multiple weights files)
+>>> metadata = get_safetensors_metadata("bigscience/bloom")
+Parse safetensors files: 100%|██████████████████████████████████████████| 72/72 [00:12<00:00,  5.78it/s]
+>>> metadata
+SafetensorsRepoMetadata(metadata={'total_size': 352494542848}, sharded=True, weight_map={...}, files_metadata={...})
+>>> len(metadata.files_metadata)
+72  # All safetensors files have been fetched
 
-print(header)
-# {
-#   "__metadata__": { "format": "pt" },
-#   "h.10.ln_1.weight": {
-#     "dtype": "F32",
-#     "shape": [768],
-#     "data_offsets": [223154176, 223157248]
-#   },
-#   ...
-# }
+# Parse repo that is not a safetensors repo
+>>> get_safetensors_metadata("runwayml/stable-diffusion-v1-5")
+NotASafetensorsRepoError: 'runwayml/stable-diffusion-v1-5' is not a safetensors repo. Couldn't find 'model.safetensors.index.json' or 'model.safetensors' files.
 ```
+
+To parse the metadata of a single safetensors file, use [`parse_safetensors_file_metadata`](https://huggingface.co/docs/huggingface_hub/package_reference/hf_api#huggingface_hub.HfApi.parse_safetensors_file_metadata).
+</hfoption>
+
+</hfoptions>
 
 ## Example output
 
@@ -132,12 +171,12 @@ For instance, here are the number of params per dtype for a few models on the Hu
 
 model | safetensors | params
 --- | --- | ---
-gpt2 | single-file | { 'F32' => 137022720 }
-roberta-base | single-file | { 'F32' => 124697433, 'I64' => 514 }
-Jean-Baptiste/camembert-ner | single-file | { 'F32' => 110035205, 'I64' => 514 }
-roberta-large | single-file | { 'F32' => 355412057, 'I64' => 514 }
-distilbert-base-german-cased | single-file | { 'F32' => 67431550 }
-EleutherAI/gpt-neox-20b | sharded | { 'F16' => 20554568208, 'U8' => 184549376 }
-bigscience/bloom-560m | single-file | { 'F16' => 559214592 }
-bigscience/bloom | sharded | { 'BF16' => 176247271424 }
-bigscience/bloom-3b | single-file | { 'F16' => 3002557440 }
+[gpt2](https://huggingface.co/gpt2?show_tensors=true) | single-file | { 'F32' => 137022720 }
+[roberta-base](https://huggingface.co/roberta-base?show_tensors=true) | single-file | { 'F32' => 124697433, 'I64' => 514 }
+[Jean-Baptiste/camembert-ner](https://huggingface.co/Jean-Baptiste/camembert-ner?show_tensors=true) | single-file | { 'F32' => 110035205, 'I64' => 514 }
+[roberta-large](https://huggingface.co/roberta-large?show_tensors=true) | single-file | { 'F32' => 355412057, 'I64' => 514 }
+[distilbert-base-german-cased](https://huggingface.co/distilbert-base-german-cased?show_tensors=true) | single-file | { 'F32' => 67431550 }
+[EleutherAI/gpt-neox-20b](https://huggingface.co/EleutherAI/gpt-neox-20b?show_tensors=true) | sharded | { 'F16' => 20554568208, 'U8' => 184549376 }
+[bigscience/bloom-560m](https://huggingface.co/bigscience/bloom-560m?show_tensors=true) | single-file | { 'F16' => 559214592 }
+[bigscience/bloom](https://huggingface.co/bigscience/bloom?show_tensors=true) | sharded | { 'BF16' => 176247271424 }
+[bigscience/bloom-3b](https://huggingface.co/bigscience/bloom-3b?show_tensors=true) | single-file | { 'F16' => 3002557440 }

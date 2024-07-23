@@ -3,16 +3,16 @@ from typing import Dict, Optional, Union
 
 import numpy as np
 
-import paddle
-from safetensors import numpy
+import mlx.core as mx
+from safetensors import numpy, safe_open
 
 
-def save(tensors: Dict[str, paddle.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
+def save(tensors: Dict[str, mx.array], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
     Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, paddle.Tensor]`):
+        tensors (`Dict[str, mx.array]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         metadata (`Dict[str, str]`, *optional*, defaults to `None`):
             Optional text only metadata you might want to save in your header.
@@ -25,19 +25,19 @@ def save(tensors: Dict[str, paddle.Tensor], metadata: Optional[Dict[str, str]] =
     Example:
 
     ```python
-    from safetensors.paddle import save
-    import paddle
+    from safetensors.mlx import save
+    import mlx.core as mx
 
-    tensors = {"embedding": paddle.zeros((512, 1024)), "attention": paddle.zeros((256, 256))}
+    tensors = {"embedding": mx.zeros((512, 1024)), "attention": mx.zeros((256, 256))}
     byte_data = save(tensors)
     ```
     """
-    np_tensors = _paddle2np(tensors)
+    np_tensors = _mx2np(tensors)
     return numpy.save(np_tensors, metadata=metadata)
 
 
 def save_file(
-    tensors: Dict[str, paddle.Tensor],
+    tensors: Dict[str, mx.array],
     filename: Union[str, os.PathLike],
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
@@ -45,7 +45,7 @@ def save_file(
     Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, paddle.Tensor]`):
+        tensors (`Dict[str, mx.array]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         filename (`str`, or `os.PathLike`)):
             The filename we're saving into.
@@ -60,32 +60,32 @@ def save_file(
     Example:
 
     ```python
-    from safetensors.paddle import save_file
-    import paddle
+    from safetensors.mlx import save_file
+    import mlx.core as mx
 
-    tensors = {"embedding": paddle.zeros((512, 1024)), "attention": paddle.zeros((256, 256))}
+    tensors = {"embedding": mx.zeros((512, 1024)), "attention": mx.zeros((256, 256))}
     save_file(tensors, "model.safetensors")
     ```
     """
-    np_tensors = _paddle2np(tensors)
+    np_tensors = _mx2np(tensors)
     return numpy.save_file(np_tensors, filename, metadata=metadata)
 
 
-def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
+def load(data: bytes) -> Dict[str, mx.array]:
     """
-    Loads a safetensors file into paddle format from pure bytes.
+    Loads a safetensors file into MLX format from pure bytes.
 
     Args:
         data (`bytes`):
             The content of a safetensors file
 
     Returns:
-        `Dict[str, paddle.Tensor]`: dictionary that contains name as key, value as `paddle.Tensor` on cpu
+        `Dict[str, mx.array]`: dictionary that contains name as key, value as `mx.array`
 
     Example:
 
     ```python
-    from safetensors.paddle import load
+    from safetensors.mlx import load
 
     file_path = "./my_folder/bert.safetensors"
     with open(file_path, "rb") as f:
@@ -95,44 +95,44 @@ def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
     ```
     """
     flat = numpy.load(data)
-    return _np2paddle(flat, device)
+    return _np2mx(flat)
 
 
-def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, paddle.Tensor]:
+def load_file(filename: Union[str, os.PathLike]) -> Dict[str, mx.array]:
     """
-    Loads a safetensors file into paddle format.
+    Loads a safetensors file into MLX format.
 
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
-        device (`Union[Dict[str, any], str]`, *optional*, defaults to `cpu`):
-            The device where the tensors need to be located after load.
-            available options are all regular paddle device locations
 
     Returns:
-        `Dict[str, paddle.Tensor]`: dictionary that contains name as key, value as `paddle.Tensor`
+        `Dict[str, mx.array]`: dictionary that contains name as key, value as `mx.array`
 
     Example:
 
     ```python
-    from safetensors.paddle import load_file
+    from safetensors.flax import load_file
 
     file_path = "./my_folder/bert.safetensors"
     loaded = load_file(file_path)
     ```
     """
-    flat = numpy.load_file(filename)
-    output = _np2paddle(flat, device)
-    return output
+    result = {}
+    with safe_open(filename, framework="mlx") as f:
+        for k in f.keys():
+            result[k] = f.get_tensor(k)
+    return result
 
 
-def _np2paddle(numpy_dict: Dict[str, np.ndarray], device: str = "cpu") -> Dict[str, paddle.Tensor]:
+def _np2mx(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, mx.array]:
     for k, v in numpy_dict.items():
-        numpy_dict[k] = paddle.to_tensor(v, place=device)
+        numpy_dict[k] = mx.array(v)
     return numpy_dict
 
 
-def _paddle2np(paddle_dict: Dict[str, paddle.Tensor]) -> Dict[str, np.array]:
-    for k, v in paddle_dict.items():
-        paddle_dict[k] = v.detach().cpu().numpy()
-    return paddle_dict
+def _mx2np(mx_dict: Dict[str, mx.array]) -> Dict[str, np.array]:
+    new_dict = {}
+    for k, v in mx_dict.items():
+        new_dict[k] = np.asarray(v)
+    return new_dict

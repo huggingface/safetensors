@@ -25,13 +25,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
       - name: Install cargo-llvm-cov for Ubuntu
         if: matrix.os == 'ubuntu-latest'
         run: cargo install cargo-llvm-cov
-
-      - name: Install cargo-readme for Ubuntu
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo install cargo-readme
 
       - name: Build
         run: cargo build --all-targets --verbose
@@ -57,9 +56,3 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
           working-directory: ./safetensors
           fail_ci_if_error: true
-
-      # Verify that Readme.md is up to date.
-      - name: Make sure, Readme generated from lib.rs matches actual Readme
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: cargo readme > must_match_readme.md && diff must_match_readme.md README.md && diff must_match_readme.md ../README.md

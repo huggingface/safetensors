@@ -13,6 +13,7 @@ requirements:
     - python x.x
     - setuptools
     - setuptools-rust
+    - maturin
 
   run:
     - python x.x

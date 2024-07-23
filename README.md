@@ -75,10 +75,14 @@ with safe_open("model.safetensors", framework="pt", device="cpu") as f:
 
 ### Format
 
-- 8 bytes: `N`, a u64 int, containing the size of the header
-- N bytes: a JSON utf-8 string representing the header.
-  - The header is a dict like `{"TENSOR_NAME": {"dtype": "F16", "shape": [1, 16, 256], "offsets": [BEGIN, END]}, "NEXT_TENSOR_NAME": {...}, ...}`, where offsets point to the tensor data relative to the beginning of the byte buffer, with `BEGIN` as the starting offset and `END` as the one-past offset (so total tensor byte size = `END - BEGIN`).
-  - A special key `__metadata__` is allowed to contain free form text-to-text map.
+- 8 bytes: `N`, an unsigned little-endian 64-bit integer, containing the size of the header
+- N bytes: a JSON UTF-8 string representing the header.
+  - The header data MUST begin with a `{` character (0x7B).
+  - The header data MAY be trailing padded with whitespace (0x20).
+  - The header is a dict like `{"TENSOR_NAME": {"dtype": "F16", "shape": [1, 16, 256], "data_offsets": [BEGIN, END]}, "NEXT_TENSOR_NAME": {...}, ...}`,
+    - `data_offsets` point to the tensor data relative to the beginning of the byte buffer (i.e. not an absolute position in the file),
+      with `BEGIN` as the starting offset and `END` as the one-past offset (so total tensor byte size = `END - BEGIN`).
+  - A special key `__metadata__` is allowed to contain free form string-to-string map. Arbitrary JSON is not allowed, all values must be strings.
 - Rest of the file: byte-buffer.
 
 Notes:
@@ -95,7 +99,10 @@ Notes:
  from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
  - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
  - The byte buffer needs to be entirely indexed, and cannot contain holes. This prevents
- the creation of polyglot files.
+the creation of polyglot files.
+ - Endianness: Little-endian.
+ moment.
+ - Order: 'C' or row-major.
 
 
 ### Yet another format ?
@@ -109,7 +116,7 @@ formats.
 Let's take a look at alternatives and why this format is deemed interesting.
 This is my very personal and probably biased view:
 
-| Format                  | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16
+| Format                  | Safe | Zero-copy | Lazy loading | No file size limit | Layout control | Flexibility | Bfloat16/Fp8
 | ----------------------- | --- | --- | --- | --- | --- | --- | --- |
 | pickle (PyTorch)        | ✗ | ✗ | ✗ | 🗸 | ✗ | 🗸 | 🗸 |
 | H5 (Tensorflow)         | 🗸 | ✗ | 🗸 | 🗸 | ~ | ~ | ✗ |
@@ -129,7 +136,7 @@ some tensors in it without scanning the whole file (distributed setting) ?
 - Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling the layout to keep fast access to single tensors is important.
 - No file size limit: Is there a limit to the file size ?
 - Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
-- Bfloat16: Does the format support native bfloat16 (meaning no weird workarounds are
+- Bfloat16/Fp8: Does the format support native bfloat16/fp8 (meaning no weird workarounds are
 necessary)? This is becoming increasingly important in the ML world.
 
 
@@ -142,7 +149,7 @@ necessary)? This is becoming increasingly important in the ML world.
 - Protobuf: Hard 2Go max file size limit
 - Cap'n'proto: Float16 support is not present [link](https://capnproto.org/language.html#built-in-types) so using a manual wrapper over a byte-buffer would be necessary. Layout control seems possible but not trivial as buffers have limitations [link](https://stackoverflow.com/questions/48458839/capnproto-maximum-filesize).
 - Numpy (npz): No `bfloat16` support. Vulnerable to zip bombs (DOS). Not zero-copy.
-- Arrow: No `bfloat16` support. Seem to require decoding [link](https://arrow.apache.org/docs/python/parquet.html#reading-parquet-and-memory-mapping)
+- Arrow: No `bfloat16` support.
 
 ### Notes
 

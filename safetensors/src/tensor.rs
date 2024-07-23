@@ -15,6 +15,8 @@ const MAX_HEADER_SIZE: usize = 100_000_000;
 pub enum SafeTensorError {
     /// The header is an invalid UTF-8 string and cannot be read.
     InvalidHeader,
+    /// The header's first byte is not the expected `{`.
+    InvalidHeaderStart,
     /// The header does contain a valid string, but it is not valid JSON.
     InvalidHeaderDeserialization,
     /// The header is large than 100Mo which is considered too large (Might evolve in the future).
@@ -302,6 +304,11 @@ impl<'data> SafeTensors<'data> {
         }
         let string =
             std::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
+        // Assert the string starts with {
+        // NOTE: Add when we move to 0.4.0
+        // if !string.starts_with('{') {
+        //     return Err(SafeTensorError::InvalidHeaderStart);
+        // }
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
         let buffer_end = metadata.validate()?;
@@ -342,7 +349,7 @@ impl<'data> SafeTensors<'data> {
     /// The tensors returned are merely views and the data is not owned by this
     /// structure.
     pub fn tensors(&self) -> Vec<(String, TensorView<'_>)> {
-        let mut tensors = vec![];
+        let mut tensors = Vec::with_capacity(self.metadata.index_map.len());
         for (name, &index) in &self.metadata.index_map {
             let info = &self.metadata.tensors[index];
             let tensorview = TensorView {
@@ -374,9 +381,9 @@ impl<'data> SafeTensors<'data> {
         }
     }
 
-    /// Allow the user to get a specific tensor within the SafeTensors.
-    /// The tensor returned is merely a view and the data is not owned by this
-    /// structure.
+    /// Return the names of the tensors within the SafeTensors.
+    /// These are used as keys to access to the actual tensors, that can be
+    /// retrieved using the tensor method.
     pub fn names(&self) -> Vec<&'_ String> {
         self.metadata.index_map.keys().collect()
     }
@@ -441,7 +448,12 @@ impl Serialize for Metadata {
         }
 
         let tensors: Vec<_> = names.iter().zip(self.tensors.iter()).collect();
-        let mut map = serializer.serialize_map(Some(tensors.len()))?;
+        let length = if let Some(metadata) = &self.metadata {
+            metadata.len()
+        } else {
+            0
+        };
+        let mut map = serializer.serialize_map(Some(tensors.len() + length))?;
         if let Some(metadata) = &self.metadata {
             map.serialize_entry("__metadata__", metadata)?;
         }
@@ -457,7 +469,7 @@ impl Metadata {
         metadata: Option<HashMap<String, String>>,
         tensors: Vec<(String, TensorInfo)>,
     ) -> Result<Self, SafeTensorError> {
-        let mut index_map = HashMap::new();
+        let mut index_map = HashMap::with_capacity(tensors.len());
 
         let tensors: Vec<_> = tensors
             .into_iter()
@@ -507,6 +519,12 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
+    pub fn info(&self, name: &str) -> Option<&TensorInfo> {
+        let index = self.index_map.get(name)?;
+        self.tensors.get(*index)
+    }
+
+    /// Gives back the tensor metadata
     pub fn tensors(&self) -> HashMap<String, &TensorInfo> {
         self.index_map
             .iter()
@@ -531,6 +549,24 @@ pub struct TensorView<'data> {
 }
 
 impl<'data> View for &TensorView<'data> {
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn data(&self) -> Cow<[u8]> {
+        self.data.into()
+    }
+
+    fn data_len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+impl<'data> View for TensorView<'data> {
     fn dtype(&self) -> Dtype {
         self.dtype
     }
@@ -610,6 +646,12 @@ pub enum Dtype {
     U8,
     /// Signed byte
     I8,
+    /// FP8 <https://arxiv.org/pdf/2209.05433.pdf>_
+    #[allow(non_camel_case_types)]
+    F8_E5M2,
+    /// FP8 <https://arxiv.org/pdf/2209.05433.pdf>_
+    #[allow(non_camel_case_types)]
+    F8_E4M3,
     /// Signed integer (16-bit)
     I16,
     /// Unsigned integer (16-bit)
@@ -639,6 +681,8 @@ impl Dtype {
             Dtype::BOOL => 1,
             Dtype::U8 => 1,
             Dtype::I8 => 1,
+            Dtype::F8_E5M2 => 1,
+            Dtype::F8_E4M3 => 1,
             Dtype::I16 => 2,
             Dtype::U16 => 2,
             Dtype::I32 => 4,
@@ -701,7 +745,7 @@ mod tests {
                 let mut start = 0;
                 let tensors: Vec<TensorInfo> = dtypes
                     .iter()
-                    .zip(shapes.into_iter())
+                    .zip(shapes)
                     .map(|(dtype, shape)| {
                         // This cannot overflow because the size of
                         // the vector and elements are so small.
@@ -789,6 +833,34 @@ mod tests {
                 58, 91, 49, 44, 50, 44, 51, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102, 115,
                 101, 116, 115, 34, 58, 91, 48, 44, 50, 52, 93, 125, 125, 0, 0, 0, 0, 0, 0, 128, 63,
                 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64, 0, 0, 160, 64
+            ]
+        );
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_empty() {
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+
+        let out = serialize(&tensors, &None).unwrap();
+        assert_eq!(
+            out,
+            [8, 0, 0, 0, 0, 0, 0, 0, 123, 125, 32, 32, 32, 32, 32, 32]
+        );
+        let _parsed = SafeTensors::deserialize(&out).unwrap();
+
+        let metadata: Option<HashMap<String, String>> = Some(
+            [("framework".to_string(), "pt".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let out = serialize(&tensors, &metadata).unwrap();
+        assert_eq!(
+            out,
+            [
+                40, 0, 0, 0, 0, 0, 0, 0, 123, 34, 95, 95, 109, 101, 116, 97, 100, 97, 116, 97, 95,
+                95, 34, 58, 123, 34, 102, 114, 97, 109, 101, 119, 111, 114, 107, 34, 58, 34, 112,
+                116, 34, 125, 125, 32, 32, 32, 32, 32
             ]
         );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
@@ -913,7 +985,7 @@ mod tests {
             .sum::<usize>()
             * dtype.size(); // 4
         let all_data = vec![0; n];
-        let mut metadata: HashMap<String, TensorView> = HashMap::new();
+        let mut metadata = HashMap::with_capacity(tensors_desc.len());
         let mut offset = 0;
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
@@ -1086,6 +1158,27 @@ mod tests {
             _ => panic!("This should not be able to be deserialized"),
         }
     }
+
+    #[test]
+    /// Test that the JSON header may be trailing-padded with JSON whitespace characters.
+    fn test_whitespace_padded_header() {
+        let serialized = b"\x06\x00\x00\x00\x00\x00\x00\x00{}\x0D\x20\x09\x0A";
+        let loaded = SafeTensors::deserialize(serialized).unwrap();
+        assert_eq!(loaded.len(), 0);
+    }
+
+    // Reserver for 0.4.0
+    // #[test]
+    // /// Test that the JSON header must begin with a `{` character.
+    // fn test_whitespace_start_padded_header_is_not_allowed() {
+    //     let serialized = b"\x06\x00\x00\x00\x00\x00\x00\x00\x09\x0A{}\x0D\x20";
+    //     match SafeTensors::deserialize(serialized) {
+    //         Err(SafeTensorError::InvalidHeaderStart) => {
+    //             // Correct error
+    //         }
+    //         _ => panic!("This should not be able to be deserialized"),
+    //     }
+    // }
 
     #[test]
     fn test_zero_sized_tensor() {

@@ -5,6 +5,7 @@ import torch
 
 from safetensors import safe_open
 from safetensors.torch import (
+    _end_ptr,
     _find_shared_tensors,
     _is_complete,
     _remove_duplicate_names,
@@ -12,6 +13,15 @@ from safetensors.torch import (
     save_file,
     save_model,
 )
+
+
+class OnesModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.a = torch.nn.Linear(4, 4)
+        self.a.weight = torch.nn.Parameter(torch.ones((4, 4)))
+        self.a.bias = torch.nn.Parameter(torch.ones((4,)))
+        self.b = self.a
 
 
 class Model(torch.nn.Module):
@@ -74,6 +84,50 @@ class TorchModelTestCase(unittest.TestCase):
         self.assertEqual(_find_shared_tensors({"C": C}), [])
         self.assertEqual(_find_shared_tensors({"D": D}), [])
 
+    def test_find_shared_non_shared_tensors(self):
+        A = torch.zeros((4,))
+        B = A[:2]
+        C = A[2:]
+        # Shared storage but do not overlap
+        self.assertEqual(_find_shared_tensors({"B": B, "C": C}), [{"B"}, {"C"}])
+
+        B = A[:2]
+        C = A[1:]
+        # Shared storage but *do* overlap
+        self.assertEqual(_find_shared_tensors({"B": B, "C": C}), [{"B", "C"}])
+
+        B = A[:2]
+        C = A[2:]
+        D = A[:1]
+        # Shared storage but *do* overlap
+        self.assertEqual(_find_shared_tensors({"B": B, "C": C, "D": D}), [{"B", "D"}, {"C"}])
+
+    def test_end_ptr(self):
+        A = torch.zeros((4,))
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        self.assertEqual(end - start, 16)
+        B = torch.zeros((16,))
+        A = B[::4]
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        # Jump 3 times 16 byes (the stride of B)
+        # Then add the size of the datapoint 4 bytes
+        self.assertEqual(end - start, 16 * 3 + 4)
+
+        # FLOAT16
+        A = torch.zeros((4,), dtype=torch.float16)
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        self.assertEqual(end - start, 8)
+        B = torch.zeros((16,), dtype=torch.float16)
+        A = B[::4]
+        start = A.data_ptr()
+        end = _end_ptr(A)
+        # Jump 3 times 8 bytes (the stride of B)
+        # Then add the size of the datapoint 4 bytes
+        self.assertEqual(end - start, 8 * 3 + 2)
+
     def test_remove_duplicate_names(self):
         A = torch.zeros((3, 3))
         B = A[:1, :]
@@ -96,6 +150,26 @@ class TorchModelTestCase(unittest.TestCase):
     #     with self.assertRaises(RuntimeError) as ctx:
     #         save_model(model, "tmp4.safetensors")
     #     self.assertIn(".Refusing to save/load the model since you could be storing much more memory than needed.", str(ctx.exception))
+
+    def test_save(self):
+        # Just testing the actual saved file to make sure we're ok on big endian
+        model = OnesModel()
+        save_model(model, "tmp_ones.safetensors")
+        with safe_open("tmp_ones.safetensors", framework="pt") as f:
+            self.assertEqual(f.metadata(), {"b.bias": "a.bias", "b.weight": "a.weight"})
+
+        # 192 hardcoded to skip the header, metadata order is random.
+        self.assertEqual(
+            open("tmp_ones.safetensors", "rb").read()[192:],
+            b"""\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?\x00\x00\x80?""",
+        )
+
+        model2 = OnesModel()
+        load_model(model2, "tmp_ones.safetensors")
+
+        state_dict = model.state_dict()
+        for k, v in model2.state_dict().items():
+            torch.testing.assert_close(v, state_dict[k])
 
     def test_workaround(self):
         model = Model()

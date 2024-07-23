@@ -7,7 +7,7 @@ Using specific functions, which should work in most cases for you.
 This is not without side effects.
 
 ```python
-from safetensors.torch load_model, save_model
+from safetensors.torch import load_model, save_model
 
 save_model(model, "model.safetensors")
 # Instead of save_file(model.state_dict(), "model.safetensors")
@@ -56,7 +56,7 @@ Multiple reasons for that:
   So if someone saves shared tensors in torch, there is no way to 
   load them in a similar fashion so we could not keep the same `Dict[str, Tensor]`
   API.
-- *It makes lazy loading very quircky.*
+- *It makes lazy loading very quickly.*
   Lazy loading is the ability to load only some tensors, or part of tensors for
   a given file. This is trivial to do without sharing tensors but with tensor sharing
 
@@ -80,11 +80,11 @@ Multiple reasons for that:
   a = torch.zeros((100, 100))
   b = a[:1, :]
   torch.save({"b": b}, "model.bin")
-  # File is 41k instead of the epected 400 bytes
+  # File is 41k instead of the expected 400 bytes
   # In practice it could happen that you save several 10GB instead of 1GB.
   ```
 
-Now with all those reasons being mentionned, nothing is set in stone in there.
+Now with all those reasons being mentioned, nothing is set in stone in there.
 Shared tensors do not cause unsafety, or denial of service potential, so this
 decision could be revisited if current workarounds are not satisfactory.
 

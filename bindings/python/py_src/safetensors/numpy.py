@@ -7,12 +7,18 @@ import numpy as np
 from safetensors import deserialize, safe_open, serialize, serialize_file
 
 
+def _tobytes(tensor: np.ndarray) -> bytes:
+    if not _is_little_endian(tensor):
+        tensor = tensor.byteswap(inplace=False)
+    return tensor.tobytes()
+
+
 def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, np.ndarray]`):
+        tensor_dict (`Dict[str, np.ndarray]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         metadata (`Dict[str, str]`, *optional*, defaults to `None`):
             Optional text only metadata you might want to save in your header.
@@ -32,10 +38,7 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     byte_data = save(tensors)
     ```
     """
-    for tensor in tensor_dict.values():
-        if not _is_little_endian(tensor):
-            raise ValueError("Safetensor format only accepts little endian")
-    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
+    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
@@ -45,10 +48,10 @@ def save_file(
     tensor_dict: Dict[str, np.ndarray], filename: Union[str, os.PathLike], metadata: Optional[Dict[str, str]] = None
 ) -> None:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
-        tensors (`Dict[str, np.ndarray]`):
+        tensor_dict (`Dict[str, np.ndarray]`):
             The incoming tensors. Tensors need to be contiguous and dense.
         filename (`str`, or `os.PathLike`)):
             The filename we're saving into.
@@ -67,13 +70,10 @@ def save_file(
     import numpy as np
 
     tensors = {"embedding": np.zeros((512, 1024)), "attention": np.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
-    for tensor in tensor_dict.values():
-        if not _is_little_endian(tensor):
-            raise ValueError("Safetensor format only accepts little endian")
-    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": v.tobytes()} for k, v in tensor_dict.items()}
+    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
     serialize_file(flattened, filename, metadata=metadata)
 
 
@@ -111,9 +111,6 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
-            The device where the tensors need to be located after load.
-            available options are all regular numpy device locations
 
     Returns:
         `Dict[str, np.ndarray]`: dictionary that contains name as key, value as `np.ndarray`

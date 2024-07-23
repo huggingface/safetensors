@@ -4,12 +4,12 @@ from typing import Dict, Optional, Union
 import numpy as np
 import tensorflow as tf
 
-from safetensors import numpy
+from safetensors import numpy, safe_open
 
 
 def save(tensors: Dict[str, tf.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, tf.Tensor]`):
@@ -42,7 +42,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ) -> None:
     """
-    Saves a dictionnary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format.
 
     Args:
         tensors (`Dict[str, tf.Tensor]`):
@@ -64,7 +64,7 @@ def save_file(
     import tensorflow as tf
 
     tensors = {"embedding": tf.zeros((512, 1024)), "attention": tf.zeros((256, 256))}
-    save(tensors, "model.safetensors")
+    save_file(tensors, "model.safetensors")
     ```
     """
     np_tensors = _tf2np(tensors)
@@ -105,9 +105,6 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, tf.Tensor]:
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
-        device (`Dict[str, any]`, *optional*, defaults to `cpu`):
-            The device where the tensors need to be located after load.
-            available options are all regular tensorflow device locations
 
     Returns:
         `Dict[str, tf.Tensor]`: dictionary that contains name as key, value as `tf.Tensor`
@@ -121,8 +118,11 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, tf.Tensor]:
     loaded = load_file(file_path)
     ```
     """
-    flat = numpy.load_file(filename)
-    return _np2tf(flat)
+    result = {}
+    with safe_open(filename, framework="tf") as f:
+        for k in f.keys():
+            result[k] = f.get_tensor(k)
+    return result
 
 
 def _np2tf(numpy_dict: Dict[str, np.ndarray]) -> Dict[str, tf.Tensor]:

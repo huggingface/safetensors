@@ -1,8 +1,6 @@
 import platform
 import unittest
 
-import numpy as np
-
 
 if platform.system() != "Windows":
     # This platform is not supported, we don't want to crash on import
@@ -21,6 +19,7 @@ class LoadTestCase(unittest.TestCase):
             "test": jnp.zeros((1024, 1024), dtype=jnp.float32),
             "test2": jnp.zeros((1024, 1024), dtype=jnp.float32),
             "test3": jnp.zeros((1024, 1024), dtype=jnp.float32),
+            "test4": jnp.zeros((1024, 1024), dtype=jnp.bfloat16),
         }
         self.flax_filename = "./tests/data/flax_load.msgpack"
         self.sf_filename = "./tests/data/flax_load.safetensors"
@@ -51,7 +50,7 @@ class LoadTestCase(unittest.TestCase):
 
         for k, v in weights.items():
             tv = flax_weights[k]
-            self.assertTrue(np.allclose(v, tv))
+            self.assertTrue(jnp.allclose(v, tv))
 
     def test_deserialization_safe_open(self):
         weights = {}
@@ -65,4 +64,4 @@ class LoadTestCase(unittest.TestCase):
 
         for k, v in weights.items():
             tv = flax_weights[k]
-            self.assertTrue(np.allclose(v, tv))
+            self.assertTrue(jnp.allclose(v, tv))
