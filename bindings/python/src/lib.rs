@@ -11,6 +11,8 @@ use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
+use safetensors::View;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
@@ -24,7 +26,29 @@ static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
-fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, TensorView>> {
+struct PyView<'a> {
+    shape: Vec<usize>,
+    dtype: Dtype,
+    data: PyBound<'a, PyBytes>,
+    data_len: usize,
+}
+
+impl<'a> View for &PyView<'a> {
+    fn data(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Borrowed(self.data.as_bytes())
+    }
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+    fn data_len(&self) -> usize {
+        self.data_len
+    }
+}
+
+fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in &tensor_dict {
         let shape: Vec<usize> = tensor_desc
@@ -34,7 +58,10 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
         let pydata: PyBound<PyAny> = tensor_desc.get_item("data")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
         })?;
+        // Make sure it's extractable first.
         let data: &[u8] = pydata.extract()?;
+        let data_len = data.len();
+        let data: PyBound<PyBytes> = pydata.extract()?;
         let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
         })?;
@@ -61,8 +88,13 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
                 )));
             }
         };
-        let tensor = TensorView::new(dtype, shape, data)
-            .map_err(|e| SafetensorError::new_err(format!("Error preparing tensor view: {e:?}")))?;
+
+        let tensor = PyView {
+            shape,
+            dtype,
+            data,
+            data_len,
+        };
         tensors.insert(tensor_name.to_string(), tensor);
     }
     Ok(tensors)
@@ -1074,13 +1106,12 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
     })
 }
 
-type SafetensorError = PyException;
-// pyo3::create_exception!(
-//     safetensors_rust,
-//     SafetensorError,
-//     PyException,
-//     "Custom Python Exception for Safetensor errors."
-// );
+pyo3::create_exception!(
+    safetensors_rust,
+    SafetensorError,
+    PyException,
+    "Custom Python Exception for Safetensor errors."
+);
 
 /// A Python module implemented in Rust.
 #[pymodule]
