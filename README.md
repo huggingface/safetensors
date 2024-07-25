@@ -88,20 +88,20 @@ with safe_open("model.safetensors", framework="pt", device="cpu") as f:
 Notes:
  - Duplicate keys are disallowed. Not all parsers may respect this.
  - In general the subset of JSON is implicitly decided by `serde_json` for
- this library. Anything obscure might be modified at a later time, that odd ways
- to represent integer, newlines and escapes in utf-8 strings. This would only
- be done for safety concerns
+   this library. Anything obscure might be modified at a later time, that odd ways
+   to represent integer, newlines and escapes in utf-8 strings. This would only
+   be done for safety concerns
  - Tensor values are not checked against, in particular NaN and +/-Inf could
- be in the file
+   be in the file
  - Empty tensors (tensors with 1 dimension being 0) are allowed.
- They are not storing any data in the databuffer, yet retaining size in the header.
- They don't really bring a lot of values but are accepted since they are valid tensors
- from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
+   They are not storing any data in the databuffer, yet retaining size in the header.
+   They don't really bring a lot of values but are accepted since they are valid tensors
+   from traditional tensor libraries perspective (torch, tensorflow, numpy, ..).
  - 0-rank Tensors (tensors with shape `[]`) are allowed, they are merely a scalar.
  - The byte buffer needs to be entirely indexed, and cannot contain holes. This prevents
-the creation of polyglot files.
+   the creation of polyglot files.
  - Endianness: Little-endian.
- moment.
+   moment.
  - Order: 'C' or row-major.
 
 
@@ -132,12 +132,12 @@ This is my very personal and probably biased view:
 - Safe: Can I use a file randomly downloaded and expect not to run arbitrary code ?
 - Zero-copy: Does reading the file require more memory than the original file ?
 - Lazy loading: Can I inspect the file without loading everything ? And loading only
-some tensors in it without scanning the whole file (distributed setting) ?
+  some tensors in it without scanning the whole file (distributed setting) ?
 - Layout control: Lazy loading, is not necessarily enough since if the information about tensors is spread out in your file, then even if the information is lazily accessible you might have to access most of your file to read the available tensors (incurring many DISK -> RAM copies). Controlling the layout to keep fast access to single tensors is important.
 - No file size limit: Is there a limit to the file size ?
 - Flexibility: Can I save custom code in the format and be able to use it later with zero extra code ? (~ means we can store more than pure tensors, but no custom code)
 - Bfloat16/Fp8: Does the format support native bfloat16/fp8 (meaning no weird workarounds are
-necessary)? This is becoming increasingly important in the ML world.
+  necessary)? This is becoming increasingly important in the ML world.
 
 
 ### Main oppositions
@@ -154,12 +154,12 @@ necessary)? This is becoming increasingly important in the ML world.
 ### Notes
 
 - Zero-copy: No format is really zero-copy in ML, it needs to go from disk to RAM/GPU RAM (that takes time). On CPU, if the file is already in cache, then it can
-truly be zero-copy, whereas on GPU there is not such disk cache, so a copy is always required
-but you can bypass allocating all the tensors on CPU at any given point.
-   SafeTensors is not zero-copy for the header. The choice of JSON is pretty arbitrary, but since deserialization is <<< of the time required to load the actual tensor data and is readable I went that way, (also space is <<< to the tensor data).
+  truly be zero-copy, whereas on GPU there is not such disk cache, so a copy is always required
+  but you can bypass allocating all the tensors on CPU at any given point.
+  SafeTensors is not zero-copy for the header. The choice of JSON is pretty arbitrary, but since deserialization is <<< of the time required to load the actual tensor data and is readable I went that way, (also space is <<< to the tensor data).
 
 - Endianness: Little-endian. This can be modified later, but it feels really unnecessary at the
-moment.
+  moment.
 - Order: 'C' or row-major. This seems to have won. We can add that information later if needed.
 - Stride: No striding, all tensors need to be packed before being serialized. I have yet to see a case where it seems useful to have a strided tensor stored in serialized format.
 
@@ -168,26 +168,26 @@ moment.
 Since we can invent a new format we can propose additional benefits:
 
 - Prevent DOS attacks: We can craft the format in such a way that it's almost
-impossible to use malicious files to DOS attack a user. Currently, there's a limit
-on the size of the header of 100MB to prevent parsing extremely large JSON.
- Also when reading the file, there's a guarantee that addresses in the file
- do not overlap in any way, meaning when you're loading a file you should never
- exceed the size of the file in memory
+  impossible to use malicious files to DOS attack a user. Currently, there's a limit
+  on the size of the header of 100MB to prevent parsing extremely large JSON.
+  Also when reading the file, there's a guarantee that addresses in the file
+  do not overlap in any way, meaning when you're loading a file you should never
+  exceed the size of the file in memory
 
 - Faster load: PyTorch seems to be the fastest file to load out in the major
-ML formats. However, it does seem to have an extra copy on CPU, which we
-can bypass in this lib by using `torch.UntypedStorage.from_file`.
-Currently, CPU loading times are extremely fast with this lib compared to pickle.
-GPU loading times are as fast or faster than PyTorch equivalent.
-Loading first on CPU with memmapping with torch, and then moving all tensors to GPU seems
-to be faster too somehow (similar behavior in torch pickle)
+  ML formats. However, it does seem to have an extra copy on CPU, which we
+  can bypass in this lib by using `torch.UntypedStorage.from_file`.
+  Currently, CPU loading times are extremely fast with this lib compared to pickle.
+  GPU loading times are as fast or faster than PyTorch equivalent.
+  Loading first on CPU with memmapping with torch, and then moving all tensors to GPU seems
+  to be faster too somehow (similar behavior in torch pickle)
 
 - Lazy loading: in distributed (multi-node or multi-gpu) settings, it's nice to be able to
-load only part of the tensors on the various models. For
-[BLOOM](https://huggingface.co/bigscience/bloom) using this format enabled
-to load the model on 8 GPUs from 10mn with regular PyTorch weights down to 45s.
-This really speeds up feedbacks loops when developing on the model. For instance
-you don't have to have separate copies of the weights when changing the distribution
-strategy (for instance Pipeline Parallelism vs Tensor Parallelism).
+  load only part of the tensors on the various models. For
+  [BLOOM](https://huggingface.co/bigscience/bloom) using this format enabled
+  to load the model on 8 GPUs from 10mn with regular PyTorch weights down to 45s.
+  This really speeds up feedbacks loops when developing on the model. For instance
+  you don't have to have separate copies of the weights when changing the distribution
+  strategy (for instance Pipeline Parallelism vs Tensor Parallelism).
 
 License: Apache-2.0
