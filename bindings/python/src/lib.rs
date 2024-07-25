@@ -61,15 +61,6 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
                 )));
             }
         };
-        // let shape = shape.ok_or_else(|| {
-        //     SafetensorError::new_err(format!("Missing `shape` in {tensor_desc:?}"))
-        // })?;
-        // let dtype = dtype.ok_or_else(|| {
-        //     SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
-        // })?;
-        // let data = data.ok_or_else(|| {
-        //     SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
-        // })?;
         let tensor = TensorView::new(dtype, shape, data)
             .map_err(|e| SafetensorError::new_err(format!("Error preparing tensor view: {e:?}")))?;
         tensors.insert(tensor_name.to_string(), tensor);
@@ -660,7 +651,6 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(text_signature = "(self, filename, framework, device=\"cpu\")")]
     #[pyo3(signature = (filename, framework, device=Some(Device::Cpu)))]
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
         let inner = Some(Open::new(filename, framework, device)?);
