@@ -13,6 +13,10 @@ jobs:
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
         version: [{torch: torch==1.10, python: "3.8"}, {torch: torch, python: "3.11"}]
+        include:
+          - os: macos-latest
+            torch: torch
+            python: "3.11"
     defaults:
       run:
         working-directory: ./bindings/python
