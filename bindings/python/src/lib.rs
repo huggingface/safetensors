@@ -602,8 +602,7 @@ impl Open {
                                 .call0()?
                                 .getattr("byteswap")?
                                 .call((), Some(&inplace_kwargs))?;
-                            tensor =
-                                torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
+                            tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
                         }
                     }
 
