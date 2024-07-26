@@ -592,20 +592,18 @@ impl Open {
                                 .call0()?
                                 .getattr(intern!(py, "byteswap"))?
                                 .call1((dtype,))?;
+                        } else if info.dtype == Dtype::BF16 {
+                            return Err(SafetensorError::new_err(
+                                "PyTorch 2.1 or later is required for big-endian machine",
+                            ));
                         } else {
-                            if info.dtype == Dtype::BF16 {
-                                return Err(SafetensorError::new_err(
-                                    "PyTorch 2.1 or later is required for big-endian machine",
-                                ));
-                            } else {
-                                let numpy = tensor
-                                    .getattr(intern!(py, "numpy"))?
-                                    .call0()?
-                                    .getattr("byteswap")?
-                                    .call((), Some(&inplace_kwargs))?;
-                                tensor =
-                                    torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-                            }
+                            let numpy = tensor
+                                .getattr(intern!(py, "numpy"))?
+                                .call0()?
+                                .getattr("byteswap")?
+                                .call((), Some(&inplace_kwargs))?;
+                            tensor =
+                                torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
                         }
                     }
 
