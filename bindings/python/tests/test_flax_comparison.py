@@ -16,10 +16,10 @@ if platform.system() != "Windows":
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
         data = {
-            "test": jnp.zeros((1024, 1024), dtype=jnp.float32),
-            "test2": jnp.zeros((1024, 1024), dtype=jnp.float32),
-            "test3": jnp.zeros((1024, 1024), dtype=jnp.float32),
-            "test4": jnp.zeros((1024, 1024), dtype=jnp.bfloat16),
+            "test": jnp.randn((1024, 1024), dtype=jnp.float32),
+            "test2": jnp.randn((1024, 1024), dtype=jnp.float32),
+            "test3": jnp.randn((1024, 1024), dtype=jnp.float32),
+            "test4": jnp.randn((1024, 1024), dtype=jnp.bfloat16),
         }
         self.flax_filename = "./tests/data/flax_load.msgpack"
         self.sf_filename = "./tests/data/flax_load.safetensors"
