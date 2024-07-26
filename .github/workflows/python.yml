@@ -31,7 +31,7 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: Cargo install 
+      - name: Cargo install audit
         run: cargo install cargo-audit
 
       - uses: Swatinem/rust-cache@v2
