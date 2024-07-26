@@ -581,27 +581,31 @@ impl Open {
                     if byteorder == "big" {
                         let inplace_kwargs =
                             [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
-                        if info.dtype == Dtype::BF16 {
-                            let torch_f16: PyObject = get_pydtype(torch, Dtype::F16, false)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call(
-                                (),
-                                Some(&[(intern!(py, "dtype"), torch_f16)].into_py_dict_bound(py)),
-                            )?;
-                        }
-
-                        let numpy = tensor
-                            .getattr(intern!(py, "numpy"))?
-                            .call0()?
-                            .getattr("byteswap")?
-                            .call((), Some(&inplace_kwargs))?;
-                        tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-
-                        if info.dtype == Dtype::BF16 {
-                            let torch_bf16: PyObject = get_pydtype(torch, Dtype::BF16, false)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call(
-                                (),
-                                Some(&[(intern!(py, "dtype"), torch_bf16)].into_py_dict_bound(py)),
-                            )?;
+                        let version: String =
+                            torch.getattr(intern!(py, "__version__"))?.extract()?;
+                        let version =
+                            Version::from_string(&version).map_err(SafetensorError::new_err)?;
+                        if version >= Version::new(2, 1, 0) {
+                            let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
+                            tensor
+                                .getattr(intern!(py, "untyped_storage"))?
+                                .call0()?
+                                .getattr(intern!(py, "byteswap"))?
+                                .call1((dtype,))?;
+                        } else {
+                            if info.dtype == Dtype::BF16 {
+                                return Err(SafetensorError::new_err(
+                                    "PyTorch 2.1 or later is required for big-endian machine",
+                                ));
+                            } else {
+                                let numpy = tensor
+                                    .getattr(intern!(py, "numpy"))?
+                                    .call0()?
+                                    .getattr("byteswap")?
+                                    .call((), Some(&inplace_kwargs))?;
+                                tensor =
+                                    torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
+                            }
                         }
                     }
 
