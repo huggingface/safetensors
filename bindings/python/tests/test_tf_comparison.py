@@ -64,7 +64,7 @@ class SafeTestCase(unittest.TestCase):
 
     def test_bfloat16(self):
         data = {
-            "test": tf.zeros((1024, 1024), dtype=tf.bfloat16),
+            "test": tf.random.normal((1024, 1024), dtype=tf.bfloat16),
         }
         save_file(data, self.sf_filename)
         weights = {}
