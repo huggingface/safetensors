@@ -173,7 +173,9 @@ def save_model(
         raise ValueError(msg)
 
 
-def load_model(model: torch.nn.Module, filename: Union[str, os.PathLike], strict: bool = True, device: Union[str, int] = "cpu") -> Tuple[List[str], List[str]]:
+def load_model(
+    model: torch.nn.Module, filename: Union[str, os.PathLike], strict: bool = True, device: Union[str, int] = "cpu"
+) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
     This method exists specifically to avoid tensor sharing issues which are
@@ -339,6 +341,7 @@ def load(data: bytes) -> Dict[str, torch.Tensor]:
     """
     flat = deserialize(data)
     return _view2torch(flat)
+
 
 # torch.float8 formats require 2.1; we do not support these dtypes on earlier versions
 _float8_e4m3fn = getattr(torch, "float8_e4m3fn", None)

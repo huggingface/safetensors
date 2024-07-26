@@ -66,7 +66,7 @@ class TorchTestCase(unittest.TestCase):
 
     def test_odd_dtype_fp8(self):
         if torch.__version__ < "2.1":
-            return # torch.float8 requires 2.1
+            return  # torch.float8 requires 2.1
 
         data = {
             "test1": torch.tensor([-0.5], dtype=torch.float8_e4m3fn),
