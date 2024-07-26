@@ -52,9 +52,9 @@ class TorchTestCase(unittest.TestCase):
 
     def test_odd_dtype(self):
         data = {
-            "test": torch.zeros((2, 2), dtype=torch.bfloat16),
-            "test2": torch.zeros((2, 2), dtype=torch.float16),
-            "test3": torch.zeros((2, 2), dtype=torch.bool),
+            "test": torch.randn((2, 2), dtype=torch.bfloat16),
+            "test2": torch.randn((2, 2), dtype=torch.float16),
+            "test3": torch.randn((2, 2), dtype=torch.bool),
         }
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
 
