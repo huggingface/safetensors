@@ -15,10 +15,10 @@ if platform.system() == "Darwin":
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
         data = {
-            "test": mx.zeros((1024, 1024), dtype=mx.float32),
-            "test2": mx.zeros((1024, 1024), dtype=mx.float32),
-            "test3": mx.zeros((1024, 1024), dtype=mx.float32),
-            "test4": mx.zeros((1024, 1024), dtype=mx.bfloat16),
+            "test": mx.randn((1024, 1024), dtype=mx.float32),
+            "test2": mx.randn((1024, 1024), dtype=mx.float32),
+            "test3": mx.randn((1024, 1024), dtype=mx.float32),
+            "test4": mx.randn((1024, 1024), dtype=mx.bfloat16),
         }
         self.mlx_filename = "./tests/data/mlx_load.npz"
         self.sf_filename = "./tests/data/mlx_load.safetensors"
