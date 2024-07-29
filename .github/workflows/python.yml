@@ -67,7 +67,7 @@ jobs:
         shell: bash
 
       - name: Install (mlx)
-        if: matrix.os == 'macos-latest' && matrix.version.python == '3.10'
+        if: matrix.os == 'macos-latest'
         run: |
           pip install .[mlx]
         shell: bash
