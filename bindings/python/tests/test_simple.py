@@ -248,7 +248,7 @@ class ReadmeTestCase(unittest.TestCase):
 
             tensor = slice_[:2]
             self.assertEqual(list(tensor.shape), [2, 5])
-            torch.testing.assert_close(tensor, A[:2])
+            torch.testing.assert_close(tensor, A[:2], f"{tensor} != {A[:2]}")
 
             tensor = slice_[:, :2]
             self.assertEqual(list(tensor.shape), [10, 2])
