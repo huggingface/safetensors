@@ -61,7 +61,7 @@ jobs:
           pip install ${{ matrix.version.torch }}
 
       - name: Install (jax, flax)
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest' && matrix.os != 'macos-latest' # There's a pypi bug with mismatched sha atm
         run: |
           pip install .[jax]
         shell: bash
