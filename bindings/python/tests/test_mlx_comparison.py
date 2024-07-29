@@ -20,6 +20,7 @@ class LoadTestCase(unittest.TestCase):
             "test3": mx.randn((1024, 1024), dtype=mx.float32),
             # This doesn't work because bfloat16 is not implemented
             # with similar workarounds as jax/tensorflow.
+            # https://github.com/ml-explore/mlx/issues/1296
             # "test4": mx.randn((1024, 1024), dtype=mx.bfloat16),
         }
         self.mlx_filename = "./tests/data/mlx_load.npz"
