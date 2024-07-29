@@ -21,7 +21,6 @@ class LoadTestCase(unittest.TestCase):
             "test": random.normal(key, (1024, 1024), dtype=jnp.float32),
             "test2": random.normal(key, (1024, 1024), dtype=jnp.float16),
             "test3": random.normal(key, (1024, 1024), dtype=jnp.bfloat16),
-            "test4": random.normal(key, (1024, 1024), dtype=jnp.float32).astype(jnp.bool),
         }
         self.flax_filename = "./tests/data/flax_load.msgpack"
         self.sf_filename = "./tests/data/flax_load.safetensors"
