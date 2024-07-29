@@ -5,6 +5,7 @@ on:
     paths:
       - "docs/**"
       - "bindings/python/py_src/**"
+      - ".github/workflows/build_pr_documentation.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -20,3 +21,4 @@ jobs:
       package_path: safetensors/bindings/python/
       version_tag_suffix: bindings/python/py_src/
       install_rust: true
+      custom_container: huggingface/transformers-doc-builder
