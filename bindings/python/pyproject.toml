@@ -30,7 +30,7 @@ Homepage = 'https://github.com/huggingface/safetensors'
 Source = 'https://github.com/huggingface/safetensors'
 
 [project.optional-dependencies]
-numpy = ["numpy>=2.0"]
+numpy = ["numpy>=1.21.6"]
 torch = [
     "safetensors[numpy]",
     "torch>=1.10",
@@ -42,7 +42,7 @@ tensorflow = [
 # pinning tf version 2.11.0 for doc-builder
 pinned-tf = [
     "safetensors[numpy]",
-    "tensorflow==2.17.0",
+    "tensorflow==2.11.0",
 ]
 jax = [
     "safetensors[numpy]",
