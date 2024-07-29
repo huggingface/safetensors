@@ -585,6 +585,7 @@ impl Open {
                             Version::from_string(&version).map_err(SafetensorError::new_err)?;
                         if version >= Version::new(2, 1, 0) {
                             let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
+                            tensor = tensor.getattr(intern!(py, "clone"))?.call0()?;
                             tensor
                                 .getattr(intern!(py, "untyped_storage"))?
                                 .call0()?
