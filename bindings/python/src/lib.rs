@@ -579,8 +579,6 @@ impl Open {
                         .call((), Some(&view_kwargs))?;
 
                     if byteorder == "big" {
-                        let inplace_kwargs =
-                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
                         let version: String =
                             torch.getattr(intern!(py, "__version__"))?.extract()?;
                         let version =
@@ -594,9 +592,11 @@ impl Open {
                                 .call1((dtype,))?;
                         } else if info.dtype == Dtype::BF16 {
                             return Err(SafetensorError::new_err(
-                                "PyTorch 2.1 or later is required for big-endian machine",
+                                "PyTorch 2.1 or later is required for big-endian machine and bfloat16 support.",
                             ));
                         } else {
+                            let inplace_kwargs = [(intern!(py, "inplace"), false.into_py(py))]
+                                .into_py_dict_bound(py);
                             let numpy = tensor
                                 .getattr(intern!(py, "numpy"))?
                                 .call0()?
@@ -928,14 +928,11 @@ impl PySafeSlice {
                     .getattr(intern!(py, "view"))?
                     .call((), Some(&view_kwargs))?;
                 if byteorder == "big" {
-                    let inplace_kwargs =
-                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
-                    let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
-
                     let version: String = torch.getattr(intern!(py, "__version__"))?.extract()?;
                     let version =
                         Version::from_string(&version).map_err(SafetensorError::new_err)?;
                     if version >= Version::new(2, 1, 0) {
+                        let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
                         tensor
                             .getattr(intern!(py, "untyped_storage"))?
                             .call0()?
@@ -943,9 +940,11 @@ impl PySafeSlice {
                             .call1((dtype,))?;
                     } else if self.info.dtype == Dtype::BF16 {
                         return Err(SafetensorError::new_err(
-                            "PyTorch 2.1 or later is required for big-endian machine",
+                            "PyTorch 2.1 or later is required for big-endian machine and bfloat16 support.",
                         ));
                     } else {
+                        let inplace_kwargs =
+                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
                         let numpy = tensor
                             .getattr(intern!(py, "numpy"))?
                             .call0()?
