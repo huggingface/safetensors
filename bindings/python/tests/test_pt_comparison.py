@@ -52,10 +52,12 @@ class TorchTestCase(unittest.TestCase):
 
     def test_odd_dtype(self):
         data = {
-            "test": torch.zeros((2, 2), dtype=torch.bfloat16),
-            "test2": torch.zeros((2, 2), dtype=torch.float16),
+            "test": torch.randn((2, 2), dtype=torch.bfloat16),
+            "test2": torch.randn((2, 2), dtype=torch.float16),
             "test3": torch.zeros((2, 2), dtype=torch.bool),
         }
+        # Modify bool to have both values.
+        data["test3"][0, 0] = True
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
 
         save_file(data, local)
