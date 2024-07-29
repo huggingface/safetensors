@@ -15,8 +15,9 @@ jobs:
         version: [{torch: torch==1.10, python: "3.8"}, {torch: torch, python: "3.11"}]
         include:
           - os: macos-latest
-            torch: torch
-            python: "3.11"
+            version:
+              torch: torch
+              python: "3.11"
     defaults:
       run:
         working-directory: ./bindings/python
