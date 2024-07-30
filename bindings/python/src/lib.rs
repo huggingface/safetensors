@@ -1043,13 +1043,13 @@ fn create_tensor<'a>(
                 (intern!(py, "dtype"), dtype),
             ]
             .into_py_dict_bound(py);
-            let tensor = module.call_method("frombuffer", (), Some(&kwargs))?;
+            let mut tensor = module.call_method("frombuffer", (), Some(&kwargs))?;
             let sys = PyModule::import_bound(py, intern!(py, "sys"))?;
             let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
             if byteorder == "big" {
                 let inplace_kwargs =
                     [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
-                tensor
+                tensor = tensor
                     .getattr("byteswap")?
                     .call((), Some(&inplace_kwargs))?;
             }
