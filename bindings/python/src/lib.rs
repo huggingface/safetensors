@@ -582,9 +582,15 @@ impl Open {
                         let inplace_kwargs =
                             [(intern!(py, "inplace"), true.into_py(py))].into_py_dict_bound(py);
 
-                        if info.dtype == Dtype::BF16 {
+                        let intermediary_dtype = match info.dtype {
+                            Dtype::BF16 => Some(Dtype::F16),
+                            Dtype::F8_E5M2 => Some(Dtype::U8),
+                            Dtype::F8_E4M3 => Some(Dtype::U8),
+                            _ => None,
+                        };
+                        if let Some(intermediary_dtype) = intermediary_dtype {
                             // Reinterpret to f16 for numpy compatibility.
-                            let dtype: PyObject = get_pydtype(torch, Dtype::F16, false)?;
+                            let dtype: PyObject = get_pydtype(torch, intermediary_dtype, false)?;
                             let view_kwargs =
                                 [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
                             tensor = tensor
@@ -597,7 +603,7 @@ impl Open {
                             .getattr("byteswap")?
                             .call((), Some(&inplace_kwargs))?;
                         tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-                        if info.dtype == Dtype::BF16 {
+                        if intermediary_dtype.is_some() {
                             // Reinterpret to f16 for numpy compatibility.
                             let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
                             let view_kwargs =
@@ -933,9 +939,15 @@ impl PySafeSlice {
                     let inplace_kwargs =
                         [(intern!(py, "inplace"), true.into_py(py))].into_py_dict_bound(py);
 
-                    if self.info.dtype == Dtype::BF16 {
+                    let intermediary_dtype = match self.info.dtype {
+                        Dtype::BF16 => Some(Dtype::F16),
+                        Dtype::F8_E5M2 => Some(Dtype::U8),
+                        Dtype::F8_E4M3 => Some(Dtype::U8),
+                        _ => None,
+                    };
+                    if let Some(intermediary_dtype) = intermediary_dtype {
                         // Reinterpret to f16 for numpy compatibility.
-                        let dtype: PyObject = get_pydtype(torch, Dtype::F16, false)?;
+                        let dtype: PyObject = get_pydtype(torch, intermediary_dtype, false)?;
                         let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
                         tensor = tensor
                             .getattr(intern!(py, "view"))?
@@ -947,7 +959,7 @@ impl PySafeSlice {
                         .getattr("byteswap")?
                         .call((), Some(&inplace_kwargs))?;
                     tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-                    if self.info.dtype == Dtype::BF16 {
+                    if intermediary_dtype.is_some() {
                         // Reinterpret to f16 for numpy compatibility.
                         let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
                         let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
