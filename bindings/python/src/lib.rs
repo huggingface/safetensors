@@ -580,7 +580,7 @@ impl Open {
 
                     if byteorder == "big" {
                         let inplace_kwargs =
-                            [(intern!(py, "inplace"), true.into_py(py))].into_py_dict_bound(py);
+                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
 
                         let intermediary_dtype = match info.dtype {
                             Dtype::BF16 => Some(Dtype::F16),
@@ -936,8 +936,10 @@ impl PySafeSlice {
                     .getattr(intern!(py, "view"))?
                     .call((), Some(&view_kwargs))?;
                 if byteorder == "big" {
+                    // Important, do NOT use inplace otherwise the slice itself
+                    // is byteswapped, meaning multiple calls will fails
                     let inplace_kwargs =
-                        [(intern!(py, "inplace"), true.into_py(py))].into_py_dict_bound(py);
+                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
 
                     let intermediary_dtype = match self.info.dtype {
                         Dtype::BF16 => Some(Dtype::F16),
@@ -1046,7 +1048,7 @@ fn create_tensor<'a>(
             let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
             if byteorder == "big" {
                 let inplace_kwargs =
-                    [(intern!(py, "inplace"), true.into_py(py))].into_py_dict_bound(py);
+                    [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
                 tensor
                     .getattr("byteswap")?
                     .call((), Some(&inplace_kwargs))?;
