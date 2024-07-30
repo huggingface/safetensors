@@ -50,6 +50,14 @@ class TorchTestCase(unittest.TestCase):
             b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00",
         )
 
+        data = torch.ones((2, 2), dtype=torch.bfloat16)
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"BF16","shape":[2,2],"data_offsets":[0,8]}}    \x80?\x80?\x80?\x80?'
+        )
+
     def test_odd_dtype(self):
         data = {
             "test": torch.randn((2, 2), dtype=torch.bfloat16),
