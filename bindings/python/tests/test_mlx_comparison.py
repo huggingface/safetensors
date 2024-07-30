@@ -2,16 +2,23 @@ import platform
 import unittest
 
 
+HAS_MLX = True
 if platform.system() == "Darwin":
     # This platform is not supported, we don't want to crash on import
     # This test will be skipped anyway.
-    import mlx.core as mx
+    try:
+        import mlx.core as mx
+    except ImportError:
+        HAS_MLX = False
     from safetensors import safe_open
     from safetensors.mlx import load_file, save_file
+else:
+    HAS_MLX = False
 
 
 # MLX only exists on Mac
 @unittest.skipIf(platform.system() != "Darwin", "Mlx is not available on non Mac")
+@unittest.skipIf(not HAS_MLX, "Mlx is not available.")
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
         data = {
@@ -26,7 +33,7 @@ class LoadTestCase(unittest.TestCase):
         self.mlx_filename = "./tests/data/mlx_load.npz"
         self.sf_filename = "./tests/data/mlx_load.safetensors"
 
-        serialized = mx.savez(self.mlx_filename, **data)
+        mx.savez(self.mlx_filename, **data)
         save_file(data, self.sf_filename)
 
     def test_zero_sized(self):
