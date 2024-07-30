@@ -55,7 +55,7 @@ class TorchTestCase(unittest.TestCase):
 
         self.assertEqual(
             out,
-            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"BF16","shape":[2,2],"data_offsets":[0,8]}}    \x80?\x80?\x80?\x80?'
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"BF16","shape":[2,2],"data_offsets":[0,8]}}    \x80?\x80?\x80?\x80?',
         )
 
     def test_odd_dtype(self):
@@ -87,10 +87,10 @@ class TorchTestCase(unittest.TestCase):
         save_file(data, local)
         reloaded = load_file(local)
         # note: PyTorch doesn't implement torch.equal for float8 so we just compare the single element
-        self.assertEqual(data["test1"].dtype, torch.float8_e4m3fn)
-        self.assertEqual(data["test1"].item(), -0.5)
-        self.assertEqual(data["test2"].dtype, torch.float8_e5m2)
-        self.assertEqual(data["test2"].item(), -0.5)
+        self.assertEqual(reloaded["test1"].dtype, torch.float8_e4m3fn)
+        self.assertEqual(reloaded["test1"].item(), -0.5)
+        self.assertEqual(reloaded["test2"].dtype, torch.float8_e5m2)
+        self.assertEqual(reloaded["test2"].item(), -0.5)
 
     def test_zero_sized(self):
         data = {
