@@ -51,11 +51,11 @@ class TorchTestCase(unittest.TestCase):
         )
 
         data = torch.ones((2, 2), dtype=torch.bfloat16)
+        data[0, 0] = 2.25
         out = save({"test": data})
-
         self.assertEqual(
             out,
-            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"BF16","shape":[2,2],"data_offsets":[0,8]}}    \x80?\x80?\x80?\x80?',
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"BF16","shape":[2,2],"data_offsets":[0,8]}}    \x10@\x80?\x80?\x80?',
         )
 
     def test_odd_dtype(self):

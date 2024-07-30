@@ -928,14 +928,15 @@ impl PySafeSlice {
                     .call((storage_slice,), Some(&kwargs))?
                     .getattr(intern!(py, "view"))?
                     .call((), Some(&view_kwargs))?;
-                println!("Byte order {byteorder}");
                 if byteorder == "big" {
-                    println!("Using torch byteswap");
                     let version: String = torch.getattr(intern!(py, "__version__"))?.extract()?;
                     let version =
                         Version::from_string(&version).map_err(SafetensorError::new_err)?;
                     if version >= Version::new(2, 1, 0) {
                         let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
+                        // Clone is required otherwise storage is shared with previous slices,
+                        // making n amount of byteswaps.
+                        tensor = tensor.getattr(intern!(py, "clone"))?.call0()?;
                         tensor
                             .getattr(intern!(py, "untyped_storage"))?
                             .call0()?
@@ -946,7 +947,6 @@ impl PySafeSlice {
                             "PyTorch 2.1 or later is required for big-endian machine and bfloat16 support.",
                         ));
                     } else {
-                        println!("Using numpy byteswap");
                         let inplace_kwargs =
                             [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
                         let numpy = tensor
