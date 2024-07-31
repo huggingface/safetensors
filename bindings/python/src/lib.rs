@@ -284,26 +284,40 @@ fn parse_device(name: &str) -> PyResult<usize> {
 
 impl<'source> FromPyObject<'source> for Device {
     fn extract_bound(ob: &PyBound<'source, PyAny>) -> PyResult<Self> {
-        if let Ok(name) = ob.extract::<String>() {
-            match &name[..] {
-                "cpu" => Ok(Device::Cpu),
-                "cuda" => Ok(Device::Cuda(0)),
-                "mps" => Ok(Device::Mps),
-                "npu" => Ok(Device::Npu(0)),
-                "xpu" => Ok(Device::Xpu(0)),
-                "xla" => Ok(Device::Xla(0)),
-                name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
-                name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
-                name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
-                name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
-                name => Err(SafetensorError::new_err(format!(
-                    "device {name} is invalid"
-                ))),
-            }
-        } else if let Ok(number) = ob.extract::<usize>() {
-            Ok(Device::Cuda(number))
+        let name;
+
+        if let Ok(number) = ob.extract::<usize>() {
+            // If only device index (number) is given, query device name from
+            // PyTorch by calling torch.device(number)
+            name = Python::with_gil(|py| -> PyResult<String> {
+                let module = get_module(py, &TORCH_MODULE)?;
+                let name = module
+                   .getattr("device")?
+                   .call1((number,))
+                   .unwrap()
+                   .to_string();
+                Ok(name)
+            })?;
+        } else if let Ok(devname) = ob.extract::<String>() {
+            name = devname;
         } else {
-            Err(SafetensorError::new_err(format!("device {ob} is invalid")))
+            return Err(SafetensorError::new_err(format!("device {ob} is invalid")));
+        }
+
+        match &name[..] {
+            "cpu" => Ok(Device::Cpu),
+            "cuda" => Ok(Device::Cuda(0)),
+            "mps" => Ok(Device::Mps),
+            "npu" => Ok(Device::Npu(0)),
+            "xpu" => Ok(Device::Xpu(0)),
+            "xla" => Ok(Device::Xla(0)),
+            name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
+            name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
+            name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
+            name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
+            name => Err(SafetensorError::new_err(format!(
+                "device {name} is invalid"
+            ))),
         }
     }
 }
