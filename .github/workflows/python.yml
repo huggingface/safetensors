@@ -9,10 +9,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-13, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
         version: [{torch: torch==1.10, python: "3.8"}, {torch: torch, python: "3.11"}]
+          # TODO this would include macos ARM target.
+          # however jax has an illegal instruction issue
+          # that exists only in CI (probably difference in instruction support).
+          # include:
+          #   - os: macos-latest
+          #     version:
+          #       torch: torch
+          #       python: "3.11"
     defaults:
       run:
         working-directory: ./bindings/python
@@ -27,12 +35,15 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - name: Cargo install audit
+        run: cargo install cargo-audit
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "bindings/python"
 
       - name: Install Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.version.python }}
           architecture: "x64"
@@ -59,7 +70,7 @@ jobs:
         shell: bash
 
       - name: Install (mlx)
-        if: matrix.os == 'macos-latest' && matrix.version.python == "3.10"
+        if: matrix.os == 'macos-latest'
         run: |
           pip install .[mlx]
         shell: bash

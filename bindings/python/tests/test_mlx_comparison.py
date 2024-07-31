@@ -2,28 +2,39 @@ import platform
 import unittest
 
 
+HAS_MLX = False
 if platform.system() == "Darwin":
     # This platform is not supported, we don't want to crash on import
     # This test will be skipped anyway.
-    import mlx.core as mx
-    from safetensors import safe_open
-    from safetensors.mlx import load_file, save_file
+    try:
+        import mlx.core as mx
+
+        HAS_MLX = True
+    except ImportError:
+        pass
+    if HAS_MLX:
+        from safetensors import safe_open
+        from safetensors.mlx import load_file, save_file
 
 
 # MLX only exists on Mac
 @unittest.skipIf(platform.system() != "Darwin", "Mlx is not available on non Mac")
+@unittest.skipIf(not HAS_MLX, "Mlx is not available.")
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
         data = {
-            "test": mx.zeros((1024, 1024), dtype=mx.float32),
-            "test2": mx.zeros((1024, 1024), dtype=mx.float32),
-            "test3": mx.zeros((1024, 1024), dtype=mx.float32),
-            "test4": mx.zeros((1024, 1024), dtype=mx.bfloat16),
+            "test": mx.randn((1024, 1024), dtype=mx.float32),
+            "test2": mx.randn((1024, 1024), dtype=mx.float32),
+            "test3": mx.randn((1024, 1024), dtype=mx.float32),
+            # This doesn't work because bfloat16 is not implemented
+            # with similar workarounds as jax/tensorflow.
+            # https://github.com/ml-explore/mlx/issues/1296
+            # "test4": mx.randn((1024, 1024), dtype=mx.bfloat16),
         }
         self.mlx_filename = "./tests/data/mlx_load.npz"
         self.sf_filename = "./tests/data/mlx_load.safetensors"
 
-        serialized = mx.savez(self.mlx_filename, **data)
+        mx.savez(self.mlx_filename, **data)
         save_file(data, self.sf_filename)
 
     def test_zero_sized(self):

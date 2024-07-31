@@ -595,27 +595,36 @@ impl Open {
                     if byteorder == "big" {
                         let inplace_kwargs =
                             [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
-                        if info.dtype == Dtype::BF16 {
-                            let torch_f16: PyObject = get_pydtype(torch, Dtype::F16, false)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call(
-                                (),
-                                Some(&[(intern!(py, "dtype"), torch_f16)].into_py_dict_bound(py)),
-                            )?;
-                        }
 
+                        let intermediary_dtype = match info.dtype {
+                            Dtype::BF16 => Some(Dtype::F16),
+                            Dtype::F8_E5M2 => Some(Dtype::U8),
+                            Dtype::F8_E4M3 => Some(Dtype::U8),
+                            _ => None,
+                        };
+                        if let Some(intermediary_dtype) = intermediary_dtype {
+                            // Reinterpret to f16 for numpy compatibility.
+                            let dtype: PyObject = get_pydtype(torch, intermediary_dtype, false)?;
+                            let view_kwargs =
+                                [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
+                            tensor = tensor
+                                .getattr(intern!(py, "view"))?
+                                .call((), Some(&view_kwargs))?;
+                        }
                         let numpy = tensor
                             .getattr(intern!(py, "numpy"))?
                             .call0()?
                             .getattr("byteswap")?
                             .call((), Some(&inplace_kwargs))?;
                         tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-
-                        if info.dtype == Dtype::BF16 {
-                            let torch_bf16: PyObject = get_pydtype(torch, Dtype::BF16, false)?;
-                            tensor = tensor.getattr(intern!(py, "to"))?.call(
-                                (),
-                                Some(&[(intern!(py, "dtype"), torch_bf16)].into_py_dict_bound(py)),
-                            )?;
+                        if intermediary_dtype.is_some() {
+                            // Reinterpret to f16 for numpy compatibility.
+                            let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
+                            let view_kwargs =
+                                [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
+                            tensor = tensor
+                                .getattr(intern!(py, "view"))?
+                                .call((), Some(&view_kwargs))?;
                         }
                     }
 
@@ -941,15 +950,39 @@ impl PySafeSlice {
                     .getattr(intern!(py, "view"))?
                     .call((), Some(&view_kwargs))?;
                 if byteorder == "big" {
+                    // Important, do NOT use inplace otherwise the slice itself
+                    // is byteswapped, meaning multiple calls will fails
                     let inplace_kwargs =
                         [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
 
+                    let intermediary_dtype = match self.info.dtype {
+                        Dtype::BF16 => Some(Dtype::F16),
+                        Dtype::F8_E5M2 => Some(Dtype::U8),
+                        Dtype::F8_E4M3 => Some(Dtype::U8),
+                        _ => None,
+                    };
+                    if let Some(intermediary_dtype) = intermediary_dtype {
+                        // Reinterpret to f16 for numpy compatibility.
+                        let dtype: PyObject = get_pydtype(torch, intermediary_dtype, false)?;
+                        let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
+                        tensor = tensor
+                            .getattr(intern!(py, "view"))?
+                            .call((), Some(&view_kwargs))?;
+                    }
                     let numpy = tensor
                         .getattr(intern!(py, "numpy"))?
                         .call0()?
                         .getattr("byteswap")?
                         .call((), Some(&inplace_kwargs))?;
                     tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
+                    if intermediary_dtype.is_some() {
+                        // Reinterpret to f16 for numpy compatibility.
+                        let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
+                        let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict_bound(py);
+                        tensor = tensor
+                            .getattr(intern!(py, "view"))?
+                            .call((), Some(&view_kwargs))?;
+                    }
                 }
                 tensor = tensor
                     .getattr(intern!(py, "reshape"))?
@@ -1024,7 +1057,17 @@ fn create_tensor<'a>(
                 (intern!(py, "dtype"), dtype),
             ]
             .into_py_dict_bound(py);
-            module.call_method("frombuffer", (), Some(&kwargs))?
+            let mut tensor = module.call_method("frombuffer", (), Some(&kwargs))?;
+            let sys = PyModule::import_bound(py, intern!(py, "sys"))?;
+            let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
+            if byteorder == "big" {
+                let inplace_kwargs =
+                    [(intern!(py, "inplace"), false.into_py(py))].into_py_dict_bound(py);
+                tensor = tensor
+                    .getattr("byteswap")?
+                    .call((), Some(&inplace_kwargs))?;
+            }
+            tensor
         };
         let mut tensor: PyBound<'_, PyAny> = tensor.call_method1("reshape", (shape,))?;
         let tensor = match framework {
