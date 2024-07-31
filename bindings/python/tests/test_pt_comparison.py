@@ -100,6 +100,8 @@ class TorchTestCase(unittest.TestCase):
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
+        reloaded = load(open(local, "rb").read())
+        self.assertTrue(torch.equal(data["test"], reloaded["test"]))
 
     def test_multiple_zero_sized(self):
         data = {
