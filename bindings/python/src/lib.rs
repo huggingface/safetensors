@@ -269,6 +269,19 @@ enum Device {
     Xla(usize),
 }
 
+/// Parsing the device index.
+fn parse_device(name: &str) -> PyResult<usize> {
+    let tokens: Vec<_> = name.split(':').collect();
+    if tokens.len() == 2 {
+        let device: usize = tokens[1].parse()?;
+        Ok(device)
+    } else {
+        Err(SafetensorError::new_err(format!(
+            "device {name} is invalid"
+        )))
+    }
+}
+
 impl<'source> FromPyObject<'source> for Device {
     fn extract_bound(ob: &PyBound<'source, PyAny>) -> PyResult<Self> {
         if let Ok(name) = ob.extract::<String>() {
@@ -279,50 +292,10 @@ impl<'source> FromPyObject<'source> for Device {
                 "npu" => Ok(Device::Npu(0)),
                 "xpu" => Ok(Device::Xpu(0)),
                 "xla" => Ok(Device::Xla(0)),
-                name if name.starts_with("cuda:") => {
-                    let tokens: Vec<_> = name.split(':').collect();
-                    if tokens.len() == 2 {
-                        let device: usize = tokens[1].parse()?;
-                        Ok(Device::Cuda(device))
-                    } else {
-                        Err(SafetensorError::new_err(format!(
-                            "device {name} is invalid"
-                        )))
-                    }
-                }
-                name if name.starts_with("npu:") => {
-                    let tokens: Vec<_> = name.split(':').collect();
-                    if tokens.len() == 2 {
-                        let device: usize = tokens[1].parse()?;
-                        Ok(Device::Npu(device))
-                    } else {
-                        Err(SafetensorError::new_err(format!(
-                            "device {name} is invalid"
-                        )))
-                    }
-                }
-                name if name.starts_with("xpu:") => {
-                    let tokens: Vec<_> = name.split(':').collect();
-                    if tokens.len() == 2 {
-                        let device: usize = tokens[1].parse()?;
-                        Ok(Device::Xpu(device))
-                    } else {
-                        Err(SafetensorError::new_err(format!(
-                            "device {name} is invalid"
-                        )))
-                    }
-                }
-                name if name.starts_with("xla:") => {
-                    let tokens: Vec<_> = name.split(':').collect();
-                    if tokens.len() == 2 {
-                        let device: usize = tokens[1].parse()?;
-                        Ok(Device::Xla(device))
-                    } else {
-                        Err(SafetensorError::new_err(format!(
-                            "device {name} is invalid"
-                        )))
-                    }
-                }
+                name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
+                name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
+                name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
+                name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
                 name => Err(SafetensorError::new_err(format!(
                     "device {name} is invalid"
                 ))),
