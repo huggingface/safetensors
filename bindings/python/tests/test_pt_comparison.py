@@ -170,6 +170,19 @@ class TorchTestCase(unittest.TestCase):
         for k, v in reloaded.items():
             self.assertTrue(torch.allclose(data[k], reloaded[k]))
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
+    def test_anonymous_accelerator(self):
+        data = {
+            "test1": torch.zeros((2, 2), dtype=torch.float32).to(device=0),
+            "test2": torch.zeros((2, 2), dtype=torch.float16).to(device=0),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small_anonymous.safetensors"
+        save_file(data, local)
+
+        reloaded = load_file(local, device=0)
+        for k, v in reloaded.items():
+            self.assertTrue(torch.allclose(data[k], reloaded[k]))
+
     def test_sparse(self):
         data = {"test": torch.sparse_coo_tensor(size=(2, 3))}
         local = "./tests/data/out_safe_pt_sparse.safetensors"
