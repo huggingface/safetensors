@@ -320,7 +320,7 @@ impl IntoPy<PyObject> for Device {
             Device::Npu(n) => format!("npu:{n}").into_py(py),
             Device::Xpu(n) => format!("xpu:{n}").into_py(py),
             Device::Xla(n) => format!("xla:{n}").into_py(py),
-            Device::Anonymous(n) => format!("{n}").into_py(py),
+            Device::Anonymous(n) => n.into_py(py),
         }
     }
 }
