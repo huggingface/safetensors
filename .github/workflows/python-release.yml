@@ -183,6 +183,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: ./bindings/python/dist
+          merge-multiple: true
 
       - name: Upload to PyPi
         working-directory: ./bindings/python
