@@ -182,11 +182,6 @@ jobs:
             #     aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build.outputs.artifact }}
-          path: ./bindings/python/dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: pypi_files-src
           path: ./bindings/python/dist
 
       - name: Upload to PyPi
