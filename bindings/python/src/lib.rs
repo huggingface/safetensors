@@ -5,8 +5,7 @@ use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::IntoPyDict;
-use pyo3::types::PySlice;
-use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList};
+use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
@@ -768,13 +767,13 @@ struct PySafeSlice {
     storage: Arc<Storage>,
 }
 
-#[derive(FromPyObject)]
+#[derive(Debug, FromPyObject)]
 enum SliceIndex<'a> {
     Slice(PyBound<'a, PySlice>),
     Index(i32),
 }
 
-#[derive(FromPyObject)]
+#[derive(Debug, FromPyObject)]
 enum Slice<'a> {
     Slice(SliceIndex<'a>),
     Slices(Vec<SliceIndex<'a>>),
@@ -842,10 +841,27 @@ impl PySafeSlice {
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<PyObject> {
         match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {
-                let slices: Slice = slices.extract()?;
+                let pyslices = slices;
+                let slices: Slice = pyslices.extract()?;
+                let is_list = pyslices.is_instance_of::<PyList>();
                 let slices: Vec<SliceIndex> = match slices {
                     Slice::Slice(slice) => vec![slice],
-                    Slice::Slices(slices) => slices,
+                    Slice::Slices(slices) => {
+                        if slices.is_empty() && is_list {
+                            vec![SliceIndex::Slice(PySlice::new_bound(
+                                pyslices.py(),
+                                0,
+                                0,
+                                0,
+                            ))]
+                        } else if is_list {
+                            return Err(SafetensorError::new_err(
+                                "Non empty lists are not implemented",
+                            ));
+                        } else {
+                            slices
+                        }
+                    }
                 };
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
