@@ -246,6 +246,10 @@ class ReadmeTestCase(unittest.TestCase):
             self.assertEqual(list(tensor.shape), [10, 5])
             torch.testing.assert_close(tensor, A)
 
+            tensor = slice_[tuple()]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            torch.testing.assert_close(tensor, A)
+
             tensor = slice_[:2]
             self.assertEqual(list(tensor.shape), [2, 5])
             torch.testing.assert_close(tensor, A[:2])
@@ -270,6 +274,10 @@ class ReadmeTestCase(unittest.TestCase):
             self.assertEqual(list(tensor.shape), [8])
             torch.testing.assert_close(tensor, A[2:, -1])
 
+            tensor = slice_[list()]
+            self.assertEqual(list(tensor.shape), [0, 5])
+            torch.testing.assert_close(tensor, A[list()])
+
     def test_numpy_slice(self):
         A = np.random.rand(10, 5)
         tensors = {
@@ -281,6 +289,10 @@ class ReadmeTestCase(unittest.TestCase):
         with safe_open("./slice.safetensors", framework="np", device="cpu") as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            self.assertTrue(np.allclose(tensor, A))
+
+            tensor = slice_[tuple()]
             self.assertEqual(list(tensor.shape), [10, 5])
             self.assertTrue(np.allclose(tensor, A))
 
@@ -312,9 +324,17 @@ class ReadmeTestCase(unittest.TestCase):
             self.assertEqual(list(tensor.shape), [8])
             self.assertTrue(np.allclose(tensor, A[2:, -5]))
 
+            tensor = slice_[list()]
+            self.assertEqual(list(tensor.shape), [0, 5])
+            self.assertTrue(np.allclose(tensor, A[list()]))
+
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[2:, -6]
             self.assertEqual(str(cm.exception), "Invalid index -6 for dimension 1 of size 5")
+
+            with self.assertRaises(SafetensorError) as cm:
+                tensor = slice_[[0, 1]]
+            self.assertEqual(str(cm.exception), "Non empty lists are not implemented")
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[2:, 20]
