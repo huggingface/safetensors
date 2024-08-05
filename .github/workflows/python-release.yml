@@ -1,8 +1,8 @@
 name: Python Release
 on:
   push:
-    tags:
-      - v*
+    # tags:
+    #   - v*
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -124,17 +124,17 @@ jobs:
       - run: twine check --strict dist/*
         working-directory: ./bindings/python
 
-      - name: Upload wheels
-        shell: bash
-        run: |
-          pip install awscli
-          aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
+          # - name: Upload wheels
+          #   shell: bash
+          #   run: |
+          #     pip install awscli
+          #     aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
 
-          # - uses: actions/upload-artifact@v3
-          #   working-directory: ./bindings/python/
-          #   with:
-          #     name: pypi_files
-          #     path: dist
+      - uses: actions/upload-artifact@v4
+        working-directory: ./bindings/python/
+        with:
+          name: pypi_files
+          path: dist
   build-sdist:
     name: build sdist
     needs: [lock_exists]
@@ -147,11 +147,16 @@ jobs:
           command: sdist
           args: --out dist
           rust-toolchain: stable
-      - name: Upload wheels
-        shell: bash
-        run: |
-          pip install awscli
-          aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
+            # - name: Upload wheels
+            #   shell: bash
+            #   run: |
+            #     pip install awscli
+            #     aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
+      - uses: actions/upload-artifact@v4
+        working-directory: ./bindings/python/
+        with:
+          name: pypi_files
+          path: dist
 
 
   upload_package:
@@ -168,11 +173,16 @@ jobs:
           python-version: "3.12"
           architecture: x64
 
-      - name: Retrieve all wheels
-        shell: bash
-        run: |
-          pip install awscli
-          aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
+            # - name: Retrieve all wheels
+            #   shell: bash
+            #   run: |
+            #     pip install awscli
+            #     aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
+      - uses: actions/download-artifact@v4
+        working-directory: ./bindings/python/
+        with:
+          name: pypi_files
+          path: dist
 
       - name: Upload to PyPi
         working-directory: ./bindings/python
