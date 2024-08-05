@@ -123,10 +123,9 @@ jobs:
       - name: Test big endian
         uses: docker/build-push-action@v4
         with:
-          push: true
           platforms: linux/s390x
           file: Dockerfile.s390x.test
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/safetensors/s390x:cache,mode=min
-          cache-to: type=registry,ref=ghcr.io/safetensors/s390x:cache,mode=min
+          cache-from: type=registry,ref=ghcr.io/safetensors/s390x:cache,mode=max
+          cache-to: type=registry,ref=ghcr.io/safetensors/s390x:cache,mode=max
