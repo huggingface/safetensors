@@ -131,10 +131,9 @@ jobs:
           #     aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
 
       - uses: actions/upload-artifact@v4
-        working-directory: ./bindings/python/
         with:
           name: pypi_files
-          path: dist
+          path: ./bindings/python/dist
   build-sdist:
     name: build sdist
     needs: [lock_exists]
@@ -153,10 +152,9 @@ jobs:
             #     pip install awscli
             #     aws s3 sync --exact-timestamps ./bindings/python/dist "s3://safetensors-releases/python/$DIST_DIR"
       - uses: actions/upload-artifact@v4
-        working-directory: ./bindings/python/
         with:
           name: pypi_files
-          path: dist
+          path: ./bindings/python/dist
 
 
   upload_package:
@@ -179,10 +177,9 @@ jobs:
             #     pip install awscli
             #     aws s3 sync "s3://safetensors-releases/python/$DIST_DIR" ./bindings/python/dist
       - uses: actions/download-artifact@v4
-        working-directory: ./bindings/python/
         with:
           name: pypi_files
-          path: dist
+          path: ./bindings/python/dist
 
       - name: Upload to PyPi
         working-directory: ./bindings/python
