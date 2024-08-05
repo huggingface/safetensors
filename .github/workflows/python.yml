@@ -95,7 +95,7 @@ jobs:
         uses: docker/setup-qemu-action@v2
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-      - uses: tailscale/github-action@v1
+      - uses: huggingface/tailscale-action@main
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
       - name: Set short sha
