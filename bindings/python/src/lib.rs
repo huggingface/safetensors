@@ -767,13 +767,13 @@ struct PySafeSlice {
     storage: Arc<Storage>,
 }
 
-#[derive(Debug, FromPyObject)]
+#[derive(FromPyObject)]
 enum SliceIndex<'a> {
     Slice(PyBound<'a, PySlice>),
     Index(i32),
 }
 
-#[derive(Debug, FromPyObject)]
+#[derive(FromPyObject)]
 enum Slice<'a> {
     Slice(SliceIndex<'a>),
     Slices(Vec<SliceIndex<'a>>),
