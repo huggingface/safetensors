@@ -276,3 +276,15 @@ class TorchModelTestCase(unittest.TestCase):
             load_model(model2, "tmp3.safetensors")
         # Safetensors properly warns the user that some ke
         self.assertIn("""Unexpected key(s) in state_dict: "b.bias", "b.weight""", str(ctx.exception))
+
+    def test_wrapper_tensor_subclass(self):
+        from torch.testing._internal.two_tensor import TwoTensor
+
+        for model_cls in (NoSharedModel, OnesModel):
+            model = model_cls()
+            # Convert every parameter/buffer to a wrapper tensor subclass (TwoTensor)
+            model._apply(lambda t: TwoTensor(t, t))
+            save_model(model, "tmp_wrapper_tensor_subclass.safetensors")
+
+            model2 = cls()
+            load_model(model2)

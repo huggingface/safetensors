@@ -6,10 +6,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import torch
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
+from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 
 
-def storage_ptr(tensor: torch.Tensor) -> int:
+def storage_ptr(tensor: torch.Tensor) -> Union[int, Tuple[Any, ...]]:
     try:
+        if is_traceable_wrapper_subclass(tensor):
+            attrs, _ = tensor.__tensor_flatten__()
+            return tuple(storage_ptr(getattr(tensor, attr)) for attr in attrs)
         return tensor.untyped_storage().data_ptr()
     except Exception:
         # Fallback for torch==1.10
@@ -30,6 +34,9 @@ def _end_ptr(tensor: torch.Tensor) -> int:
 
 def storage_size(tensor: torch.Tensor) -> int:
     try:
+        if is_traceable_wrapper_subclass(tensor):
+            attrs, _ = tensor.__tensor_flatten__()
+            return sum(storage_size(getattr(tensor, attr)) for attr in attrs)
         return tensor.untyped_storage().nbytes()
     except AttributeError:
         # Fallback for torch==1.10
