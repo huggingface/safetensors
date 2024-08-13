@@ -16,7 +16,7 @@ if __name__ == "__main__":
     correct = 0
     errors = set()
     for model in models:
-        model = api.model_info(model.modelId, files_metadata=True)
+        model = api.model_info(model.id, files_metadata=True)
         size = None
         for sibling in model.siblings:
             if sibling.rfilename == "pytorch_model.bin":
