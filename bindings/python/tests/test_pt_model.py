@@ -15,6 +15,17 @@ from safetensors.torch import (
 )
 
 
+# util functions for checking the version for pytorch
+def is_wrapper_tensor_subclass_available():
+    try:
+        from torch.testing._internal.two_tensor import TwoTensor  # noqa: F401
+        from torch.utils._python_dispatch import is_traceable_wrapper_subclass  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 class OnesModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -277,6 +288,7 @@ class TorchModelTestCase(unittest.TestCase):
         # Safetensors properly warns the user that some ke
         self.assertIn("""Unexpected key(s) in state_dict: "b.bias", "b.weight""", str(ctx.exception))
 
+    @unittest.skipIf(not is_two_tensor_available(), "Need TwoTensor tensor subclass to be available")
     def test_wrapper_tensor_subclass(self):
         from torch.testing._internal.two_tensor import TwoTensor
 

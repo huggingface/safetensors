@@ -11,9 +11,16 @@ from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 
 def storage_ptr(tensor: torch.Tensor) -> Union[int, Tuple[Any, ...]]:
     try:
+        # for torch 2.1 and above we can also handle tensor subclasses
+        from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+
         if is_traceable_wrapper_subclass(tensor):
-            attrs, _ = tensor.__tensor_flatten__()
-            return tuple(storage_ptr(getattr(tensor, attr)) for attr in attrs)
+            return _get_unique_id(tensor)
+    except ImportError:
+        # for torch version less than 2.1, we can fallback to original implementation
+        pass
+
+    try:
         return tensor.untyped_storage().data_ptr()
     except Exception:
         # Fallback for torch==1.10
@@ -34,9 +41,17 @@ def _end_ptr(tensor: torch.Tensor) -> int:
 
 def storage_size(tensor: torch.Tensor) -> int:
     try:
+        # for torch 2.1 and above we can also handle tensor subclasses
+        from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+
         if is_traceable_wrapper_subclass(tensor):
-            attrs, _ = tensor.__tensor_flatten__()
-            return sum(storage_size(getattr(tensor, attr)) for attr in attrs)
+            attrs, _ = tensor.__tensor_flatten__()  # type: ignore[attr-defined]
+            return sum(get_torch_storage_size(getattr(tensor, attr)) for attr in attrs)
+    except ImportError:
+        # for torch version less than 2.1, we can fallback to original implementation
+        pass
+
+    try:
         return tensor.untyped_storage().nbytes()
     except AttributeError:
         # Fallback for torch==1.10
@@ -85,6 +100,17 @@ def _find_shared_tensors(state_dict: Dict[str, torch.Tensor]) -> List[Set[str]]:
 
 
 def _is_complete(tensor: torch.Tensor) -> bool:
+    try:
+        # for torch 2.1 and above we can also handle tensor subclasses
+        from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+
+        if is_traceable_wrapper_subclass(tensor):
+            attrs, _ = tensor.__tensor_flatten__()  # type: ignore[attr-defined]
+            return all(_is_complete(getattr(tensor, attr)) for attr in attrs)
+    except ImportError:
+        # for torch version less than 2.1, we can fallback to original implementation
+        pass
+
     return tensor.data_ptr() == storage_ptr(tensor) and tensor.nelement() * _SIZE[tensor.dtype] == storage_size(tensor)
 
 
