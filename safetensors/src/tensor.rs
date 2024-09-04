@@ -1053,6 +1053,21 @@ mod tests {
     }
 
     #[test]
+    fn test_lifetimes() {
+        let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+
+        let tensor = {
+            let loaded = SafeTensors::deserialize(serialized).unwrap();
+            loaded.tensor("test").unwrap()
+        };
+
+        assert_eq!(tensor.shape(), vec![2, 2]);
+        assert_eq!(tensor.dtype(), Dtype::I32);
+        // 16 bytes
+        assert_eq!(tensor.data(), b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+    }
+
+    #[test]
     fn test_json_attack() {
         let mut tensors = HashMap::new();
         let dtype = Dtype::F32;
