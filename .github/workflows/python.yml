@@ -107,7 +107,7 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            ghcr.io/safetensors/s390x
+            ghcr.io/huggingface/safetensors/s390x
           # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
@@ -130,5 +130,5 @@ jobs:
           file: Dockerfile.s390x.test
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/safetensors/s390x:cache,mode=max
-          cache-to: type=registry,ref=ghcr.io/safetensors/s390x:cache,mode=max
+          cache-from: type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max
+          cache-to: type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max
