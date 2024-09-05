@@ -88,6 +88,9 @@ jobs:
 
   test_s390x_big_endian:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     name: Test bigendian - S390X
     steps:
       - uses: actions/checkout@v2
