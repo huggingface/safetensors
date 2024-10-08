@@ -62,7 +62,7 @@ class safe_open:
             The filename to open
 
         framework (:obj:`str`):
-            The framework you want you tensors in. Supported values:
+            The framework you want your tensors in. Supported values:
             `pt`, `tf`, `flax`, `numpy`.
 
         device (:obj:`str`, defaults to :obj:`"cpu"`):
