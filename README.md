@@ -75,7 +75,7 @@ with safe_open("model.safetensors", framework="pt", device="cpu") as f:
 
 ### Format
 
-- 8 bytes: `N`, an unsigned little-endian 64-bit integer, containing the size of the header
+- 8 bytes: `N`, an unsigned little-endian 64-bit integer, containing the size of the header.
 - N bytes: a JSON UTF-8 string representing the header.
   - The header data MUST begin with a `{` character (0x7B).
   - The header data MAY be trailing padded with whitespace (0x20).
@@ -90,9 +90,9 @@ Notes:
  - In general the subset of JSON is implicitly decided by `serde_json` for
    this library. Anything obscure might be modified at a later time, that odd ways
    to represent integer, newlines and escapes in utf-8 strings. This would only
-   be done for safety concerns
+   be done for safety concerns.
  - Tensor values are not checked against, in particular NaN and +/-Inf could
-   be in the file
+   be in the file.
  - Empty tensors (tensors with 1 dimension being 0) are allowed.
    They are not storing any data in the databuffer, yet retaining size in the header.
    They don't really bring a lot of values but are accepted since they are valid tensors
@@ -172,7 +172,7 @@ Since we can invent a new format we can propose additional benefits:
   on the size of the header of 100MB to prevent parsing extremely large JSON.
   Also when reading the file, there's a guarantee that addresses in the file
   do not overlap in any way, meaning when you're loading a file you should never
-  exceed the size of the file in memory
+  exceed the size of the file in memory.
 
 - Faster load: PyTorch seems to be the fastest file to load out in the major
   ML formats. However, it does seem to have an extra copy on CPU, which we
@@ -180,7 +180,7 @@ Since we can invent a new format we can propose additional benefits:
   Currently, CPU loading times are extremely fast with this lib compared to pickle.
   GPU loading times are as fast or faster than PyTorch equivalent.
   Loading first on CPU with memmapping with torch, and then moving all tensors to GPU seems
-  to be faster too somehow (similar behavior in torch pickle)
+  to be faster too somehow (similar behavior in torch pickle).
 
 - Lazy loading: in distributed (multi-node or multi-gpu) settings, it's nice to be able to
   load only part of the tensors on the various models. For

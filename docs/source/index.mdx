@@ -11,12 +11,12 @@ Safetensors is a new simple format for storing tensors safely (as opposed to pic
 
 ## Installation
 
-with pip:
+With pip:
 ```
 pip install safetensors
 ```
 
-with conda:
+With conda:
 ```
 conda install -c huggingface safetensors
 ```
@@ -34,7 +34,7 @@ with safe_open("model.safetensors", framework="pt", device=0) as f:
         tensors[k] = f.get_tensor(k)
 ```
 
-Loading only part of the tensors (interesting when running on multiple GPU)
+Loading only part of the tensors (useful when running on multiple GPUs):
 
 ```python
 from safetensors import safe_open
@@ -61,7 +61,7 @@ save_file(tensors, "model.safetensors")
 
 ## Format
 
-Let's say you have safetensors file named `model.safetensors`, then `model.safetensors` will have the following internal format:
+Let's say you have safetensors file named `model.safetensors`, this will have the following internal format:
 
 <div class="flex justify-center">
     <img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/safetensors/safetensors-format.svg"/>
