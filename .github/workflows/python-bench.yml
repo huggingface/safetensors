@@ -5,9 +5,7 @@ on:
       - main
 
 permissions:
-  # deployments permission to deploy GitHub pages website
   deployments: write
-  # contents permission to update benchmark contents in gh-pages branch
   contents: write
 
 jobs:
@@ -32,30 +30,26 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install -U pip
-          pip install .[dev]
+          pip install -r requirements.txt
 
       - name: Run tests
         working-directory: ./bindings/python
         run: |
           cargo test
           pytest --benchmark-json output.json benches/
-      # Download previous benchmark result from cache (if exists)
+
       - name: Download previous benchmark data
         uses: actions/cache@v1
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark
-      # Run `github-action-benchmark` action
+
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          # What benchmark tool the output.txt came from
           tool: 'pytest'
-          # Where the output from the benchmark tool is stored
           output-file-path: ./bindings/python/output.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Push and deploy GitHub pages branch automatically
           auto-push: true
           comment-on-alert: true
-          # Mention @rhysd in the commit comment
           alert-comment-cc-users: '@Narsil'
