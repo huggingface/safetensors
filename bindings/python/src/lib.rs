@@ -64,8 +64,8 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
         let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
         })?;
-        let dtype: &str = pydtype.extract()?;
-        let dtype = match dtype {
+        let dtype: String = pydtype.extract()?;
+        let dtype = match dtype.as_ref() {
             "bool" => Dtype::BOOL,
             "int8" => Dtype::I8,
             "uint8" => Dtype::U8,

@@ -368,11 +368,14 @@ impl<'data> SafeTensors<'data> {
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a str, TensorView<'data>)> {
         self.metadata.index_map.iter().map(|(name, &idx)| {
             let info = &self.metadata.tensors[idx];
-            (name.as_str(), TensorView {
-                dtype: info.dtype,
-                shape: info.shape.clone(),
-                data: &self.data[info.data_offsets.0..info.data_offsets.1],
-            })
+            (
+                name.as_str(),
+                TensorView {
+                    dtype: info.dtype,
+                    shape: info.shape.clone(),
+                    data: &self.data[info.data_offsets.0..info.data_offsets.1],
+                },
+            )
         })
     }
 
