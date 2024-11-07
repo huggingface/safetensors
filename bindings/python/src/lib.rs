@@ -266,6 +266,7 @@ enum Device {
     Npu(usize),
     Xpu(usize),
     Xla(usize),
+    Mlu(usize),
     /// User didn't specify acceletor, torch
     /// is responsible for choosing.
     Anonymous(usize),
@@ -294,10 +295,12 @@ impl<'source> FromPyObject<'source> for Device {
                 "npu" => Ok(Device::Npu(0)),
                 "xpu" => Ok(Device::Xpu(0)),
                 "xla" => Ok(Device::Xla(0)),
+                "mlu" => Ok(Device::Mlu(0)),
                 name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
                 name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
                 name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
                 name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
+                name if name.starts_with("mlu:") => parse_device(name).map(Device::Mlu),
                 name => Err(SafetensorError::new_err(format!(
                     "device {name} is invalid"
                 ))),
@@ -319,6 +322,7 @@ impl IntoPy<PyObject> for Device {
             Device::Npu(n) => format!("npu:{n}").into_py(py),
             Device::Xpu(n) => format!("xpu:{n}").into_py(py),
             Device::Xla(n) => format!("xla:{n}").into_py(py),
+            Device::Mlu(n) => format!("mlu:{n}").into_py(py),
             Device::Anonymous(n) => n.into_py(py),
         }
     }
