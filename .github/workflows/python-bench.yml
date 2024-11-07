@@ -1,8 +1,10 @@
 name: Simple benchmarks
 on:
+  pull_request:
   push:
     branches:
       - main
+
 
 permissions:
   # deployments permission to deploy GitHub pages website
