@@ -174,7 +174,7 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
 
     for (tensor_name, tensor) in tensors {
         let pyshape: PyObject = PyList::new(py, tensor.shape().iter())?.into();
-        let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_py(py);
+        let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_pyobject(py)?.into();
 
         let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
 
@@ -436,8 +436,8 @@ impl Open {
                 // Same for torch.asarray which is necessary for zero-copy tensor
                 if version >= Version::new(1, 11, 0) {
                     // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
-                    let py_filename: PyObject = filename.into_py(py);
-                    let size: PyObject = buffer.len().into_py(py);
+                    let py_filename: PyObject = filename.into_pyobject(py)?.into();
+                    let size: PyObject = buffer.len().into_pyobject(py)?.into();
                     let shared: PyObject = false.into_py(py);
                     let (size_name, storage_name) = if version >= Version::new(2, 0, 0) {
                         (intern!(py, "nbytes"), intern!(py, "UntypedStorage"))
@@ -457,7 +457,7 @@ impl Open {
                         Ok(untyped) => untyped,
                         Err(_) => storage.getattr(intern!(py, "_untyped"))?,
                     };
-                    let storage = untyped.call0()?.into_py(py);
+                    let storage = untyped.call0()?.into_pyobject(py)?.into();
                     let gil_storage = GILOnceCell::new();
                     gil_storage.get_or_init(py, || storage);
 
@@ -549,7 +549,7 @@ impl Open {
                     let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py)?;
                     let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
                     let shape = info.shape.to_vec();
-                    let shape: PyObject = shape.into_py(py);
+                    let shape: PyObject = shape.into_pyobject(py)?.into();
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
                     let stop = (info.data_offsets.1 + self.offset) as isize;
@@ -611,7 +611,7 @@ impl Open {
                         let kwargs = PyDict::new(py);
                         tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                     }
-                    Ok(tensor.into_py(py))
+                    Ok(tensor.into_pyobject(py)?.into())
                     // torch.asarray(storage[start + n : stop + n], dtype=torch.uint8).view(dtype=dtype).reshape(shape)
                 })
             }
