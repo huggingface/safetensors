@@ -438,7 +438,7 @@ impl Open {
                     // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
                     let py_filename: PyObject = filename.into_pyobject(py)?.into();
                     let size: PyObject = buffer.len().into_pyobject(py)?.into();
-                    let shared: PyObject = false.into_py(py);
+                    let shared: PyObject = PyBool::new(py, false).to_owned().into();
                     let (size_name, storage_name) = if version >= Version::new(2, 0, 0) {
                         (intern!(py, "nbytes"), intern!(py, "UntypedStorage"))
                     } else {
@@ -836,7 +836,7 @@ impl PySafeSlice {
     /// ```
     pub fn get_dtype(&self, py: Python) -> PyResult<PyObject> {
         let dtype = self.info.dtype;
-        let dtype: PyObject = format!("{:?}", dtype).into_py(py);
+        let dtype: PyObject = format!("{:?}", dtype).into_pyobject(py)?.into();
         Ok(dtype)
     }
 
@@ -985,7 +985,7 @@ impl PySafeSlice {
                     let kwargs = PyDict::new(py);
                     tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                 }
-                Ok(tensor.into_py(py))
+                Ok(tensor.into())
             }),
         }
     }
@@ -1037,7 +1037,7 @@ fn create_tensor<'a>(
             // Torch==1.10 does not allow frombuffer on empty buffers so we create
             // the tensor manually.
             // let zeros = module.getattr(intern!(py, "zeros"))?;
-            let shape: PyObject = shape.clone().into_py(py);
+            let shape: PyObject = shape.clone().into_pyobject(py)?.into();
             let args = (shape,);
             let kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
             module.call_method("zeros", args, Some(&kwargs))?
@@ -1105,7 +1105,7 @@ fn create_tensor<'a>(
             Framework::Numpy => tensor,
         };
         // let tensor = tensor.into_py_bound(py);
-        Ok(tensor.into_py(py))
+        Ok(tensor.into())
     })
 }
 
