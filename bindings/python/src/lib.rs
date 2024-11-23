@@ -324,6 +324,24 @@ impl IntoPy<PyObject> for Device {
     }
 }
 
+impl<'py> IntoPyObject<'py> for Device {
+    type Target = PyAny;
+    type Output = pyo3::Bound<'py, Self::Target>;
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self {
+            Device::Cpu => "cpu".into_pyobject(py).map(|x| x.into_any()),
+            Device::Cuda(n) => format!("cuda:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Mps => "mps".into_pyobject(py).map(|x| x.into_any()),
+            Device::Npu(n) => format!("npu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Xla(n) => format!("xla:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Anonymous(n) => n.into_pyobject(py).map(|x| x.into_any()),
+        }
+    }
+}
+
 enum Storage {
     Mmap(Mmap),
     /// Torch specific mmap
