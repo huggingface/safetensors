@@ -5,7 +5,7 @@ use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::IntoPyDict;
-use pyo3::types::{PyByteArray, PyBytes, PyDict, PyList, PySlice};
+use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
@@ -531,7 +531,8 @@ impl Open {
                 let data =
                     &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
 
-                let array: PyObject = Python::with_gil(|py| PyByteArray::new(py, data).into_py(py));
+                let array: PyObject =
+                    Python::with_gil(|py| PyByteArray::new(py, data).into_any().into());
 
                 create_tensor(
                     &self.framework,
@@ -573,7 +574,7 @@ impl Open {
 
                     if byteorder == "big" {
                         let inplace_kwargs =
-                            [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py)?;
+                            [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
 
                         let intermediary_dtype = match info.dtype {
                             Dtype::BF16 => Some(Dtype::F16),
@@ -815,7 +816,7 @@ impl PySafeSlice {
     /// ```
     pub fn get_shape(&self, py: Python) -> PyResult<PyObject> {
         let shape = self.info.shape.clone();
-        let shape: PyObject = shape.into_py(py);
+        let shape: PyObject = shape.into_pyobject(py)?.into();
         Ok(shape)
     }
 
@@ -897,7 +898,8 @@ impl PySafeSlice {
                             }
                             Ok(())
                         })?
-                        .into_py(py);
+                        .into_any()
+                        .into();
                     create_tensor(
                         &self.framework,
                         self.info.dtype,
@@ -914,7 +916,7 @@ impl PySafeSlice {
                 let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py)?;
                 let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
                 let shape = self.info.shape.to_vec();
-                let shape: PyObject = shape.into_py(py);
+                let shape: PyObject = shape.into_pyobject(py)?.into();
 
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
@@ -928,7 +930,7 @@ impl PySafeSlice {
                     .getattr(intern!(py, "__getitem__"))?
                     .call1((slice,))?;
 
-                let slices = slices.into_py(py);
+                let slices = slices.into_pyobject(py)?;
 
                 let sys = PyModule::import(py, intern!(py, "sys"))?;
                 let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
@@ -942,7 +944,7 @@ impl PySafeSlice {
                     // Important, do NOT use inplace otherwise the slice itself
                     // is byteswapped, meaning multiple calls will fails
                     let inplace_kwargs =
-                        [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py)?;
+                        [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
 
                     let intermediary_dtype = match self.info.dtype {
                         Dtype::BF16 => Some(Dtype::F16),
@@ -1051,7 +1053,7 @@ fn create_tensor<'a>(
             let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
             if byteorder == "big" {
                 let inplace_kwargs =
-                    [(intern!(py, "inplace"), false.into_py(py))].into_py_dict(py)?;
+                    [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
                 tensor = tensor
                     .getattr("byteswap")?
                     .call((), Some(&inplace_kwargs))?;
