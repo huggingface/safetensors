@@ -755,10 +755,12 @@ impl safe_open {
         self.inner()?.get_slice(name)
     }
 
+    /// Start the context manager
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
         slf
     }
 
+    /// Exits the context manager
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
         self.inner = None;
     }
