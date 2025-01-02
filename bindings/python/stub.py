@@ -39,7 +39,14 @@ def member_sort(member):
 def fn_predicate(obj):
     value = inspect.ismethoddescriptor(obj) or inspect.isbuiltin(obj)
     if value:
-        return obj.__doc__ and obj.__text_signature__ and not obj.__name__.startswith("_")
+        return (
+            obj.__doc__
+            and obj.__text_signature__
+            and (
+                not obj.__name__.startswith("_")
+                or obj.__name__ in {"__enter__", "__exit__"}
+            )
+        )
     if inspect.isgetsetdescriptor(obj):
         return obj.__doc__ and not obj.__name__.startswith("_")
     return False
@@ -74,7 +81,9 @@ def pyi_file(obj, indent=""):
 
         body = ""
         if obj.__doc__:
-            body += f'{indent}"""\n{indent}{do_indent(obj.__doc__, indent)}\n{indent}"""\n'
+            body += (
+                f'{indent}"""\n{indent}{do_indent(obj.__doc__, indent)}\n{indent}"""\n'
+            )
 
         fns = inspect.getmembers(obj, fn_predicate)
 
@@ -84,7 +93,7 @@ def pyi_file(obj, indent=""):
             body += f"{indent+INDENT}pass\n"
             body += "\n"
 
-        for (name, fn) in fns:
+        for name, fn in fns:
             body += pyi_file(fn, indent=indent)
 
         if not body:
@@ -130,13 +139,18 @@ def do_black(content, is_pyi):
         experimental_string_processing=False,
     )
     try:
+        content = content.replace("$self", "self")
         return black.format_file_contents(content, fast=True, mode=mode)
     except black.NothingChanged:
         return content
 
 
 def write(module, directory, origin, check=False):
-    submodules = [(name, member) for name, member in inspect.getmembers(module) if inspect.ismodule(member)]
+    submodules = [
+        (name, member)
+        for name, member in inspect.getmembers(module)
+        if inspect.ismodule(member)
+    ]
 
     filename = os.path.join(directory, "__init__.pyi")
     pyi_content = pyi_file(module)
@@ -145,7 +159,9 @@ def write(module, directory, origin, check=False):
     if check:
         with open(filename, "r") as f:
             data = f.read()
-            assert data == pyi_content, f"The content of {filename} seems outdated, please run `python stub.py`"
+            assert (
+                data == pyi_content
+            ), f"The content of {filename} seems outdated, please run `python stub.py`"
     else:
         with open(filename, "w") as f:
             f.write(pyi_content)
@@ -168,7 +184,9 @@ def write(module, directory, origin, check=False):
         if check:
             with open(filename, "r") as f:
                 data = f.read()
-                assert data == py_content, f"The content of {filename} seems outdated, please run `python stub.py`"
+                assert (
+                    data == py_content
+                ), f"The content of {filename} seems outdated, please run `python stub.py`"
         else:
             with open(filename, "w") as f:
                 f.write(py_content)
@@ -184,4 +202,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     import safetensors
 
-    write(safetensors.safetensors_rust, "py_src/safetensors/", "safetensors", check=args.check)
+    write(
+        safetensors._safetensors_rust,
+        "py_src/safetensors/",
+        "safetensors",
+        check=args.check,
+    )
