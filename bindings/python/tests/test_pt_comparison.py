@@ -147,6 +147,9 @@ class TorchTestCase(unittest.TestCase):
         reloaded = load(binary)
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
 
+        reloaded2 = load(bytearray(binary))
+        self.assertTrue(torch.equal(data["test"], reloaded2["test"]))
+
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_gpu(self):
         data = {

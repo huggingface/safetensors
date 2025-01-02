@@ -28,13 +28,16 @@ static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 struct PyView<'a> {
     shape: Vec<usize>,
     dtype: Dtype,
-    data: PyBound<'a, PyBytes>,
+    pydata: PyBound<'a, PyAny>,
+    // data: Cow<'a, [u8]>,
     data_len: usize,
 }
 
 impl View for &PyView<'_> {
     fn data(&self) -> std::borrow::Cow<[u8]> {
-        Cow::Borrowed(self.data.as_bytes())
+        self.pydata
+            .extract()
+            .expect("We should be able to decode this `data`")
     }
     fn shape(&self) -> &[usize] {
         &self.shape
@@ -58,9 +61,9 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
             SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
         })?;
         // Make sure it's extractable first.
-        let data: &[u8] = pydata.extract()?;
+        let data: Cow<[u8]> = pydata.extract()?;
         let data_len = data.len();
-        let data: PyBound<PyBytes> = pydata.extract()?;
+        // let data: PyBound<PyBytes> = pydata.extract()?;
         let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
         })?;
@@ -91,7 +94,8 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
         let tensor = PyView {
             shape,
             dtype,
-            data,
+            // data,
+            pydata,
             data_len,
         };
         tensors.insert(tensor_name.to_string(), tensor);
@@ -156,7 +160,7 @@ fn serialize_file(
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
-///     data (`bytes`):
+///     data (`bytes` or `bytearray`):
 ///         The byte content of a file
 ///
 /// Returns:
@@ -165,8 +169,8 @@ fn serialize_file(
 ///             [("tensor_name", {"shape": [2, 3], "dtype": "F32", "data": b"\0\0.." }), (...)]
 #[pyfunction]
 #[pyo3(signature = (bytes))]
-fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
-    let safetensor = SafeTensors::deserialize(bytes)
+fn deserialize(py: Python, bytes: Cow<[u8]>) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
+    let safetensor = SafeTensors::deserialize(&bytes)
         .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e:?}")))?;
 
     let tensors = safetensor.tensors();

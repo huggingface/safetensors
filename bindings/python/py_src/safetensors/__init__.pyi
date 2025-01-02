@@ -5,7 +5,7 @@ def deserialize(bytes):
     Opens a safetensors lazily and returns tensors as asked
 
     Args:
-        data (`bytes`):
+        data (`bytes` or `bytearray`):
             The byte content of a file
 
     Returns:
