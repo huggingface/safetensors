@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1730964070602,
+  "lastUpdate": 1735812582689,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -14010,6 +14010,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01633191863263379",
             "extra": "mean: 302.94639559998586 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "zh_smiling@yeah.net",
+            "name": "huismiling",
+            "username": "huismiling"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "038dcbb49aece6123b1eab7c3cbb692a9d711fed",
+          "message": "Add support for mlu devices (#535)",
+          "timestamp": "2025-01-02T11:06:14+01:00",
+          "tree_id": "b2baf8a6f3b31277d21809670f9eb4fa5b97628b",
+          "url": "https://github.com/huggingface/safetensors/commit/038dcbb49aece6123b1eab7c3cbb692a9d711fed"
+        },
+        "date": 1735812582061,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.7659113756701146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004876363301035252",
+            "extra": "mean: 361.5444835999938 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.982740510426743,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012910562274572632",
+            "extra": "mean: 251.08339280001246 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 5.566800823102973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004703965900960677",
+            "extra": "mean: 179.63638933332504 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.059167572850808,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01964716554499266",
+            "extra": "mean: 246.35592939999924 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 8.176137600242978,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00984744546654378",
+            "extra": "mean: 122.30713924999037 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 247.98152970686854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000847740228441981",
+            "extra": "mean: 4.032558397321243 msec\nrounds: 224"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 26.687197595626436,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0026874314304453206",
+            "extra": "mean: 37.47115059259284 msec\nrounds: 27"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 42.34332070398763,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028172661104715464",
+            "extra": "mean: 23.616475594598946 msec\nrounds: 37"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.244473936395378,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022286089249834728",
+            "extra": "mean: 308.21637639999153 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.2301805516333704,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01497318026962285",
+            "extra": "mean: 309.58021819998294 msec\nrounds: 5"
           }
         ]
       }
