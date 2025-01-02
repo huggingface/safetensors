@@ -32,7 +32,7 @@ struct PyView<'a> {
     data_len: usize,
 }
 
-impl<'a> View for &PyView<'a> {
+impl View for &PyView<'_> {
     fn data(&self) -> std::borrow::Cow<[u8]> {
         Cow::Borrowed(self.data.as_bytes())
     }

@@ -565,7 +565,7 @@ pub struct TensorView<'data> {
     data: &'data [u8],
 }
 
-impl<'data> View for &TensorView<'data> {
+impl View for &TensorView<'_> {
     fn dtype(&self) -> Dtype {
         self.dtype
     }
@@ -583,7 +583,7 @@ impl<'data> View for &TensorView<'data> {
     }
 }
 
-impl<'data> View for TensorView<'data> {
+impl View for TensorView<'_> {
     fn dtype(&self) -> Dtype {
         self.dtype
     }
