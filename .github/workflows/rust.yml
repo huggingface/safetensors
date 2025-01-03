@@ -41,6 +41,9 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
+      - name: Run No-STD Tests
+        run: cargo test --no-default-features --features alloc --verbose
+
       - name: Run Audit
         # RUSTSEC-2021-0145 is criterion so only within benchmarks
         run: cargo audit -D warnings --ignore RUSTSEC-2021-0145
