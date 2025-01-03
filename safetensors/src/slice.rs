@@ -1,7 +1,7 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
+use crate::lib::{String, ToString, Vec};
 use crate::tensor::TensorView;
-use std::fmt;
-use std::ops::{
+use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
@@ -40,8 +40,8 @@ fn display_bound(bound: &Bound<usize>) -> String {
 }
 
 /// Intended for Python users mostly or at least for its conventions
-impl fmt::Display for TensorIndexer {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Display for TensorIndexer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TensorIndexer::Select(n) => {
                 write!(f, "{n}")
@@ -77,7 +77,7 @@ macro_rules! impl_from_range {
     ($range_type:ty) => {
         impl From<$range_type> for TensorIndexer {
             fn from(range: $range_type) -> Self {
-                use std::ops::Bound::*;
+                use core::ops::Bound::*;
 
                 let start = match range.start_bound() {
                     Included(idx) => Included(*idx),

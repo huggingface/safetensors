@@ -21,13 +21,19 @@ exclude = [ "rust-toolchain", "target/*", "Cargo.lock"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = {version = "1.0", features = ["derive"]}
-serde_json = "1.0"
+hashbrown = { version = "0.15.2", features = ["serde"], optional = true }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false }
 
 [dev-dependencies]
 criterion = "0.5"
 memmap2 = "0.9"
 proptest = "1.4"
+
+[features]
+default = ["std"]
+std = ["serde/default", "serde_json/default"]
+alloc = ["serde/alloc", "serde_json/alloc", "hashbrown"]
 
 [[bench]]
 name = "benchmark"
