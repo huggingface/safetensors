@@ -1,11 +1,9 @@
 //! Module Containing the most important structures
+use crate::lib::{Cow, HashMap, String, ToString, Vec};
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::Path;
+#[cfg(feature = "std")]
+use std::io::Write;
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 
@@ -32,6 +30,7 @@ pub enum SafeTensorError {
     /// The offsets declared for tensor with name `String` in the header are invalid
     InvalidOffset(String),
     /// IoError
+    #[cfg(feature = "std")]
     IoError(std::io::Error),
     /// JSON error
     JsonError(serde_json::Error),
@@ -46,6 +45,7 @@ pub enum SafeTensorError {
     ValidationOverflow,
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for SafeTensorError {
     fn from(error: std::io::Error) -> SafeTensorError {
         SafeTensorError::IoError(error)
@@ -58,13 +58,13 @@ impl From<serde_json::Error> for SafeTensorError {
     }
 }
 
-impl std::fmt::Display for SafeTensorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SafeTensorError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self:?}")
     }
 }
 
-impl std::error::Error for SafeTensorError {}
+impl core::error::Error for SafeTensorError {}
 
 struct PreparedData {
     n: u64,
@@ -164,7 +164,7 @@ pub trait View {
     fn data_len(&self) -> usize;
 }
 
-fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Item = (S, V)>>(
+fn prepare<S: AsRef<str> + Ord + core::fmt::Display, V: View, I: IntoIterator<Item = (S, V)>>(
     data: I,
     data_info: &Option<HashMap<String, String>>,
     // ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
@@ -212,7 +212,7 @@ fn prepare<S: AsRef<str> + Ord + std::fmt::Display, V: View, I: IntoIterator<Ite
 
 /// Serialize to an owned byte buffer the dictionnary of tensors.
 pub fn serialize<
-    S: AsRef<str> + Ord + std::fmt::Display,
+    S: AsRef<str> + Ord + core::fmt::Display,
     V: View,
     I: IntoIterator<Item = (S, V)>,
 >(
@@ -240,14 +240,15 @@ pub fn serialize<
 /// Serialize to a regular file the dictionnary of tensors.
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
+#[cfg(feature = "std")]
 pub fn serialize_to_file<
-    S: AsRef<str> + Ord + std::fmt::Display,
+    S: AsRef<str> + Ord + core::fmt::Display,
     V: View,
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
     data_info: &Option<HashMap<String, String>>,
-    filename: &Path,
+    filename: &std::path::Path,
 ) -> Result<(), SafeTensorError> {
     let (
         PreparedData {
@@ -255,7 +256,7 @@ pub fn serialize_to_file<
         },
         tensors,
     ) = prepare(data, data_info)?;
-    let mut f = BufWriter::new(File::create(filename)?);
+    let mut f = std::io::BufWriter::new(std::fs::File::create(filename)?);
     f.write_all(n.to_le_bytes().as_ref())?;
     f.write_all(&header_bytes)?;
     for tensor in tensors {
@@ -303,7 +304,7 @@ impl<'data> SafeTensors<'data> {
             return Err(SafeTensorError::InvalidHeaderLength);
         }
         let string =
-            std::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
+            core::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
         // Assert the string starts with {
         // NOTE: Add when we move to 0.4.0
         // if !string.starts_with('{') {
@@ -719,6 +720,9 @@ mod tests {
     use super::*;
     use crate::slice::IndexOp;
     use proptest::prelude::*;
+    #[cfg(not(feature = "std"))]
+    extern crate std;
+    use std::io::Write;
 
     const MAX_DIMENSION: usize = 8;
     const MAX_SIZE: usize = 8;
@@ -1021,10 +1025,13 @@ mod tests {
         std::fs::remove_file(&filename).unwrap();
 
         // File api
-        serialize_to_file(&metadata, &None, Path::new(&filename)).unwrap();
-        let raw = std::fs::read(&filename).unwrap();
-        let _deserialized = SafeTensors::deserialize(&raw).unwrap();
-        std::fs::remove_file(&filename).unwrap();
+        #[cfg(feature = "std")]
+        {
+            serialize_to_file(&metadata, &None, std::path::Path::new(&filename)).unwrap();
+            let raw = std::fs::read(&filename).unwrap();
+            let _deserialized = SafeTensors::deserialize(&raw).unwrap();
+            std::fs::remove_file(&filename).unwrap();
+        }
     }
 
     #[test]
@@ -1097,7 +1104,7 @@ mod tests {
         let n = serialized.len();
 
         let filename = "out.safetensors";
-        let mut f = BufWriter::new(File::create(filename).unwrap());
+        let mut f = std::io::BufWriter::new(std::fs::File::create(filename).unwrap());
         f.write_all(n.to_le_bytes().as_ref()).unwrap();
         f.write_all(serialized).unwrap();
         f.write_all(b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0").unwrap();
