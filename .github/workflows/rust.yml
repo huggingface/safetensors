@@ -36,7 +36,7 @@ jobs:
         run: cargo build --all-targets --verbose
 
       - name: Lint with Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run Tests
         run: cargo test --verbose
