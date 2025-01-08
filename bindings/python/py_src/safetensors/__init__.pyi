@@ -69,7 +69,7 @@ class safe_open:
             The device on which you want the tensors.
     """
 
-    def __init__(filename, framework, device=...):
+    def __init__(self, filename, framework, device=...):
         pass
     def __enter__(self):
         """
