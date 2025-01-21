@@ -499,8 +499,7 @@ impl Open {
     ///     (`List[str]`):
     ///         The name of the tensors contained in that file
     pub fn keys(&self) -> PyResult<Vec<String>> {
-        let mut keys: Vec<String> = self.metadata.tensors().keys().cloned().collect();
-        keys.sort();
+        let mut keys: Vec<String> = self.metadata.tensor_names();
         Ok(keys)
     }
 
