@@ -64,7 +64,11 @@ impl core::fmt::Display for SafeTensorError {
     }
 }
 
+#[cfg(not(feature = "std"))]
 impl core::error::Error for SafeTensorError {}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SafeTensorError {}
 
 struct PreparedData {
     n: u64,
