@@ -267,7 +267,8 @@ enum Device {
     Xpu(usize),
     Xla(usize),
     Mlu(usize),
-    /// User didn't specify acceletor, torch
+    Hpu,
+    /// User didn't specify accelerator, torch
     /// is responsible for choosing.
     Anonymous(usize),
 }
@@ -296,6 +297,7 @@ impl<'source> FromPyObject<'source> for Device {
                 "xpu" => Ok(Device::Xpu(0)),
                 "xla" => Ok(Device::Xla(0)),
                 "mlu" => Ok(Device::Mlu(0)),
+                "hpu" => Ok(Device::Hpu),
                 name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
                 name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
                 name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
@@ -327,6 +329,7 @@ impl<'py> IntoPyObject<'py> for Device {
             Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Xla(n) => format!("xla:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Mlu(n) => format!("mlu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Hpu => "hpu".into_pyobject(py).map(|x| x.into_any()),
             Device::Anonymous(n) => n.into_pyobject(py).map(|x| x.into_any()),
         }
     }
