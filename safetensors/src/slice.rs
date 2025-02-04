@@ -7,6 +7,7 @@ use core::ops::{
 
 /// Error representing invalid slicing attempt
 #[derive(Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub enum InvalidSlice {
     /// When the client asked for more slices than the tensors has dimensions
     TooManySlices,
@@ -235,6 +236,7 @@ where
 
 /// Iterator used to return the bits of the overall tensor buffer
 /// when client asks for a slice of the original tensor.
+#[cfg_attr(test, derive(Debug, Eq, PartialEq))]
 pub struct SliceIterator<'data> {
     view: &'data TensorView<'data>,
     indices: Vec<(usize, usize)>,
@@ -284,10 +286,15 @@ impl<'data> SliceIterator<'data> {
                     }
                     TensorIndexer::Select(s) => (*s, *s + 1),
                 };
-                if start >= shape && stop > shape {
+                if start >= shape || stop > shape {
+                    let asked = if start >= shape {
+                        start
+                    } else {
+                        stop.saturating_sub(1)
+                    };
                     return Err(InvalidSlice::SliceOutOfRange {
                         dim_index: i,
-                        asked: stop.saturating_sub(1),
+                        asked,
                         dim_size: shape,
                     });
                 }
@@ -572,5 +579,55 @@ mod tests {
         .unwrap();
         assert_eq!(iterator.next(), Some(&data[12..16]));
         assert_eq!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_invalid_range() {
+        let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+
+        let attn_0 = TensorView::new(Dtype::F32, vec![2, 3], &data).unwrap();
+
+        assert_eq!(
+            SliceIterator::new(
+                &attn_0,
+                &[
+                    TensorIndexer::Select(1),
+                    TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(4)),
+                ],
+            ),
+            Err(InvalidSlice::SliceOutOfRange {
+                asked: 3,
+                dim_index: 1,
+                dim_size: 3,
+            })
+        );
+        assert_eq!(
+            SliceIterator::new(
+                &attn_0,
+                &[
+                    TensorIndexer::Select(1),
+                    TensorIndexer::Narrow(Bound::Included(3), Bound::Excluded(2)),
+                ],
+            ),
+            Err(InvalidSlice::SliceOutOfRange {
+                asked: 3,
+                dim_index: 1,
+                dim_size: 3,
+            })
+        );
+        assert_eq!(
+            SliceIterator::new(
+                &attn_0,
+                &[
+                    TensorIndexer::Select(1),
+                    TensorIndexer::Select(1),
+                    TensorIndexer::Select(1),
+                ],
+            ),
+            Err(InvalidSlice::TooManySlices)
+        );
     }
 }
