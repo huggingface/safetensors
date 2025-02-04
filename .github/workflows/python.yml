@@ -84,7 +84,8 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo test
+          cargo test --features py38
+          cargo test --features py311
           pip install .[testing]
           pytest -sv tests/
 
