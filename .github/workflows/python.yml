@@ -84,8 +84,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo test --features py38
-          cargo test --features py311
+          cargo test --features ${{ matrix.version.pyfeature }}
           pip install .[testing]
           pytest -sv tests/
 
