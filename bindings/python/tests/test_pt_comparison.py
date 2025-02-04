@@ -170,6 +170,24 @@ class TorchTestCase(unittest.TestCase):
         for k, v in reloaded.items():
             self.assertTrue(torch.allclose(data[k], reloaded[k]))
 
+    def test_hpu(self):
+        # must be run to load torch with Intel Gaudi bindings
+        try:
+            import habana_frameworks.torch.core as htcore
+        except ImportError:
+            self.skipTest("HPU is not available")
+
+        data = {
+            "test1": torch.zeros((2, 2), dtype=torch.float32).to("hpu"),
+            "test2": torch.zeros((2, 2), dtype=torch.float16).to("hpu"),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small_hpu.safetensors"
+        save_file(data, local)
+
+        reloaded = load_file(local, device="hpu")
+        for k, v in reloaded.items():
+            self.assertTrue(torch.allclose(data[k], reloaded[k]))
+
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_anonymous_accelerator(self):
         data = {
