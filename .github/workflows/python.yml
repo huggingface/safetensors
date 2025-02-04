@@ -52,7 +52,10 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Lint with Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: | 
+          cargo clippy --features py311 -- -D warnings
+          cargo clippy --features py38 -- -D warnings
+          cargo clippy -- -D warnings
 
       - name: Run Audit
         run: cargo audit -D warnings
