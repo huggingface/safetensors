@@ -308,8 +308,7 @@ impl<'data> SliceIterator<'data> {
                     for n in start..stop {
                         let offset = n * span;
                         for (old_start, old_stop) in &indices {
-                            let stop: usize = old_stop + offset;
-                            newindices.push((old_start + offset, stop));
+                            newindices.push((old_start + offset, old_stop + offset));
                         }
                     }
                     indices = newindices;
