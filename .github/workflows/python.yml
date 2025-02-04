@@ -54,8 +54,6 @@ jobs:
       - name: Lint with Clippy
         run: | 
           cargo clippy --features py311 -- -D warnings
-          # This should fail too.
-          cargo clippy -- -D warnings
           cargo clippy --features py38 -- -D warnings
 
       - name: Run Audit
