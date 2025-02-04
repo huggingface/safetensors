@@ -96,7 +96,7 @@ build-backend = "maturin"
 python-source = "py_src"
 module-name = "safetensors._safetensors_rust"
 bindings = 'pyo3'
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "py38"]
 
 [tool.black]
 line-length = 119

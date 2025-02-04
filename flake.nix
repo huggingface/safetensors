@@ -22,8 +22,8 @@
           default = pkgs.mkShell {
             buildInputs = with pkgs; [
               rustup
-              python3Packages.python
-              python3Packages.venvShellHook
+              python39Packages.python
+              python39Packages.venvShellHook
             ];
             venvDir = "./.venv";
             postVenvCreation = ''

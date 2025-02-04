@@ -1,6 +1,8 @@
 #![deny(missing_docs)]
 //! Dummy doc
 use memmap2::{Mmap, MmapOptions};
+#[cfg(feature = "py311")]
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
@@ -25,6 +27,10 @@ static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
+#[cfg(not(any(feature = "py38", feature = "py311")))]
+compile_error!("At least one python version must be enabled");
+
+#[cfg(feature = "py38")]
 struct PyView<'a> {
     shape: Vec<usize>,
     dtype: Dtype,
@@ -32,9 +38,40 @@ struct PyView<'a> {
     data_len: usize,
 }
 
-impl View for &PyView<'_> {
+#[cfg(feature = "py311")]
+struct PyView {
+    shape: Vec<usize>,
+    dtype: Dtype,
+    data: PyBuffer<u8>,
+    data_len: usize,
+}
+
+#[cfg(feature = "py38")]
+impl<'a> View for &PyView<'a> {
     fn data(&self) -> std::borrow::Cow<[u8]> {
         Cow::Borrowed(self.data.as_bytes())
+    }
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+    fn data_len(&self) -> usize {
+        self.data_len
+    }
+}
+
+#[cfg(feature = "py311")]
+impl View for &PyView {
+    fn data(&self) -> std::borrow::Cow<[u8]> {
+        // SAFETY:
+        // This is actually totally unsafe, PyBuffer is not immutable and could be changed from
+        // under us.
+        // However this saves a copy
+        Cow::Borrowed(unsafe {
+            std::slice::from_raw_parts(self.data.buf_ptr() as *const u8, self.data.item_count())
+        })
     }
     fn shape(&self) -> &[usize] {
         &self.shape
@@ -57,10 +94,21 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
         let pydata: PyBound<PyAny> = tensor_desc.get_item("data")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
         })?;
-        // Make sure it's extractable first.
-        let data: &[u8] = pydata.extract()?;
-        let data_len = data.len();
-        let data: PyBound<PyBytes> = pydata.extract()?;
+
+        #[cfg(feature = "py311")]
+        let (data, data_len) = {
+            let data: PyBuffer<u8> = pydata.extract()?;
+            let data_len = data.item_count();
+            (data, data_len)
+        };
+
+        #[cfg(feature = "py38")]
+        let (data, data_len) = {
+            let data: &[u8] = pydata.extract()?;
+            let data_len = data.len();
+            let data: PyBound<PyBytes> = pydata.extract()?;
+            (data, data_len)
+        };
         let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
         })?;
