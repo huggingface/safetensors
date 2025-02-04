@@ -37,7 +37,8 @@ impl View for &PyView<'_> {
     fn data(&self) -> std::borrow::Cow<[u8]> {
         // We already checked this in the Python side.
         assert!(self.data.is_c_contiguous());
-        assert!(self.data.readonly());
+        // XXX: Ideally we could have at least readonly tensors
+        // assert!(self.data.readonly());
         // SAFETY:
         // This is actually totally unsafe, PyBuffer is not immutable and could be changed from
         // under us.
@@ -102,9 +103,10 @@ pub fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMa
             if !data.is_c_contiguous() {
                 return Err(SafetensorError::new_err("Python buffer is not contiguous"));
             }
-            if !data.readonly() {
-                return Err(SafetensorError::new_err("Python buffer is not readonly"));
-            }
+            // XXX Ideally this would be true.
+            // if !data.readonly() {
+            //     return Err(SafetensorError::new_err("Python buffer is not readonly"));
+            // }
             let data_len = data.item_count();
             let py = pydata.py();
             PyView {
