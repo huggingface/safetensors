@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1738657740808,
+  "lastUpdate": 1738665319900,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -15138,6 +15138,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.009090826324500425",
             "extra": "mean: 276.16343080001116 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ojford@gmail.com",
+            "name": "Oliver Ford",
+            "username": "oliness"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa833511664338bfc927fc02653ddb7d38d40be9",
+          "message": "Return error on out of range index (#565)\n\n* Return error on out of range index\r\n\r\nFix issue #560, return a SliceOutOfRange error if the stop value\r\nexceeds the available span.\r\n\r\n* Improve the fix.\r\n\r\n* Revert this change.\r\n\r\n* Adding unit test around invalid range\r\n\r\n* Checking for too many slices too.\r\n\r\n* Small cleanup.\r\n\r\n---------\r\n\r\nCo-authored-by: Nicolas Patry <patry.nicolas@protonmail.com>",
+          "timestamp": "2025-02-04T11:31:44+01:00",
+          "tree_id": "e5fc361ae939022062bd14188165d6feb2696875",
+          "url": "https://github.com/huggingface/safetensors/commit/fa833511664338bfc927fc02653ddb7d38d40be9"
+        },
+        "date": 1738665318651,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 3.048071430188548,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015168823709995017",
+            "extra": "mean: 328.0763009999873 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.922605862890672,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007847319043752174",
+            "extra": "mean: 254.93257160001122 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 7.620790086261383,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0037717679705544667",
+            "extra": "mean: 131.21999014285686 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 5.1047499227370245,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002412534351147914",
+            "extra": "mean: 195.89598220001108 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 9.198167957472968,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005133379534279679",
+            "extra": "mean: 108.71730159999515 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 235.6638263334014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008221394179835496",
+            "extra": "mean: 4.243332613064116 msec\nrounds: 199"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 9.818322525812286,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015822781105488334",
+            "extra": "mean: 101.85039219999226 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 48.88721084923522,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004686627845635406",
+            "extra": "mean: 20.45524755101965 msec\nrounds: 49"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.1929441737255746,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015777240452835756",
+            "extra": "mean: 313.1905682000024 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.298035036002493,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007621431086454671",
+            "extra": "mean: 303.210847999992 msec\nrounds: 5"
           }
         ]
       }
