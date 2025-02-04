@@ -797,7 +797,7 @@ impl fmt::Display for Disp {
         write!(f, "[")?;
         for (i, item) in self.0.iter().enumerate() {
             if i != self.0.len() - 1 {
-                write!(f, "{item},")?;
+                write!(f, "{item}, ")?;
             } else {
                 write!(f, "{item}")?;
             }
