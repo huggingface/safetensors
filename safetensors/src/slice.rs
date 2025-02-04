@@ -259,8 +259,6 @@ impl<'data> SliceIterator<'data> {
         let mut indices = vec![];
         // Everything is row major.
         for (i, &shape) in view.shape().iter().enumerate().rev() {
-            let mut max_stop: usize = 0;
-
             if i >= slices.len() {
                 // We are  not slicing yet, just increase the local span
                 newshape.push(shape);
@@ -286,7 +284,7 @@ impl<'data> SliceIterator<'data> {
                     }
                     TensorIndexer::Select(s) => (*s, *s + 1),
                 };
-                if start >= shape && stop > shape {
+                if start >= shape || stop > shape {
                     return Err(InvalidSlice::SliceOutOfRange {
                         dim_index: i,
                         asked: stop.saturating_sub(1),
@@ -312,21 +310,12 @@ impl<'data> SliceIterator<'data> {
                         for (old_start, old_stop) in &indices {
                             let stop: usize = old_stop + offset;
                             newindices.push((old_start + offset, stop));
-                            if (stop > max_stop) {
-                                max_stop = stop;
-                            }
                         }
                     }
                     indices = newindices;
                 }
             }
             span *= shape;
-            if max_stop >= span {
-                return Err(InvalidSlice::SliceOutOfRange {
-                    dim_index: span,
-                    asked: max_stop,
-                    dim_size: span });
-            }
         }
         if indices.is_empty() {
             indices.push((0, view.data().len()));

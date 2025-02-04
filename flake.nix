@@ -32,7 +32,7 @@
             postShellHook = ''
               unset SOURCE_DATE_EPOCH
             '';
-            LD_LIBRARY_PATH = "$LD_LIBRARY_PATH:${pkgs.stdenv.cc.cc.lib}/lib";
+            LD_LIBRARY_PATH = "$LD_LIBRARY_PATH:${pkgs.stdenv.cc.cc.lib}/lib:${pkgs.zlib}/lib";
           };
 
         }

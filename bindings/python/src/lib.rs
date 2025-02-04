@@ -795,8 +795,12 @@ struct Disp(Vec<TensorIndexer>);
 impl fmt::Display for Disp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
-        for item in &self.0 {
-            write!(f, "{item}")?;
+        for (i, item) in self.0.iter().enumerate() {
+            if i != self.0.len() - 1 {
+                write!(f, "{item},")?;
+            } else {
+                write!(f, "{item}")?;
+            }
         }
         write!(f, "]")
     }
