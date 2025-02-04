@@ -80,9 +80,7 @@ jobs:
       - name: Check style
         run: |
           pip install .[quality]
-          pip install pre-commit
-          pre-commit run --all-files
-          # black --check --line-length 119 --target-version py35 py_src/safetensors tests
+          black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
       - name: Run tests
         run: |
