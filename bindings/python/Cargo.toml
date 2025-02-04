@@ -10,7 +10,6 @@ name = "safetensors_rust"
 crate-type = ["cdylib"]
 
 [features]
-default = ["py311"]
 py38 = ["pyo3/abi3-py38"]
 py311 = ["pyo3/abi3-py311"]
 
