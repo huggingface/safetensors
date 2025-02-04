@@ -4,11 +4,15 @@ on:
   pull_request:
 
 jobs:
-  build-stable:
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
+        toolchain: [stable]
+        include:
+          - os: ubuntu-latest
+            toolchain: "1.74"
     defaults:
       run:
         working-directory: ./safetensors
@@ -59,28 +63,3 @@ jobs:
         #     token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
         #     working-directory: ./safetensors
         #     fail_ci_if_error: true
-
-  build-msrv:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./safetensors
-    env:
-      MSRV: "1.74"
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust ${{ env.MSRV }}
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ env.MSRV }}
-          override: true
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --all-targets --verbose
-
-      - name: Run Tests
-        run: cargo test --verbose
