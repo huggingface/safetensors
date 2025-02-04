@@ -462,7 +462,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> Union[memoryview, bytes]:
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
-        data = data.view(npdtype).byteswap(inplace=False)
+        data = data.view(npdtype).byteswap(inplace=False).view(np.uint8)
     if sys.version_info >= (3, 11):
         return data.data
     else:
