@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1738656589537,
+  "lastUpdate": 1738657740808,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -15044,6 +15044,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0025711940823020477",
             "extra": "mean: 302.21239020000894 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "christian@python.org",
+            "name": "Christian Heimes",
+            "username": "tiran"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "581f43bf212a32aaf00021efbea7fca49620811b",
+          "message": "Restore compatibility with Rust 1.74 (#563)\n\n* Restore compatibility with Rust 1.74\r\n\r\nPR #544 added support for `no_std` feature. The PR changed\r\n`std::error::Error` to `core::error::Error`. The `core::error` trait was\r\nstabilized in Rust 1.81, so the change bumped MSRV to 1.81. Before the\r\nPython package built with Rust 1.66 and the `safetensors` create with\r\nall features built with 1.74.\r\n\r\nThis commit restores compatibility with Rust 1.74 for `std` builds:\r\n\r\n- `mixed_integer_ops` feature requires 1.66\r\n- `half v2.4.1` requires 1.70\r\n- `clap_lex v0.7.4` requires 1.74\r\n\r\nI'm also adding `rust-version` to `Cargo.toml`, so cargo creates a\r\nbackwards compatible `Cargo.lock`. By default, Cargo >= 1.83 creates a\r\n`v4` lock file, which is not compatible with Cargo < 1.78.\r\n\r\nSigned-off-by: Christian Heimes <christian@python.org>\r\n\r\n* Merging the test matrix.\r\n\r\n---------\r\n\r\nSigned-off-by: Christian Heimes <christian@python.org>\r\nCo-authored-by: Nicolas Patry <patry.nicolas@protonmail.com>",
+          "timestamp": "2025-02-04T09:25:26+01:00",
+          "tree_id": "3cb17d03ac3b0dbd44bcbf2cc665b189add8ee59",
+          "url": "https://github.com/huggingface/safetensors/commit/581f43bf212a32aaf00021efbea7fca49620811b"
+        },
+        "date": 1738657740254,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.496158777328966,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04308327506473745",
+            "extra": "mean: 400.6155413999977 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.9443844008337363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00577889206007067",
+            "extra": "mean: 253.52498600000217 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 5.385399824024952,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005128766675233162",
+            "extra": "mean: 185.6872345000037 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 3.8538344344243765,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010221111258183209",
+            "extra": "mean: 259.48182700001325 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 7.241066358947592,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015603169399045385",
+            "extra": "mean: 138.1012064285707 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 233.0330479834015,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006693395207374612",
+            "extra": "mean: 4.2912368380952906 msec\nrounds: 210"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 10.316393074686612,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008173392198853272",
+            "extra": "mean: 96.93310372728092 msec\nrounds: 11"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 47.810558264755805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0016885584233636167",
+            "extra": "mean: 20.915882104166172 msec\nrounds: 48"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.5560692644159784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.054103232378429685",
+            "extra": "mean: 391.22570500001075 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.621044238562377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009090826324500425",
+            "extra": "mean: 276.16343080001116 msec\nrounds: 5"
           }
         ]
       }
