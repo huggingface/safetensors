@@ -63,7 +63,6 @@ jobs:
       - name: Install
         run: |
           pip install .[numpy,tensorflow]
-          maturin develop  --extras numpy,tensorflow
           pip install ${{ matrix.version.torch }}
 
       - name: Install (jax, flax)
