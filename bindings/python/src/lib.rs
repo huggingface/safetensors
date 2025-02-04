@@ -29,6 +29,8 @@ static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 #[cfg(not(any(feature = "py38", feature = "py311")))]
 compile_error!("At least one python version must be enabled");
+#[cfg(all(feature = "py38", feature = "py311"))]
+compile_error!("Only one python version must be enabled");
 
 #[cfg(feature = "py38")]
 struct PyView<'a> {
@@ -47,7 +49,7 @@ struct PyView {
 }
 
 #[cfg(feature = "py38")]
-impl<'a> View for &PyView<'a> {
+impl View for &PyView<'_> {
     fn data(&self) -> std::borrow::Cow<[u8]> {
         Cow::Borrowed(self.data.as_bytes())
     }
