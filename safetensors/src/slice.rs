@@ -618,5 +618,16 @@ mod tests {
                 dim_size: 3,
             })
         );
+        assert_eq!(
+            SliceIterator::new(
+                &attn_0,
+                &[
+                    TensorIndexer::Select(1),
+                    TensorIndexer::Select(1),
+                    TensorIndexer::Select(1),
+                ],
+            ),
+            Err(InvalidSlice::TooManySlices)
+        );
     }
 }
