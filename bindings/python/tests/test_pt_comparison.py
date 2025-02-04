@@ -10,11 +10,10 @@ from safetensors.torch import load, load_file, save, save_file
 
 try:
     import torch_npu  # noqa
+
     npu_present = True
 except Exception:
     npu_present = False
-
-hpu_present = find_spec("habana_frameworks") is not None
 
 
 class TorchTestCase(unittest.TestCase):
@@ -172,10 +171,12 @@ class TorchTestCase(unittest.TestCase):
         for k, v in reloaded.items():
             self.assertTrue(torch.allclose(data[k], reloaded[k]))
 
-    @unittest.skipIf(not hpu_present, "HPU is not available")
     def test_hpu(self):
         # must be run to load torch with Intel Gaudi bindings
-        import habana_frameworks.torch.core as htcore
+        try:
+            import habana_frameworks.torch.core as htcore
+        except ImportError:
+            self.skipTest("HPU is not available")
 
         data = {
             "test1": torch.zeros((2, 2), dtype=torch.float32).to("hpu"),
