@@ -53,8 +53,7 @@ jobs:
 
       - name: Lint with Clippy
         run: | 
-          cargo clippy --features py311 -- -D warnings
-          cargo clippy --features py38 -- -D warnings
+          cargo clippy --features ${{ matrix.version.pyfeature }} -- -D warnings
 
       - name: Run Audit
         run: cargo audit -D warnings
