@@ -11,6 +11,7 @@ RUN /root/miniconda3/bin/pip install -U pip pytest
 COPY . .
 SHELL ["/bin/bash", "-c"]
 WORKDIR /safetensors/bindings/python/
+ENV MATURIN_PEP517_ARGS="--features py311,pyo3/extension-module"
 RUN source /root/.cargo/env && /root/miniconda3/bin/pip install -e .
 RUN /root/miniconda3/bin/pytest -sv tests/test_pt_* tests/test_simple.py
 # RUN /root/miniconda3/bin/python -c 'from huggingface_hub import hf_hub_download; filename = hf_hub_download("roberta-base", "model.safetensors"); from safetensors.torch import load_file; weights = load_file(filename); assert weights["roberta.embeddings.position_embeddings.weight"][0][0].abs().item() > 1e-10'

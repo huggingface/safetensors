@@ -14,6 +14,8 @@ concurrency:
 jobs:
   build:
     uses: huggingface/doc-builder/.github/workflows/build_pr_documentation.yml@main
+    env:
+      MATURIN_PEP517_ARGS: "--features py311,pyo3/extension-module"
     with:
       commit_sha: ${{ github.event.pull_request.head.sha }}
       pr_number: ${{ github.event.number }}
