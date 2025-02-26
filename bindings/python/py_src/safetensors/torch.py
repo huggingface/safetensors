@@ -128,10 +128,7 @@ def _remove_duplicate_names(
 
 
 def save_model(
-    model: torch.nn.Module,
-    filename: str,
-    metadata: Optional[Dict[str, str]] = None,
-    force_contiguous: bool = True,
+    model: torch.nn.Module, filename: str, metadata: Optional[Dict[str, str]] = None, force_contiguous: bool = True
 ):
     """
     Saves a given torch model to specified filename.
@@ -177,10 +174,7 @@ def save_model(
 
 
 def load_model(
-    model: torch.nn.Module,
-    filename: Union[str, os.PathLike],
-    strict: bool = True,
-    device: Union[str, int] = "cpu",
+    model: torch.nn.Module, filename: Union[str, os.PathLike], strict: bool = True, device: Union[str, int] = "cpu"
 ) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
@@ -408,7 +402,7 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
     return result
 
 
-def _tobytes(tensor: torch.Tensor, name: str) -> Union[memoryview, bytes]:
+def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
     if tensor.layout != torch.strided:
         raise ValueError(
             f"You are trying to save a sparse tensor: `{name}` which this library does not support."
@@ -462,11 +456,8 @@ def _tobytes(tensor: torch.Tensor, name: str) -> Union[memoryview, bytes]:
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
-        data = data.view(npdtype).byteswap(inplace=False).view(np.uint8)
-    if sys.version_info >= (3, 11):
-        return data.data
-    else:
-        return data.tobytes()
+        data = data.view(npdtype).byteswap(inplace=False)
+    return data.tobytes()
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:

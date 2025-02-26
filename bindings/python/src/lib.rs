@@ -1,7 +1,5 @@
 #![deny(missing_docs)]
 //! Dummy doc
-#[cfg(any(feature = "py38", feature = "py311"))]
-mod view;
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
@@ -12,14 +10,14 @@ use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
+use safetensors::View;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(any(feature = "py38", feature = "py311"))]
-use view::prepare;
 
 static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
@@ -27,12 +25,79 @@ static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
-#[cfg(not(any(feature = "py38", feature = "py311")))]
-compile_error!(
-    "At least one python version must be enabled, use `maturin develop --features py311,pyo3/extension-module`"
-);
-#[cfg(all(feature = "py38", feature = "py311"))]
-compile_error!("Only one python version must be enabled");
+struct PyView<'a> {
+    shape: Vec<usize>,
+    dtype: Dtype,
+    data: PyBound<'a, PyBytes>,
+    data_len: usize,
+}
+
+impl View for &PyView<'_> {
+    fn data(&self) -> std::borrow::Cow<[u8]> {
+        Cow::Borrowed(self.data.as_bytes())
+    }
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+    fn data_len(&self) -> usize {
+        self.data_len
+    }
+}
+
+fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
+    let mut tensors = HashMap::with_capacity(tensor_dict.len());
+    for (tensor_name, tensor_desc) in &tensor_dict {
+        let shape: Vec<usize> = tensor_desc
+            .get_item("shape")?
+            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc:?}")))?
+            .extract()?;
+        let pydata: PyBound<PyAny> = tensor_desc.get_item("data")?.ok_or_else(|| {
+            SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
+        })?;
+        // Make sure it's extractable first.
+        let data: &[u8] = pydata.extract()?;
+        let data_len = data.len();
+        let data: PyBound<PyBytes> = pydata.extract()?;
+        let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
+            SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
+        })?;
+        let dtype: String = pydtype.extract()?;
+        let dtype = match dtype.as_ref() {
+            "bool" => Dtype::BOOL,
+            "int8" => Dtype::I8,
+            "uint8" => Dtype::U8,
+            "int16" => Dtype::I16,
+            "uint16" => Dtype::U16,
+            "int32" => Dtype::I32,
+            "uint32" => Dtype::U32,
+            "int64" => Dtype::I64,
+            "uint64" => Dtype::U64,
+            "float16" => Dtype::F16,
+            "float32" => Dtype::F32,
+            "float64" => Dtype::F64,
+            "bfloat16" => Dtype::BF16,
+            "float8_e4m3fn" => Dtype::F8_E4M3,
+            "float8_e5m2" => Dtype::F8_E5M2,
+            dtype_str => {
+                return Err(SafetensorError::new_err(format!(
+                    "dtype {dtype_str} is not covered",
+                )));
+            }
+        };
+
+        let tensor = PyView {
+            shape,
+            dtype,
+            data,
+            data_len,
+        };
+        tensors.insert(tensor_name.to_string(), tensor);
+    }
+    Ok(tensors)
+}
 
 /// Serializes raw data.
 ///

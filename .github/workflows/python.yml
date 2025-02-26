@@ -7,14 +7,12 @@ jobs:
   build_and_test:
     name: Check everything builds & tests
     runs-on: ${{ matrix.os }}
-    env: 
-      MATURIN_PEP517_ARGS: "--features ${{ matrix.version.pyfeature }},pyo3/extension-module"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-13, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
-        version: [{torch: torch==1.10, python: "3.8", pyfeature: "py38"}, {torch: torch, python: "3.12", pyfeature: "py311"}]
+        version: [{torch: torch==1.10, python: "3.8"}, {torch: torch, python: "3.12"}]
           # TODO this would include macos ARM target.
           # however jax has an illegal instruction issue
           # that exists only in CI (probably difference in instruction support).
@@ -54,14 +52,14 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Lint with Clippy
-        run: | 
-          cargo clippy --features ${{ matrix.version.pyfeature }} -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run Audit
         run: cargo audit -D warnings
 
       - name: Install
         run: |
+          pip install -U pip
           pip install .[numpy,tensorflow]
           pip install ${{ matrix.version.torch }}
 
@@ -84,7 +82,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo test --features ${{ matrix.version.pyfeature }}
+          cargo test
           pip install .[testing]
           pytest -sv tests/
 

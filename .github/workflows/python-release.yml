@@ -23,7 +23,6 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        pyfeature: ["py38", "py311"]
         platform:
           - runner: ubuntu-latest
             target: x86_64
@@ -46,20 +45,19 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/python/Cargo.toml --features pyo3/extension-module,${{ matrix.pyfeature }}
+          args: --release --out dist --manifest-path bindings/python/Cargo.toml
           sccache: 'true'
           manylinux: auto
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.platform.target }}-${{ matrix.pyfeature }}
+          name: wheels-linux-${{ matrix.platform.target }}
           path: dist
 
   musllinux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        pyfeature: ["py38", "py311"]
         platform:
           - runner: ubuntu-latest
             target: x86_64
@@ -78,20 +76,19 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/python/Cargo.toml --features pyo3/extension-module,${{ matrix.pyfeature }}
+          args: --release --out dist --manifest-path bindings/python/Cargo.toml
           sccache: 'true'
           manylinux: musllinux_1_2
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-musllinux-${{ matrix.platform.target }}-${{ matrix.pyfeature }}
+          name: wheels-musllinux-${{ matrix.platform.target }}
           path: dist
 
   windows:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        pyfeature: ["py38", "py311"]
         platform:
           - runner: windows-latest
             target: x64
@@ -107,19 +104,18 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/python/Cargo.toml --features pyo3/extension-module,${{ matrix.pyfeature }}
+          args: --release --out dist --manifest-path bindings/python/Cargo.toml
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.pyfeature }}
+          name: wheels-windows-${{ matrix.platform.target }}
           path: dist
 
   macos:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        pyfeature: ["py38", "py311"]
         platform:
           - runner: macos-13
             target: x86_64
@@ -134,12 +130,12 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/python/Cargo.toml --features pyo3/extension-module,${{ matrix.pyfeature }}
+          args: --release --out dist --manifest-path bindings/python/Cargo.toml
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.platform.target }}-${{ matrix.pyfeature }}
+          name: wheels-macos-${{ matrix.platform.target }}
           path: dist
 
   sdist:
