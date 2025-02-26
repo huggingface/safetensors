@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+  pull_request:
 
 
 permissions:
@@ -15,6 +16,8 @@ jobs:
   benchmark:
     name: Performance regression check
     runs-on: ubuntu-latest
+    env: 
+      MATURIN_PEP517_ARGS: "--features py311,pyo3/extension-module"
     steps:
       - uses: actions/checkout@v3
       - name: Install Rust
@@ -26,7 +29,7 @@ jobs:
       - name: Install Python
         uses: actions/setup-python@v2
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           architecture: "x64"
 
       - name: Install
@@ -38,7 +41,7 @@ jobs:
       - name: Run tests
         working-directory: ./bindings/python
         run: |
-          cargo test
+          cargo test --features py311
           pytest --benchmark-json output.json benches/
       # Download previous benchmark result from cache (if exists)
       - name: Download previous benchmark data
