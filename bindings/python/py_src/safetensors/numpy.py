@@ -126,7 +126,7 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
     """
     result = {}
     with safe_open(filename, framework="np") as f:
-        for k in f.keys():
+        for k in f.offset_keys():
             result[k] = f.get_tensor(k)
     return result
 
