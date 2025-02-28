@@ -193,7 +193,7 @@ impl<'source> FromPyObject<'source> for Framework {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Device {
     Cpu,
     Cuda(usize),
@@ -326,7 +326,7 @@ struct Open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
-    device: Device,
+    device: Option<Device>,
     storage: Arc<Storage>,
 }
 
@@ -335,12 +335,13 @@ impl Open {
         let file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!("No such file or directory: {filename:?}"))
         })?;
-        let device = device.unwrap_or(Device::Cpu);
 
-        if device != Device::Cpu && framework != Framework::Pytorch {
-            return Err(SafetensorError::new_err(format!(
-                "Device {device:?} is not support for framework {framework:?}",
-            )));
+        if let Some(device) = device {
+            if framework != Framework::Pytorch {
+                return Err(SafetensorError::new_err(format!(
+                    "Device {device:?} is not support for framework {framework:?}",
+                )));
+            }
         }
 
         // SAFETY: Mmap is used to prevent allocating in Rust
@@ -550,8 +551,8 @@ impl Open {
                     }
 
                     tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-                    if self.device != Device::Cpu {
-                        let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                    if let Some(device) = self.device {
+                        let device: PyObject = device.clone().into_pyobject(py)?.into();
                         let kwargs = PyDict::new(py);
                         tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                     }
@@ -710,7 +711,7 @@ struct PySafeSlice {
     info: TensorInfo,
     framework: Framework,
     offset: usize,
-    device: Device,
+    device: Option<Device>,
     storage: Arc<Storage>,
 }
 
@@ -929,8 +930,8 @@ impl PySafeSlice {
                     .call1((shape,))?
                     .getattr(intern!(py, "__getitem__"))?
                     .call1((slices,))?;
-                if self.device != Device::Cpu {
-                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                if let Some(device) = self.device {
+                    let device: PyObject = device.clone().into_pyobject(py)?.into();
                     let kwargs = PyDict::new(py);
                     tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                 }
@@ -956,7 +957,7 @@ fn create_tensor<'a>(
     dtype: Dtype,
     shape: &'a [usize],
     array: PyObject,
-    device: &'a Device,
+    device: &'a Option<Device>,
 ) -> PyResult<PyObject> {
     Python::with_gil(|py| -> PyResult<PyObject> {
         let (module, is_numpy): (&PyBound<'_, PyModule>, bool) = match framework {
@@ -1044,7 +1045,7 @@ fn create_tensor<'a>(
                     .call_method1("array", (tensor,))?
             }
             Framework::Pytorch => {
-                if device != &Device::Cpu {
+                if let Some(device) = device {
                     let device: PyObject = device.clone().into_pyobject(py)?.into();
                     let kwargs = PyDict::new(py);
                     tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
