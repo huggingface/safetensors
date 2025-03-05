@@ -512,18 +512,18 @@ impl Metadata {
     }
 
     fn validate(&self) -> Result<usize, SafeTensorError> {
-        let mut start = 0;
+        let (mut prev, mut start) = (0, 0);
         for (i, info) in self.tensors.iter().enumerate() {
-            let (s, e) = info.data_offsets;
-            if s != start || e < s {
                 let tensor_name = self
                     .index_map
                     .iter()
                     .find_map(|(name, &index)| if index == i { Some(&name[..]) } else { None })
                     .unwrap_or("no_tensor");
+            let (s, e) = info.data_offsets;
+            if (s != start && (s, e) != (prev, start)) || e < s {
                 return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
             }
-            start = e;
+            (prev, start) = (s, e);
             let nelements: usize = info
                 .shape
                 .iter()
