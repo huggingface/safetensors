@@ -19,7 +19,7 @@ jobs:
     env: 
       MATURIN_PEP517_ARGS: "--features py311,pyo3/extension-module"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
