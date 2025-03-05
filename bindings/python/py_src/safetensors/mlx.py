@@ -120,7 +120,7 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, mx.array]:
     """
     result = {}
     with safe_open(filename, framework="mlx") as f:
-        for k in f.keys():
+        for k in f.offset_keys():
             result[k] = f.get_tensor(k)
     return result
 

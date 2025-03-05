@@ -317,7 +317,7 @@ def load_file(filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
     """
     result = {}
     with safe_open(filename, framework="pt", device=device) as f:
-        for k in f.keys():
+        for k in f.offset_keys():
             result[k] = f.get_tensor(k)
     return result
 

@@ -554,6 +554,13 @@ impl Metadata {
             .collect()
     }
 
+    /// Gives back the tensor names ordered by offset
+    pub fn offset_keys(&self) -> Vec<String> {
+        let mut index_vec: Vec<_> = self.index_map.iter().collect();
+        index_vec.sort_by_key(|a| a.1);
+        index_vec.into_iter().map(|a| a.0.clone()).collect()
+    }
+
     /// Gives back the tensor metadata
     pub fn metadata(&self) -> &Option<HashMap<String, String>> {
         &self.metadata

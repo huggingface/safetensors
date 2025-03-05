@@ -443,6 +443,16 @@ impl Open {
         Ok(keys)
     }
 
+    /// Returns the names of the tensors in the file, ordered by offset.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn offset_keys(&self) -> PyResult<Vec<String>> {
+        let keys: Vec<String> = self.metadata.offset_keys();
+        Ok(keys)
+    }
+
     /// Returns a full tensor
     ///
     /// Args:
@@ -649,6 +659,15 @@ impl safe_open {
     ///         The name of the tensors contained in that file
     pub fn keys(&self) -> PyResult<Vec<String>> {
         self.inner()?.keys()
+    }
+
+    /// Returns the names of the tensors in the file, ordered by offset.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn offset_keys(&self) -> PyResult<Vec<String>> {
+        self.inner()?.offset_keys()
     }
 
     /// Returns a full tensor
