@@ -23,7 +23,7 @@ pub fn bench_serialize(c: &mut Criterion) {
         metadata.insert(format!("weight{i}"), tensor);
     }
 
-    c.bench_function("Serlialize 10_MB", |b| {
+    c.bench_function("Serialize 10_MB", |b| {
         b.iter(|| {
             let _serialized = serialize(black_box(&metadata), black_box(&None));
         })
@@ -43,7 +43,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
 
     let out = serialize(&metadata, &None).unwrap();
 
-    c.bench_function("Deserlialize 10_MB", |b| {
+    c.bench_function("Deserialize 10_MB", |b| {
         b.iter(|| {
             let _deserialized = SafeTensors::deserialize(black_box(&out)).unwrap();
         })
