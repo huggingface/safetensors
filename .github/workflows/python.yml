@@ -67,7 +67,7 @@ jobs:
         run: |
           pip install -U pip
           pip install .[numpy]
-          pip install ${{ matrix.version.torch }}
+          pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cu126
 
       - name: Install (tensorflow)
         if: matrix.arch != 'x64-freethreaded'
