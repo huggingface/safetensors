@@ -28,11 +28,9 @@ static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 #[cfg(not(any(feature = "py38", feature = "py311")))]
-compile_error!(
-    "At least one python version must be enabled, use `maturin develop --features py311,pyo3/extension-module`"
-);
+compile_error!("At least one python version must be enabled, use `maturin develop` for python 3.11, `maturin develop --features py38,pyo3/extension-module --no-default-features` for python 3.8");
 #[cfg(all(feature = "py38", feature = "py311"))]
-compile_error!("Only one python version must be enabled");
+compile_error!("Only one python version must be enabled, make sure to deactivate default features for python <3.11");
 
 /// Serializes raw data.
 ///
