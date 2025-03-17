@@ -39,7 +39,7 @@ jobs:
       - name: Run tests
         working-directory: ./bindings/python
         run: |
-          cargo test --features py311
+          cargo test
           pytest --benchmark-json output.json benches/
       # Download previous benchmark result from cache (if exists)
       - name: Download previous benchmark data

@@ -264,6 +264,7 @@ class LoadTestCase(unittest.TestCase):
         torch.set_default_device(torch.device("cuda:0"))
         weights = load_file(self.sf_filename)
         self.assertEqual(weights["test"].device, torch.device("cpu"))
+        torch.set_default_device(torch.device("cpu"))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_deserialization_safe_gpu(self):
