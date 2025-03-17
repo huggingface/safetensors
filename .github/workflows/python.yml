@@ -12,7 +12,7 @@ jobs:
         os: [ubuntu-latest, macos-13, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
-        version: [{torch: torch==1.10, python: "3.8"}, {torch: torch, python: "3.12"}]
+      version: [{torch: torch==1.10, python: "3.8", arch: "x64"}, {torch: torch, python: "3.12", arch: "x64"}]
           # TODO this would include macos ARM target.
           # however jax has an illegal instruction issue
           # that exists only in CI (probably difference in instruction support).
@@ -26,6 +26,7 @@ jobs:
             version:
               torch: torch
               python: "3.13t"
+              arch: "x64-freethreaded"
     defaults:
       run:
         working-directory: ./bindings/python
@@ -51,6 +52,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.version.python }}
+          arch: ${{ matrix.version.arch }}
 
       - name: Lint with RustFmt
         run: cargo fmt -- --check
