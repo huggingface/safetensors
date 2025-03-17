@@ -10,7 +10,7 @@ name = "safetensors_rust"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["abi3", "abi3-py38"] }
+pyo3 = { version = "0.24", features = ["abi3", "abi3-py38"] }
 memmap2 = "0.9"
 serde_json = "1.0"
 

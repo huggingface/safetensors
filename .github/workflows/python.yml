@@ -21,6 +21,11 @@ jobs:
           #     version:
           #       torch: torch
           #       python: "3.11"
+          include:
+            - os: ubuntu-latest
+              version:
+                torch: torch
+                python: "3.13t"
     defaults:
       run:
         working-directory: ./bindings/python

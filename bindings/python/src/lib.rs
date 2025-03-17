@@ -3,7 +3,7 @@
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::OnceLockExt;
 use pyo3::types::IntoPyDict;
 use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
@@ -18,12 +18,13 @@ use std::iter::FromIterator;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
-static TORCH_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-static NUMPY_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-static TENSORFLOW_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-static FLAX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-static MLX_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 
 struct PyView<'a> {
     shape: Vec<usize>,
@@ -342,7 +343,7 @@ enum Storage {
     /// This allows us to not manage it
     /// so Pytorch can handle the whole lifecycle.
     /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
-    TorchStorage(GILOnceCell<PyObject>),
+    TorchStorage(OnceLock<PyObject>),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -422,11 +423,11 @@ impl Open {
             match framework {
                 Framework::Pytorch => {
                     let module = PyModule::import(py, intern!(py, "torch"))?;
-                    TORCH_MODULE.get_or_init(py, || module.into())
+                    TORCH_MODULE.get_or_init_py_attached(py, || module.into())
                 }
                 _ => {
                     let module = PyModule::import(py, intern!(py, "numpy"))?;
-                    NUMPY_MODULE.get_or_init(py, || module.into())
+                    NUMPY_MODULE.get_or_init_py_attached(py, || module.into())
                 }
             };
 
@@ -444,7 +445,13 @@ impl Open {
                 // Same for torch.asarray which is necessary for zero-copy tensor
                 if version >= Version::new(1, 11, 0) {
                     // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
-                    let py_filename: PyObject = filename.into_pyobject(py)?.into();
+                    let py_filename: PyObject = filename
+                        .to_str()
+                        .ok_or_else(|| {
+                            SafetensorError::new_err(format!("Path {filename:?} is not a string"))
+                        })?
+                        .into_pyobject(py)?
+                        .into();
                     let size: PyObject = buffer.len().into_pyobject(py)?.into();
                     let shared: PyObject = PyBool::new(py, false).to_owned().into();
                     let (size_name, storage_name) = if version >= Version::new(2, 0, 0) {
@@ -466,8 +473,8 @@ impl Open {
                         Err(_) => storage.getattr(intern!(py, "_untyped"))?,
                     };
                     let storage = untyped.call0()?.into_pyobject(py)?.into();
-                    let gil_storage = GILOnceCell::new();
-                    gil_storage.get_or_init(py, || storage);
+                    let gil_storage = OnceLock::new();
+                    gil_storage.get_or_init_py_attached(py, || storage);
 
                     Ok(Storage::TorchStorage(gil_storage))
                 } else {
@@ -579,7 +586,7 @@ impl Open {
                     let stop = (info.data_offsets.1 + self.offset) as isize;
                     let slice = PySlice::new(py, start, stop, 1);
                     let storage: &PyObject = storage
-                        .get(py)
+                        .get()
                         .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                     let storage: &PyBound<PyAny> = storage.bind(py);
                     let storage_slice = storage
@@ -954,7 +961,7 @@ impl PySafeSlice {
                 let stop = (self.info.data_offsets.1 + self.offset) as isize;
                 let slice = PySlice::new(py, start, stop, 1);
                 let storage: &PyObject = storage
-                    .get(py)
+                    .get()
                     .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
                 let storage: &PyBound<'_, PyAny> = storage.bind(py);
 
@@ -1025,10 +1032,10 @@ impl PySafeSlice {
 
 fn get_module<'a>(
     py: Python<'a>,
-    cell: &'static GILOnceCell<Py<PyModule>>,
+    cell: &'static OnceLock<Py<PyModule>>,
 ) -> PyResult<&'a PyBound<'a, PyModule>> {
     let module: &PyBound<'a, PyModule> = cell
-        .get(py)
+        .get()
         .ok_or_else(|| SafetensorError::new_err("Could not find module"))?
         .bind(py);
     Ok(module)
@@ -1045,7 +1052,7 @@ fn create_tensor<'a>(
         let (module, is_numpy): (&PyBound<'_, PyModule>, bool) = match framework {
             Framework::Pytorch => (
                 TORCH_MODULE
-                    .get(py)
+                    .get()
                     .ok_or_else(|| {
                         SafetensorError::new_err(format!("Could not find module {framework:?}",))
                     })?
@@ -1054,7 +1061,7 @@ fn create_tensor<'a>(
             ),
             _ => (
                 NUMPY_MODULE
-                    .get(py)
+                    .get()
                     .ok_or_else(|| {
                         SafetensorError::new_err(format!("Could not find module {framework:?}",))
                     })?
@@ -1097,7 +1104,7 @@ fn create_tensor<'a>(
             Framework::Flax => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "jax"))?;
-                    Ok(FLAX_MODULE.get_or_init(py, || module.into()))
+                    Ok(FLAX_MODULE.get_or_init_py_attached(py, || module.into()))
                 })?
                 .bind(py);
                 module
@@ -1108,7 +1115,7 @@ fn create_tensor<'a>(
             Framework::Tensorflow => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "tensorflow"))?;
-                    Ok(TENSORFLOW_MODULE.get_or_init(py, || module.into()))
+                    Ok(TENSORFLOW_MODULE.get_or_init_py_attached(py, || module.into()))
                 })?
                 .bind(py);
                 module
@@ -1118,7 +1125,7 @@ fn create_tensor<'a>(
             Framework::Mlx => {
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "mlx"))?;
-                    Ok(MLX_MODULE.get_or_init(py, || module.into()))
+                    Ok(MLX_MODULE.get_or_init_py_attached(py, || module.into()))
                 })?
                 .bind(py);
                 module
@@ -1192,7 +1199,7 @@ pyo3::create_exception!(
 );
 
 /// A Python module implemented in Rust.
-#[pymodule]
+#[pymodule(gil_used = false)]
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
