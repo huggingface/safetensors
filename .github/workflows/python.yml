@@ -66,8 +66,14 @@ jobs:
       - name: Install
         run: |
           pip install -U pip
-          pip install .[numpy,tensorflow]
+          pip install .[numpy]
           pip install ${{ matrix.version.torch }}
+
+      - name: Install (tensorflow)
+        if: matrix.arch != 'x64-freethreaded'
+        run: |
+          pip install .[tensorflow]
+        shell: bash
 
       - name: Install (jax, flax)
         if: matrix.os != 'windows-latest'
