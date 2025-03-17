@@ -87,8 +87,8 @@ jobs:
         shell: bash
 
       - name: Install (jax, flax)
-        if: matrix.os != 'windows-latest'
-        run: |
+        if: matrix.os != 'windows-latest' && matrix.version.arch != "x64-freethreaded"
+        run: 
           pip install .[jax]
         shell: bash
 
