@@ -69,19 +69,19 @@ jobs:
           pip install .[numpy]
 
       - name: Install (torch)
-        if: matrix.arch != 'x64-freethreaded'
+        if: matrix.version.arch != 'x64-freethreaded'
         run: |
           pip install ${{ matrix.version.torch }}
         shell: bash
 
       - name: Install (torch freethreaded)
-        if: matrix.arch == 'x64-freethreaded'
+        if: matrix.version.arch == 'x64-freethreaded'
         run: |
           pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cu126
         shell: bash
 
       - name: Install (tensorflow)
-        if: matrix.arch != 'x64-freethreaded'
+        if: matrix.version.arch != 'x64-freethreaded'
         run: |
           pip install .[tensorflow]
         shell: bash
