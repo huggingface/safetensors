@@ -55,7 +55,7 @@ jobs:
 
       - name: Lint with Clippy
         run: | 
-          cargo clippy --features ${{ matrix.version.pyfeature }} -- -D warnings
+          cargo clippy --features ${{ matrix.version.pyfeature }} --no-default-features -- -D warnings
 
       - name: Run Audit
         run: cargo audit -D warnings
@@ -84,7 +84,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo test --features ${{ matrix.version.pyfeature }}
+          cargo test --features ${{ matrix.version.pyfeature }} --no-default-features
           pip install .[testing]
           pytest -sv tests/
 
