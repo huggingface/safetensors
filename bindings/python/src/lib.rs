@@ -500,7 +500,12 @@ impl Open {
                     let torch = get_module(py, &TORCH_MODULE)?;
                     let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
                     let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
-                    let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py)?;
+                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                    let kwargs = [
+                        (intern!(py, "dtype"), torch_uint8),
+                        (intern!(py, "device"), device),
+                    ]
+                    .into_py_dict(py)?;
                     let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
                     let shape = info.shape.to_vec();
                     let shape: PyObject = shape.into_pyobject(py)?.into();
@@ -560,13 +565,7 @@ impl Open {
                     }
 
                     tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-                    if self.device != Device::Cpu {
-                        let device: PyObject = self.device.clone().into_pyobject(py)?.into();
-                        let kwargs = PyDict::new(py);
-                        tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
-                    }
                     Ok(tensor.into_pyobject(py)?.into())
-                    // torch.asarray(storage[start + n : stop + n], dtype=torch.uint8).view(dtype=dtype).reshape(shape)
                 })
             }
         }
