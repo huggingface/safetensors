@@ -27,8 +27,6 @@ repos:
           [
             "--manifest-path",
             "bindings/python/Cargo.toml",
-            "--features",
-            "py311",
             "--all-targets",
             "--",
             "-Dwarnings",
