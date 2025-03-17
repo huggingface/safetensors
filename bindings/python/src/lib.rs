@@ -514,14 +514,6 @@ impl Open {
                     let sys = PyModule::import(py, intern!(py, "sys"))?;
                     let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
 
-                    // Because torch.asarray creates a copy of the underlying
-                    // data, we provide the desired device here.
-
-                    // QUESTION: Does the byte reordering stuff below still work
-                    // for all possible devices?
-
-                    // QUESTION: Why are the arguments not inlined? It makes
-                    // some of the code a bit harder to read IMO.
                     let mut tensor = torch
                         .getattr(intern!(py, "asarray"))?
                         .call((storage_slice,), Some(&kwargs))?

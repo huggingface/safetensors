@@ -173,7 +173,7 @@ class TorchTestCase(unittest.TestCase):
     def test_hpu(self):
         # must be run to load torch with Intel Gaudi bindings
         try:
-            import habana_frameworks.torch.core as htcore
+            import habana_frameworks.torch.core as htcore  # noqa: F401
         except ImportError:
             self.skipTest("HPU is not available")
 
@@ -254,6 +254,16 @@ class LoadTestCase(unittest.TestCase):
             tv = tweights[k]
             self.assertTrue(torch.allclose(v, tv))
             self.assertEqual(v.device, torch.device("cpu"))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
+    def test_deserialization_device(self):
+        with torch.device("cuda:0"):
+            weights = load_file(self.sf_filename)
+            self.assertEqual(weights["test"].device, torch.device("cpu"))
+
+        torch.set_default_device(torch.device("cuda:0"))
+        weights = load_file(self.sf_filename)
+        self.assertEqual(weights["test"].device, torch.device("cpu"))
 
     @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
     def test_deserialization_safe_gpu(self):
