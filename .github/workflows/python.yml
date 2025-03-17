@@ -52,7 +52,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.version.python }}
-          arch: ${{ matrix.version.arch }}
+          architecture: ${{ matrix.version.arch }}
 
       - name: Lint with RustFmt
         run: cargo fmt -- --check
