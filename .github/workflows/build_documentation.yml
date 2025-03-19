@@ -11,6 +11,8 @@ on:
 jobs:
   build:
     uses: huggingface/doc-builder/.github/workflows/build_main_documentation.yml@main
+    env:
+      MATURIN_PEP517_ARGS: "--features py311,pyo3/extension-module"
     with:
       commit_sha: ${{ github.sha }}
       package: safetensors

@@ -1,7 +1,9 @@
 import os
+import sys
 import tempfile
 import threading
 import unittest
+from multiprocessing import shared_memory
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +12,9 @@ import torch
 from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
 from safetensors.torch import _find_shared_tensors
+from safetensors.torch import load as load_pt
 from safetensors.torch import load_file as load_file_pt
+from safetensors.torch import save as save_pt
 from safetensors.torch import save_file as save_file_pt
 from safetensors.torch import storage_ptr, storage_size
 
@@ -218,16 +222,43 @@ class ReadmeTestCase(unittest.TestCase):
             "a": torch.zeros((2, 2)),
             "b": torch.zeros((2, 3), dtype=torch.uint8),
         }
-        # Saving modifies the tensors to type numpy, so we must copy for the
-        # test to be correct.
-        tensors2 = tensors.copy()
 
         filename = f"./out_pt_{threading.get_ident()}.safetensors"
         save_file_pt(tensors, filename)
 
         # Now loading
         loaded = load_file_pt(filename)
-        self.assertTensorEqual(tensors2, loaded, torch.allclose)
+        self.assertTensorEqual(tensors, loaded, torch.allclose)
+
+    @unittest.skipIf(sys.version_info < (3, 11), "3.11 required for shared memory to work")
+    def test_share_memory(self):
+        A = torch.zeros((2, 2))
+        A.share_memory_()
+        tensors = {
+            "a": A,
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+
+        filename = f"./out_pt_{threading.get_ident()}.safetensors"
+        save_file_pt(tensors, filename)
+
+        # Now loading
+        loaded = load_file_pt(filename)
+        self.assertTensorEqual(tensors, loaded, torch.allclose)
+
+    @unittest.skipIf(sys.version_info < (3, 11), "3.11 required for shared memory to work")
+    def test_share_memory_raw(self):
+        tensors = {
+            "a": torch.zeros((2, 2)),
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+        output = save_pt(tensors)
+        shm_a = shared_memory.SharedMemory(create=True, size=len(output))
+        shm_a.buf[:] = output
+
+        loaded = load_pt(shm_a.buf)
+        self.assertTensorEqual(tensors, loaded, torch.allclose)
+        shm_a.unlink()
 
     def test_exception(self):
         flattened = {"test": {"dtype": "float32", "shape": [1]}}

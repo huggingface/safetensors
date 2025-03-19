@@ -196,6 +196,11 @@ class TorchTestCase(unittest.TestCase):
         }
         local = "./tests/data/out_safe_pt_mmap_small_anonymous.safetensors"
         save_file(data, local)
+        bdata = open(local, "rb").read()
+        self.assertEqual(
+            bdata,
+            b'\x80\x00\x00\x00\x00\x00\x00\x00{"test1":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]},"test2":{"dtype":"F16","shape":[2,2],"data_offsets":[16,24]}}      \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+        )
 
         reloaded = load_file(local, device=0)
         for k, v in reloaded.items():

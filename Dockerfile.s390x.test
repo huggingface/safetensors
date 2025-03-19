@@ -5,6 +5,7 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py311_23.5.2-0-Linux-s39
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
 RUN /root/miniconda3/bin/conda install pytorch cpuonly -c pytorch -y
 WORKDIR /safetensors/
+ENV MATURIN_PEP517_ARGS="--features py311,pyo3/extension-module"
 RUN /root/miniconda3/bin/pip install -U pip pytest
 # RUN /root/miniconda3/bin/pip install -U huggingface_hub
 # RUN /root/miniconda3/bin/python -c 'from huggingface_hub import hf_hub_download; filename = hf_hub_download("roberta-base", "model.safetensors")'

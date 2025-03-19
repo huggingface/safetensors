@@ -128,7 +128,10 @@ def _remove_duplicate_names(
 
 
 def save_model(
-    model: torch.nn.Module, filename: str, metadata: Optional[Dict[str, str]] = None, force_contiguous: bool = True
+    model: torch.nn.Module,
+    filename: str,
+    metadata: Optional[Dict[str, str]] = None,
+    force_contiguous: bool = True,
 ):
     """
     Saves a given torch model to specified filename.
@@ -174,7 +177,10 @@ def save_model(
 
 
 def load_model(
-    model: torch.nn.Module, filename: Union[str, os.PathLike], strict: bool = True, device: Union[str, int] = "cpu"
+    model: torch.nn.Module,
+    filename: Union[str, os.PathLike],
+    strict: bool = True,
+    device: Union[str, int] = "cpu",
 ) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
@@ -283,7 +289,8 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    serialize_file(_flatten(tensors), filename, metadata=metadata)
+    flat = _flatten(tensors)
+    serialize_file(flat, filename, metadata=metadata)
 
 
 def load_file(filename: Union[str, os.PathLike], device: Union[str, int] = "cpu") -> Dict[str, torch.Tensor]:
@@ -402,7 +409,7 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
     return result
 
 
-def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
+def _tobytes(tensor: torch.Tensor, name: str) -> Union[memoryview, bytes]:
     if tensor.layout != torch.strided:
         raise ValueError(
             f"You are trying to save a sparse tensor: `{name}` which this library does not support."
@@ -421,22 +428,9 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
         # Moving tensor to cpu before saving
         tensor = tensor.to("cpu")
 
-    import ctypes
-
+    tensor = tensor.view(-1).view(dtype=torch.uint8).numpy()
     import numpy as np
 
-    # When shape is empty (scalar), np.prod returns a float
-    # we need a int for the following calculations
-    length = int(np.prod(tensor.shape).item())
-    bytes_per_item = _SIZE[tensor.dtype]
-
-    total_bytes = length * bytes_per_item
-
-    ptr = tensor.data_ptr()
-    if ptr == 0:
-        return b""
-    newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
-    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
         NPDTYPES = {
             torch.int64: np.int64,
@@ -456,8 +450,13 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
-        data = data.view(npdtype).byteswap(inplace=False)
-    return data.tobytes()
+        tensor = tensor.view(npdtype).byteswap(inplace=False).view(-1).view(dtype=np.uint8)
+    tensor.flags.writeable = False
+    return tensor.tobytes()
+    if sys.version_info >= (3, 11):
+        return memoryview(tensor)
+    else:
+        return tensor.tobytes()
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
@@ -492,7 +491,6 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             More information at https://huggingface.co/docs/safetensors/torch_shared_tensors
             """
         )
-
     return {
         k: {
             "dtype": str(v.dtype).split(".")[-1],
