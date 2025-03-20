@@ -36,7 +36,7 @@ def serialize(tensor_dict, metadata=None):
 @staticmethod
 def serialize_file(tensor_dict, filename, metadata=None):
     """
-    Serializes raw data.
+    Serializes raw data into file.
 
     Args:
         tensor_dict (`Dict[str, Dict[Any]]`):
@@ -48,8 +48,8 @@ def serialize_file(tensor_dict, filename, metadata=None):
             The optional purely text annotations
 
     Returns:
-        (`bytes`):
-            The serialized content.
+        (`NoneType`):
+            On success return None.
     """
     pass
 
