@@ -55,7 +55,7 @@ jobs:
           architecture: ${{ matrix.version.arch }}
 
       - name: Lint with RustFmt
-        run: cargo fmt --no-default-features --features ${{ matrix.version.pyfeature }} -- --check
+        run: cargo fmt -- --check --no-default-features --features ${{ matrix.version.pyfeature }} 
 
       - name: Lint with Clippy
         run: cargo clippy --no-default-features --features ${{ matrix.version.pyfeature }} -- -D warnings
