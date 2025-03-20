@@ -2,9 +2,6 @@ name: Python
 
 on:
   pull_request:
-env: 
-  MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
-
 jobs:
   build_and_test:
     name: Check everything builds & tests
@@ -58,7 +55,7 @@ jobs:
           architecture: ${{ matrix.version.arch }}
 
       - name: Lint with RustFmt
-        run: cargo fmt -- --check
+        run: cargo fmt --no-default-features --features ${{ matrix.version.pyfeature }} -- --check
 
       - name: Lint with Clippy
         run: cargo clippy --no-default-features --features ${{ matrix.version.pyfeature }} -- -D warnings
@@ -67,6 +64,9 @@ jobs:
         run: cargo audit -D warnings
 
       - name: Install
+        env: 
+          MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
+
         run: |
           pip install -U pip
           pip install .[numpy]
@@ -85,28 +85,38 @@ jobs:
 
       - name: Install (tensorflow)
         if: matrix.version.arch != 'x64-freethreaded'
+        env: 
+          MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
         run: |
           pip install .[tensorflow]
         shell: bash
 
       - name: Install (jax, flax)
         if: ${{ matrix.os != 'windows-latest' && matrix.version.arch != "x64-freethreaded" }}
+        env: 
+          MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
         run: 
           pip install .[jax]
         shell: bash
 
       - name: Install (mlx)
         if: matrix.os == 'macos-latest'
+        env: 
+          MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
         run: |
           pip install .[mlx]
         shell: bash
 
       - name: Check style
+        env: 
+          MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
         run: |
           pip install .[quality]
           black --check --line-length 119 --target-version py35 py_src/safetensors tests
 
       - name: Run tests
+        env: 
+          MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
         run: |
           cargo test --no-default-features --features ${{ matrix.version.pyfeature }}
           pip install .[testing]
