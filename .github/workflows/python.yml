@@ -2,13 +2,13 @@ name: Python
 
 on:
   pull_request:
+env: 
+  MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
 
 jobs:
   build_and_test:
     name: Check everything builds & tests
     runs-on: ${{ matrix.os }}
-    env: 
-      MATURIN_PEP517_ARGS: "--no-default-features --features ${{ matrix.version.pyfeature }},pyo3/extension-module"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-13, windows-latest]
