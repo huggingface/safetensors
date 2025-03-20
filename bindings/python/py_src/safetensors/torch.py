@@ -428,7 +428,8 @@ def _tobytes(tensor: torch.Tensor, name: str) -> Union[memoryview, bytes]:
         # Moving tensor to cpu before saving
         tensor = tensor.to("cpu")
 
-    tensor = tensor.view(-1).view(dtype=torch.uint8).numpy()
+    tensor = tensor.view(-1).view(dtype=torch.uint8)
+    nptensor = tensor.numpy()
     import numpy as np
 
     if sys.byteorder == "big":
@@ -450,13 +451,12 @@ def _tobytes(tensor: torch.Tensor, name: str) -> Union[memoryview, bytes]:
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
-        tensor = tensor.view(npdtype).byteswap(inplace=False).view(-1).view(dtype=np.uint8)
-    tensor.flags.writeable = False
-    return tensor.tobytes()
+        nptensor = nptensor.view(npdtype).byteswap(inplace=False).view(-1).view(dtype=np.uint8)
+    nptensor.flags.writeable = False
     if sys.version_info >= (3, 11):
-        return memoryview(tensor)
+        return memoryview(nptensor)
     else:
-        return tensor.tobytes()
+        return nptensor.tobytes()
 
 
 def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:

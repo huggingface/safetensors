@@ -3,7 +3,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from multiprocessing import shared_memory
+from multiprocessing import Process, shared_memory
 from pathlib import Path
 
 import numpy as np
@@ -258,6 +258,36 @@ class ReadmeTestCase(unittest.TestCase):
 
         loaded = load_pt(shm_a.buf)
         self.assertTensorEqual(tensors, loaded, torch.allclose)
+        shm_a.unlink()
+
+    @unittest.skipIf(sys.version_info < (3, 11), "3.11 required for shared memory to work")
+    def test_share_memory_raw_attack(self):
+        import random
+        import time
+
+        tensors = {
+            "a": torch.zeros((2, 2)),
+            "b": torch.zeros((2, 3), dtype=torch.uint8),
+        }
+        output = save_pt(tensors)
+        shm_a = shared_memory.SharedMemory(create=True, size=len(output))
+        shm_a.buf[:] = output
+
+        N = 1000
+
+        def run():
+            for i in range(N):
+                index = random.randrange(len(shm_a.buf))
+                shm_a.buf[index] = random.randrange(255)
+                time.sleep(random.random() / N)
+
+        t = Process(target=run)
+        t.start()
+
+        for i in range(N):
+            loaded = load_pt(shm_a.buf)
+            self.assertTensorEqual(tensors, loaded, torch.allclose)
+            time.sleep(random.random() / N)
         shm_a.unlink()
 
     def test_exception(self):

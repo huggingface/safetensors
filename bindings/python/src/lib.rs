@@ -121,6 +121,14 @@ fn deserialize(
             "memoryview is not contiguous.".to_string(),
         ));
     }
+    // Ideally we could have readonly
+    // But actually this is not a hard requirements, readonly
+    // memory can still be written to.
+    // if !data.readonly() {
+    //     return Err(SafetensorError::new_err(
+    //         "memoryview is not readonly.".to_string(),
+    //     ));
+    // }
     let bytes = unsafe { std::slice::from_raw_parts(data.buf_ptr() as *mut u8, data.item_count()) };
     _deserialize(py, bytes)
 }
