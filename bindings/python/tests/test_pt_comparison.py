@@ -196,6 +196,11 @@ class TorchTestCase(unittest.TestCase):
         }
         local = "./tests/data/out_safe_pt_mmap_small_anonymous.safetensors"
         save_file(data, local)
+        bdata = open(local, "rb").read()
+        self.assertEqual(
+            bdata,
+            b'\x80\x00\x00\x00\x00\x00\x00\x00{"test1":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]},"test2":{"dtype":"F16","shape":[2,2],"data_offsets":[16,24]}}      \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+        )
 
         reloaded = load_file(local, device=0)
         for k, v in reloaded.items():
@@ -212,6 +217,35 @@ class TorchTestCase(unittest.TestCase):
             " a dense tensor before saving with `.to_dense()` but be aware this might make a much larger file than"
             " needed.",
         )
+
+    def test_save_attack(self):
+        data = {"test": torch.zeros((2,))}
+        local = "./tests/data/out_safe_pt_attack.safetensors"
+
+        import random
+        import time
+        from threading import Thread
+
+        N = 1000
+
+        def run():
+            for i in range(N):
+                data["test"][0] = random.randrange(255)
+                time.sleep(random.random() / N)
+
+        p = Thread(target=run)
+        p.start()
+
+        for i in range(N):
+            time.sleep(random.random() / 3 / N)
+            save_file(data, local)
+            # Make a copy of what we have saved
+            copy_data = {k: v.clone() for k, v in data.items()}
+            time.sleep(random.random() / 3 / N)
+            reloaded = load_file(local)
+            time.sleep(random.random() / 3 / N)
+            for k, v in reloaded.items():
+                self.assertTrue(torch.allclose(copy_data[k], reloaded[k]))
 
     def test_bogus(self):
         data = {"test": {"some": "thing"}}

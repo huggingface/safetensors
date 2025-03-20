@@ -22,3 +22,5 @@ jobs:
       version_tag_suffix: bindings/python/py_src/
       install_rust: true
       custom_container: huggingface/transformers-doc-builder
+      env:
+        MATURIN_PEP517_ARGS: "--features py311,pyo3/extension-module"
