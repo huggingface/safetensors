@@ -127,7 +127,7 @@ fn serialize<'b>(
     Ok(pybytes)
 }
 
-/// Serializes raw data.
+/// Serializes raw data into file.
 ///
 /// Args:
 ///     tensor_dict (`Dict[str, Dict[Any]]`):
@@ -139,8 +139,8 @@ fn serialize<'b>(
 ///         The optional purely text annotations
 ///
 /// Returns:
-///     (`bytes`):
-///         The serialized content.
+///     (`NoneType`):
+///         On success return None
 #[pyfunction]
 #[pyo3(signature = (tensor_dict, filename, metadata=None))]
 fn serialize_file(
