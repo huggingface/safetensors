@@ -1069,6 +1069,18 @@ fn create_tensor<'a>(
                 true,
             ),
         };
+
+        // Ensure `ml_dtypes` package is imported and it annanounced custom
+        // dtypes to NumPy before we search for a specific dtype. In fact,
+        // `ml_dtypes` is a mandatory dependncy for JAX and TensorFlow (TF),
+        // but it is optional for NumPy.
+        match framework {
+            Framework::Numpy | Framework::Flax | Framework::Tensorflow => {
+                let _ = PyModule::import(py, intern!(py, "ml_dtypes"));
+            },
+            _ => {},
+        };
+
         let dtype: PyObject = get_pydtype(module, dtype, is_numpy)?;
         let count: usize = shape.iter().product();
         let shape = shape.to_vec();

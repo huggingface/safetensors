@@ -37,6 +37,7 @@ torch = [
     "torch>=1.10",
 ]
 tensorflow = [
+    "ml-dtypes",
     "safetensors[numpy]",
     "tensorflow>=2.11.0",
 ]
@@ -46,10 +47,10 @@ pinned-tf = [
     "tensorflow==2.18.0",
 ]
 jax = [
+    "ml-dtypes",
     "safetensors[numpy]",
     "flax>=0.6.3",
     "jax>=0.3.25",
-    "jaxlib>=0.3.25",
 ]
 mlx = [
     "mlx>=0.0.9",
