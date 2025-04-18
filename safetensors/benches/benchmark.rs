@@ -6,7 +6,7 @@ use std::collections::HashMap;
 fn get_sample_data() -> (Vec<u8>, Vec<usize>, Dtype) {
     let shape = vec![1000, 500];
     let dtype = Dtype::F32;
-    let n: usize = shape.iter().product::<usize>() * dtype.size(); // 4
+    let n: usize = compute_size(dtype, &shape);
     let data = vec![0; n];
 
     (data, shape, dtype)

@@ -76,6 +76,35 @@ struct PreparedData {
     offset: usize,
 }
 
+/// Computes the size in bytes of a tensor with the given data type and shape.
+/// This function takes into account specific details about storing INT4 tensors.
+pub fn compute_size(dtype: Dtype, shape: &[usize]) -> usize {
+    let n_elements: usize = shape.iter().product();
+    match dtype {
+        Dtype::I4 | Dtype::U4 => {
+            let dims = shape.len();
+            let (rows, cols) = match dims {
+                0 => (0, 0),
+                1 => (1, shape[0]),
+                _ => {
+                    let cols = shape[dims - 1];
+                    let rows = shape.iter().take(dims - 1).product();
+                    (rows, cols)
+                }
+            };
+
+            let mut bits_per_row = cols * dtype.size_in_bits();
+            if cols % 2 != 0 {
+                bits_per_row += dtype.size_in_bits()
+            }
+
+            let bytes_per_row = bits_per_row / 8;
+            bytes_per_row * rows
+        }
+        _ => n_elements * dtype.size_in_bits() / 8,
+    }
+}
+
 /// The trait necessary to enable safetensors to serialize a tensor
 /// If you have an owned tensor like this:
 ///
@@ -530,9 +559,33 @@ impl Metadata {
                 .cloned()
                 .try_fold(1usize, usize::checked_mul)
                 .ok_or(SafeTensorError::ValidationOverflow)?;
-            let nbytes = nelements
-                .checked_mul(info.dtype.size())
-                .ok_or(SafeTensorError::ValidationOverflow)?;
+            let nbytes = match info.dtype {
+                Dtype::I4 | Dtype::U4 => {
+                    let dims = info.shape.len();
+                    let (rows, cols) = match dims {
+                        0 => (0, 0),
+                        1 => (1, info.shape[0]),
+                        _ => {
+                            let cols = info.shape[dims - 1];
+                            let rows = info.shape.iter().take(dims - 1).product();
+                            (rows, cols)
+                        }
+                    };
+
+                    let mut bits_per_row = cols * info.dtype.size_in_bits();
+                    if cols % 2 != 0 {
+                        bits_per_row += info.dtype.size_in_bits()
+                    }
+
+                    let bytes_per_row = bits_per_row / 8;
+                    nelements
+                        .checked_mul(bytes_per_row * rows)
+                        .ok_or(SafeTensorError::ValidationOverflow)?
+                }
+                _ => nelements
+                    .checked_mul(info.dtype.size_in_bits() / 8)
+                    .ok_or(SafeTensorError::ValidationOverflow)?,
+            };
             if (e - s) != nbytes {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
@@ -591,7 +644,7 @@ impl View for &TensorView<'_> {
     }
 
     fn data_len(&self) -> usize {
-        self.data.len()
+        compute_size(self.dtype, &self.shape)
     }
 }
 
@@ -609,7 +662,7 @@ impl View for TensorView<'_> {
     }
 
     fn data_len(&self) -> usize {
-        self.data.len()
+        compute_size(self.dtype, &self.shape)
     }
 }
 
@@ -621,8 +674,8 @@ impl<'data> TensorView<'data> {
         data: &'data [u8],
     ) -> Result<Self, SafeTensorError> {
         let n = data.len();
-        let n_elements: usize = shape.iter().product();
-        if n != n_elements * dtype.size() {
+        let size_in_bytes = compute_size(dtype, &shape);
+        if n != size_in_bytes {
             Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
         } else {
             Ok(Self { dtype, shape, data })
@@ -701,27 +754,33 @@ pub enum Dtype {
     I64,
     /// Unsigned integer (64-bit)
     U64,
+    /// Unsigned integer (4-bit)
+    U4,
+    /// Signed integer (4-bit)
+    I4,
 }
 
 impl Dtype {
-    /// Gives out the size (in bytes) of 1 element of this dtype.
-    pub fn size(&self) -> usize {
+    /// Gives out the size (in bits) of 1 element of this dtype.
+    pub fn size_in_bits(&self) -> usize {
         match self {
-            Dtype::BOOL => 1,
-            Dtype::U8 => 1,
-            Dtype::I8 => 1,
-            Dtype::F8_E5M2 => 1,
-            Dtype::F8_E4M3 => 1,
-            Dtype::I16 => 2,
-            Dtype::U16 => 2,
-            Dtype::I32 => 4,
-            Dtype::U32 => 4,
-            Dtype::I64 => 8,
-            Dtype::U64 => 8,
-            Dtype::F16 => 2,
-            Dtype::BF16 => 2,
-            Dtype::F32 => 4,
-            Dtype::F64 => 8,
+            Dtype::BOOL => 8,
+            Dtype::U4 => 4,
+            Dtype::I4 => 4,
+            Dtype::U8 => 8,
+            Dtype::I8 => 8,
+            Dtype::F8_E5M2 => 8,
+            Dtype::F8_E4M3 => 8,
+            Dtype::I16 => 16,
+            Dtype::U16 => 16,
+            Dtype::I32 => 32,
+            Dtype::U32 => 32,
+            Dtype::I64 => 64,
+            Dtype::U64 => 64,
+            Dtype::F16 => 16,
+            Dtype::BF16 => 16,
+            Dtype::F32 => 32,
+            Dtype::F64 => 64,
         }
     }
 }
@@ -782,7 +841,7 @@ mod tests {
                         // This cannot overflow because the size of
                         // the vector and elements are so small.
                         let length: usize = shape.iter().product();
-                        let end = start + length * dtype.size();
+                        let end = start + length * dtype.size_in_bits() / 8;
                         let tensor = TensorInfo {
                             dtype: *dtype,
                             shape,
@@ -839,7 +898,7 @@ mod tests {
             for name in before.names() {
                 let tensor_before = before.tensor(name).unwrap();
                 let tensor_after = after.tensor(name).unwrap();
-                assert_eq!(tensor_after.data().as_ptr() as usize % tensor_after.dtype().size(), 0);
+                assert_eq!(tensor_after.data().as_ptr() as usize % (tensor_after.dtype().size_in_bits() / 8), 0);
                 assert_eq!(tensor_before, tensor_after);
             }
         }
@@ -926,7 +985,10 @@ mod tests {
         );
         let parsed = SafeTensors::deserialize(&out).unwrap();
         let tensor = parsed.tensor("attn0").unwrap();
-        assert_eq!(tensor.data().as_ptr() as usize % tensor.dtype().size(), 0);
+        assert_eq!(
+            tensor.data().as_ptr() as usize % (tensor.dtype().size_in_bits() / 8),
+            0
+        );
     }
 
     #[test]
@@ -1015,13 +1077,14 @@ mod tests {
             .iter()
             .map(|(_, shape)| shape.iter().product::<usize>())
             .sum::<usize>()
-            * dtype.size(); // 4
+            * dtype.size_in_bits()
+            / 8; // 4
         let all_data = vec![0; n];
         let mut metadata = HashMap::with_capacity(tensors_desc.len());
         let mut offset = 0;
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
-            let buffer = &all_data[offset..offset + n * dtype.size()];
+            let buffer = &all_data[offset..offset + n * dtype.size_in_bits() / 8];
             let tensor = TensorView::new(dtype, shape, buffer).unwrap();
             metadata.insert(name, tensor);
             offset += n;
