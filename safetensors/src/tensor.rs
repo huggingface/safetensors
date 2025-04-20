@@ -76,6 +76,76 @@ struct PreparedData {
     offset: usize,
 }
 
+/// Packs two u4 values (represented as u8, must be <= 15) into a single u8.
+/// Low nibble value goes into the lower 4 bits, high nibble value into the upper 4 bits.
+#[inline]
+fn pack_u4(low: u8, high: u8) -> u8 {
+    let high_nibble_area_mask: u8 = 0b11110000;
+    let low_nibble_area_mask: u8 = 0b00001111;
+    let value_mask: u8 = 0b00001111;
+
+    let high_part = ((high & value_mask) << 4) & high_nibble_area_mask;
+    let low_part = (low & value_mask) & low_nibble_area_mask;
+
+    high_part | low_part
+}
+
+/// Unpacks a single u8 into two u4 values (represented as u8).
+/// Returns a tuple (low_nibble_value, high_nibble_value).
+#[inline]
+fn unpack_u4(packed: u8) -> (u8, u8) {
+    let low_nibble_mask: u8 = 0b00001111;
+
+    let low_value = packed & low_nibble_mask;
+    let high_value = (packed >> 4) & low_nibble_mask;
+
+    (low_value, high_value)
+}
+
+/// Packs two i4 values (represented as i8, must be between -8 and 7) into a single u8.
+/// Low nibble value goes into the lower 4 bits, high nibble value into the upper 4 bits.
+#[inline]
+fn pack_i4(low: i8, high: i8) -> u8 {
+    let high_nibble_area_mask: u8 = 0b11110000;
+    let low_nibble_area_mask: u8 = 0b00001111;
+    let value_mask: u8 = 0b00001111;
+
+    let low_bits = (low as u8) & value_mask;
+    let high_bits = (high as u8) & value_mask;
+
+    let high_part = (high_bits << 4) & high_nibble_area_mask;
+    let low_part = low_bits & low_nibble_area_mask;
+
+    high_part | low_part
+}
+
+/// Unpacks a single u8 into two i4 values (represented as i8).
+/// Interprets the nibbles as 4-bit two's complement integers.
+/// Returns a tuple (low_nibble_value, high_nibble_value).
+#[inline]
+fn unpack_i4(packed: u8) -> (i8, i8) {
+    let nibble_mask: u8 = 0b00001111;
+    let sign_bit_mask: u8 = 0b00001000;
+    let sign_extend_mask: u8 = 0b11110000; // Mask to OR for negative sign extension
+
+    let low_bits = packed & nibble_mask;
+    let high_bits = (packed >> 4) & nibble_mask;
+
+    let low_signed = if (low_bits & sign_bit_mask) != 0 {
+        (low_bits | sign_extend_mask) as i8
+    } else {
+        low_bits as i8
+    };
+
+    let high_signed = if (high_bits & sign_bit_mask) != 0 {
+        (high_bits | sign_extend_mask) as i8
+    } else {
+        high_bits as i8
+    };
+
+    (low_signed, high_signed)
+}
+
 /// Computes the size in bytes of a tensor with the given data type and shape.
 /// This function takes into account specific details about storing INT4 tensors.
 pub fn compute_size(dtype: Dtype, shape: &[usize]) -> usize {
@@ -179,7 +249,7 @@ pub fn compute_size(dtype: Dtype, shape: &[usize]) -> usize {
 ///    }
 ///    fn data_len(&self) -> usize{
 ///        let n: usize = self.shape.iter().product();
-///        let bytes_per_element = self.dtype.size();
+///        let bytes_per_element = self.dtype.size_in_bits() / 8;
 ///        n * bytes_per_element
 ///    }
 /// }
@@ -884,6 +954,7 @@ mod tests {
                 assert!(tensors.tensor(name).is_ok());
             }
         }
+
         #[test]
         fn test_roundtrip(metadata in arbitrary_metadata()) {
             let data: Vec<u8> = (0..data_size(&metadata)).map(|x| x as u8).collect();
@@ -902,6 +973,58 @@ mod tests {
                 assert_eq!(tensor_before, tensor_after);
             }
         }
+    }
+
+    #[test]
+    fn test_packing_unpacking_u4() {
+        let low: u8 = 5; // 0101
+        let high: u8 = 12; // 1100
+
+        let packed_u4 = pack_u4(low, high); // Expected: 1100_0101 = 197
+        assert_eq!(packed_u4, 197);
+        let (unpacked_low, unpacked_high) = unpack_u4(packed_u4);
+
+        assert_eq!(low, unpacked_low);
+        assert_eq!(high, unpacked_high);
+    }
+
+    #[test]
+    fn test_packing_unpacking_i4_positive() {
+        let low: i8 = 3; // 0011
+        let high: i8 = 7; // 0111
+
+        let packed_i4 = pack_i4(low, high); // Expected: 0111_0011 = 115
+        assert_eq!(packed_i4, 115);
+        let (unpacked_low, unpacked_high) = unpack_i4(packed_i4);
+
+        assert_eq!(low, unpacked_low);
+        assert_eq!(high, unpacked_high);
+    }
+
+    #[test]
+    fn test_packing_unpacking_i4_negative() {
+        let low: i8 = -1; // 1111
+        let high: i8 = -8; // 1000
+
+        let packed_i4 = pack_i4(low, high); // Expected: 1000_1111 = 143
+        assert_eq!(packed_i4, 143);
+        let (unpacked_low, unpacked_high) = unpack_i4(packed_i4);
+
+        assert_eq!(low, unpacked_low);
+        assert_eq!(high, unpacked_high);
+    }
+
+    #[test]
+    fn test_packing_unpacking_i4_mixed() {
+        let low: i8 = 2; // 0010
+        let high: i8 = -5; // 1011
+
+        let packed_i4 = pack_i4(low, high); // Expected: 1011_0010 = 178
+        assert_eq!(packed_i4, 178);
+        let (unpacked_low, unpacked_high) = unpack_i4(packed_i4);
+
+        assert_eq!(low, unpacked_low);
+        assert_eq!(high, unpacked_high);
     }
 
     #[test]
