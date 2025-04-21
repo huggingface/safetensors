@@ -182,7 +182,6 @@ fn serialize_i4(shape: &[usize], data: &[i8]) -> Vec<u8> {
 /// Deserializes a byte buffer into a tensor of type INT4.
 /// Assumes the buffer is correctly formatted.
 fn deserialize_i4(shape: &[usize], packed: &[u8]) -> Vec<i8> {
-    // 2 x 3,  55u8, 240, 130, 176
     let (rows, cols) = compute_rows_cols(shape);
     let count = rows * cols;
     let mut buffer: Vec<i8> = Vec::with_capacity(count);
