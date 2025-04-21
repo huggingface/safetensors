@@ -1111,22 +1111,6 @@ mod tests {
         assert_eq!(high, unpacked_high);
     }
 
-    // #[test]
-    // fn test_bytes_size() {
-    //     let data: Vec<u8> = vec![55u8, 248, 43]
-    //         .into_iter()
-    //         .flat_map(|f| {
-    //             let byte = f as u8;
-    //             let (low, high) = unpack_u4(byte);
-    //             vec![high, low]
-    //         })
-    //         .collect();
-    //     let shape = vec![3];
-    //     let attn_0 = TensorView::new(Dtype::U4, shape, &data).unwrap();
-    //     let len = attn_0.data_len();
-    //     assert_eq!(3, len);
-    // }
-
     #[test]
     fn test_roundtrip_1d_i4() {
         let shape = vec![6];
@@ -1205,33 +1189,25 @@ mod tests {
         assert_eq!(data, unpacked);
     }
 
-    // #[test]
-    // fn test_prepare() {
-    //     // Bits:      0011_0111 1111_1000 0010_1011
-    //     // Bytes:     55        248       43
-    //     // INT4:      3    7    -1   -8   2    -5
-    //     let packed: Vec<u8> = vec![0x37, 0xF8, 0x2B];
+    #[test]
+    fn test_tensor_data_len_1d() {
+        let shape = vec![6];
+        let data: Vec<u8> = vec![55u8, 248, 43];
 
-    //     println!("Raw bytes as bits:");
-    //     for byte in &packed {
-    //         print!("{byte:08b} ");
-    //     }
+        let attn_0 = TensorView::new(Dtype::U4, shape, &data).unwrap();
+        let len = attn_0.data_len();
+        assert_eq!(3, len);
+    }
 
-    //     let mut unpacked = Vec::new();
-    //     for byte in &packed {
-    //         let (low, high) = unpack_i4(*byte);
-    //         unpacked.push(high);
-    //         unpacked.push(low);
-    //     }
+    #[test]
+    fn test_tensor_data_len_3d() {
+        let shape = vec![2, 2, 2];
+        let data: Vec<u8> = vec![63u8, 24, 44, 23];
 
-    //     assert_eq!(unpacked.len(), 6);
-    //     assert_eq!(unpacked, vec![3, 7, -1, -8, 2, -5]);
-
-    //     println!("\n\nUnpacked INT4 values:");
-    //     for val in unpacked {
-    //         print!("{:>3} ", val);
-    //     }
-    // }
+        let attn_0 = TensorView::new(Dtype::U4, shape, &data).unwrap();
+        let len = attn_0.data_len();
+        assert_eq!(4, len);
+    }
 
     #[test]
     fn test_serialization() {
