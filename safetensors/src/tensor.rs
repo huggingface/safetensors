@@ -146,22 +146,68 @@ fn unpack_i4(packed: u8) -> (i8, i8) {
     (low_signed, high_signed)
 }
 
+/// Computes the number of rows and columns for a given shape.
+/// Returns a tuple (rows, cols).
+fn compute_rows_cols(shape: &[usize]) -> (usize, usize) {
+    let dims = shape.len();
+    match dims {
+        0 => (0, 0),
+        1 => (1, shape[0]),
+        _ => {
+            let cols = shape[dims - 1];
+            let rows = shape.iter().take(dims - 1).product();
+            (rows, cols)
+        }
+    }
+}
+
+/// Serializes a tensor of type INT4 into a byte buffer.
+/// Uses padding to ensure shape is a multiple of 2.
+fn serialize_i4(shape: &[usize], data: &[i8]) -> Vec<u8> {
+    let (rows, cols) = compute_rows_cols(shape);
+    let mut buffer: Vec<u8> = Vec::with_capacity(rows * (cols / 2 + cols % 2));
+    for row in 0..rows {
+        for col in (0..cols).step_by(2) {
+            let idx = row * cols + col;
+            let a = data[idx];
+            let b = if col + 1 < cols { data[idx + 1] } else { 0 };
+            let packed = pack_i4(b, a);
+            buffer.push(packed);
+        }
+    }
+
+    buffer
+}
+
+/// Deserializes a byte buffer into a tensor of type INT4.
+/// Assumes the buffer is correctly formatted.
+fn deserialize_i4(shape: &[usize], packed: &[u8]) -> Vec<i8> {
+    // 2 x 3,  55u8, 240, 130, 176
+    let (rows, cols) = compute_rows_cols(shape);
+    let count = rows * cols;
+    let mut buffer: Vec<i8> = Vec::with_capacity(count);
+
+    for idx in 0..count {
+        let row = idx / cols;
+        let raw_idx = idx + row * cols % 2;
+
+        let byte = packed[raw_idx / 2];
+        let (low, high) = unpack_i4(byte);
+
+        let val = if raw_idx % 2 == 0 { high } else { low };
+        buffer.push(val);
+    }
+
+    buffer
+}
+
 /// Computes the size in bytes of a tensor with the given data type and shape.
 /// This function takes into account specific details about storing INT4 tensors.
 pub fn compute_size(dtype: Dtype, shape: &[usize]) -> usize {
     let n_elements: usize = shape.iter().product();
     match dtype {
         Dtype::I4 | Dtype::U4 => {
-            let dims = shape.len();
-            let (rows, cols) = match dims {
-                0 => (0, 0),
-                1 => (1, shape[0]),
-                _ => {
-                    let cols = shape[dims - 1];
-                    let rows = shape.iter().take(dims - 1).product();
-                    (rows, cols)
-                }
-            };
+            let (rows, cols) = compute_rows_cols(&shape);
 
             let mut bits_per_row = cols * dtype.size_in_bits();
             if cols % 2 != 0 {
@@ -1016,15 +1062,98 @@ mod tests {
 
     #[test]
     fn test_packing_unpacking_i4_mixed() {
-        let low: i8 = 2; // 0010
-        let high: i8 = -5; // 1011
+        let low: i8 = 7; // 0111
+        let high: i8 = -8; // 1000
 
-        let packed_i4 = pack_i4(low, high); // Expected: 1011_0010 = 178
-        assert_eq!(packed_i4, 178);
+        let packed_i4 = pack_i4(low, high); // Expected: 1000_0111 = 135
+        assert_eq!(packed_i4, 135);
         let (unpacked_low, unpacked_high) = unpack_i4(packed_i4);
 
         assert_eq!(low, unpacked_low);
         assert_eq!(high, unpacked_high);
+    }
+
+    #[test]
+    fn test_prepare() {
+        // Bits:      0011_0111 1111_1000 0010_1011
+        // Bytes:     55        248       43
+        // INT4:      3    7    -1   -8   2    -5
+        let packed: Vec<u8> = vec![0x37, 0xF8, 0x2B];
+
+        println!("Raw bytes as bits:");
+        for byte in &packed {
+            print!("{byte:08b} ");
+        }
+
+        let mut unpacked = Vec::new();
+        for byte in &packed {
+            let (low, high) = unpack_i4(*byte);
+            unpacked.push(high);
+            unpacked.push(low);
+        }
+
+        assert_eq!(unpacked.len(), 6);
+        assert_eq!(unpacked, vec![3, 7, -1, -8, 2, -5]);
+
+        println!("\n\nUnpacked INT4 values:");
+        for val in unpacked {
+            print!("{:>3} ", val);
+        }
+    }
+
+    #[test]
+    fn test_bytes_size() {
+        let data: Vec<u8> = vec![55u8, 248, 43]
+            .into_iter()
+            .flat_map(|f| {
+                let byte = f as u8;
+                let (low, high) = unpack_u4(byte);
+                vec![high, low]
+            })
+            .collect();
+        let shape = vec![3];
+        let attn_0 = TensorView::new(Dtype::U4, shape, &data).unwrap();
+        let len = attn_0.data_len();
+        assert_eq!(3, len);
+    }
+
+    #[test]
+    fn test_roundtrip_1d_i4() {
+        let shape = vec![6];
+        let data: Vec<i8> = vec![3, 7, -1, -8, 2, -5];
+
+        let packed = serialize_i4(&shape, &data);
+        assert_eq!(3, packed.len());
+        assert_eq!(vec![55u8, 248, 43], packed);
+
+        let unpacked = deserialize_i4(&shape, &packed);
+        assert_eq!(data, unpacked);
+    }
+
+    #[test]
+    fn test_roundtrip_2d_i4() {
+        let shape = vec![2, 3];
+        let data: Vec<i8> = vec![3, 7, -1, -8, 2, -5];
+
+        let packed = serialize_i4(&shape, &data);
+        assert_eq!(4, packed.len());
+        assert_eq!(vec![55u8, 240, 130, 176], packed);
+
+        let unpacked = deserialize_i4(&shape, &packed);
+        assert_eq!(data, unpacked);
+    }
+
+    #[test]
+    fn test_roundtrip_3d_i4() {
+        let shape = vec![2, 2, 2];
+        let data: Vec<i8> = vec![1, -2, 3, -4, 5, -6, 7, -8];
+
+        let packed = serialize_i4(&shape, &data);
+        assert_eq!(4, packed.len());
+        assert_eq!(vec![30u8, 60, 90, 120], packed);
+
+        let unpacked = deserialize_i4(&shape, &packed);
+        assert_eq!(data, unpacked);
     }
 
     #[test]
