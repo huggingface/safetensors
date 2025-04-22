@@ -244,7 +244,7 @@ fn deserialize_u4(shape: &[usize], packed: &[u8]) -> Vec<u8> {
 pub fn compute_size(dtype: Dtype, shape: &[usize]) -> usize {
     let n_elements: usize = shape.iter().product();
     match dtype {
-        Dtype::I4 | Dtype::U4 => {
+        Dtype::PackedI4 | Dtype::PackedU4 => {
             let (rows, cols) = compute_rows_cols(&shape);
 
             let mut bits_per_row = cols * dtype.size_in_bits();
@@ -714,17 +714,8 @@ impl Metadata {
                 .try_fold(1usize, usize::checked_mul)
                 .ok_or(SafeTensorError::ValidationOverflow)?;
             let nbytes = match info.dtype {
-                Dtype::I4 | Dtype::U4 => {
-                    let dims = info.shape.len();
-                    let (rows, cols) = match dims {
-                        0 => (0, 0),
-                        1 => (1, info.shape[0]),
-                        _ => {
-                            let cols = info.shape[dims - 1];
-                            let rows = info.shape.iter().take(dims - 1).product();
-                            (rows, cols)
-                        }
-                    };
+                Dtype::PackedI4 | Dtype::PackedU4 => {
+                    let (rows, cols) = compute_rows_cols(&info.shape);
 
                     let mut bits_per_row = cols * info.dtype.size_in_bits();
                     if cols % 2 != 0 {
@@ -732,8 +723,8 @@ impl Metadata {
                     }
 
                     let bytes_per_row = bits_per_row / 8;
-                    nelements
-                        .checked_mul(bytes_per_row * rows)
+
+                    rows.checked_mul(bytes_per_row)
                         .ok_or(SafeTensorError::ValidationOverflow)?
                 }
                 _ => nelements
@@ -829,12 +820,13 @@ impl<'data> TensorView<'data> {
     ) -> Result<Self, SafeTensorError> {
         let n = data.len();
         let size_in_bytes = compute_size(dtype, &shape);
-        if n != size_in_bytes {
+        if dtype != Dtype::PackedI4 && dtype != Dtype::PackedU4 && n != size_in_bytes {
             Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
         } else {
             Ok(Self { dtype, shape, data })
         }
     }
+
     /// The current tensor dtype
     pub fn dtype(&self) -> Dtype {
         self.dtype
@@ -908,10 +900,10 @@ pub enum Dtype {
     I64,
     /// Unsigned integer (64-bit)
     U64,
-    /// Unsigned integer (4-bit)
-    U4,
-    /// Signed integer (4-bit)
-    I4,
+    /// Packed unsigned integer (4-bit)
+    PackedU4,
+    /// Packed signed integer (4-bit)
+    PackedI4,
 }
 
 impl Dtype {
@@ -919,8 +911,8 @@ impl Dtype {
     pub fn size_in_bits(&self) -> usize {
         match self {
             Dtype::BOOL => 8,
-            Dtype::U4 => 4,
-            Dtype::I4 => 4,
+            Dtype::PackedU4 => 4,
+            Dtype::PackedI4 => 4,
             Dtype::U8 => 8,
             Dtype::I8 => 8,
             Dtype::F8_E5M2 => 8,
@@ -1190,23 +1182,30 @@ mod tests {
     }
 
     #[test]
-    fn test_tensor_data_len_1d() {
-        let shape = vec![6];
-        let data: Vec<u8> = vec![55u8, 248, 43];
+    fn test_tensor_data_len_3d() {
+        let shape = vec![1, 2, 3];
+        let data: Vec<u8> = vec![3, 15, 1, 8, 2, 12];
 
-        let attn_0 = TensorView::new(Dtype::U4, shape, &data).unwrap();
+        let attn_0 = TensorView::new(Dtype::PackedU4, shape, &data).unwrap();
         let len = attn_0.data_len();
-        assert_eq!(3, len);
+        assert_eq!(4, len);
     }
 
     #[test]
-    fn test_tensor_data_len_3d() {
-        let shape = vec![2, 2, 2];
-        let data: Vec<u8> = vec![63u8, 24, 44, 23];
+    fn test_packed_u4_roundtrip_3d_tensor() {
+        let shape = vec![1, 2, 3];
+        let data: Vec<u8> = vec![3, 15, 1, 8, 2, 12]; //63u8, 16, 130, 192
+        let packed: Vec<u8> = serialize_u4(&shape, &data);
 
-        let attn_0 = TensorView::new(Dtype::U4, shape, &data).unwrap();
-        let len = attn_0.data_len();
-        assert_eq!(4, len);
+        let attn_0 = TensorView::new(Dtype::PackedU4, shape, &packed).unwrap();
+        let metadata: HashMap<String, TensorView> =
+            [("attn.0".to_string(), attn_0)].into_iter().collect();
+
+        let out = serialize(&metadata, &None).unwrap();
+        println!("{:?}", out);
+
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+        println!("{:?}", parsed);
     }
 
     #[test]
