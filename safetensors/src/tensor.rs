@@ -1209,6 +1209,23 @@ mod tests {
     }
 
     #[test]
+    fn test_packed_i4_roundtrip_3d_tensor() {
+        let shape = vec![1, 2, 3];
+        let data: Vec<i8> = vec![3, -2, 1, 7, -1, -7];
+        let packed: Vec<u8> = serialize_i4(&shape, &data);
+
+        let attn_0 = TensorView::new(Dtype::PackedI4, shape, &packed).unwrap();
+        let metadata: HashMap<String, TensorView> =
+            [("attn.0".to_string(), attn_0)].into_iter().collect();
+
+        let out = serialize(&metadata, &None).unwrap();
+        println!("{:?}", out);
+
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+        println!("{:?}", parsed);
+    }
+
+    #[test]
     fn test_serialization() {
         let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
             .into_iter()
