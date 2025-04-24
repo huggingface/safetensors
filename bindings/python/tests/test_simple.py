@@ -4,18 +4,46 @@ import threading
 import unittest
 from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import torch
 
 from safetensors import SafetensorError, safe_open, serialize
 from safetensors.numpy import load, load_file, save, save_file
-from safetensors.torch import _find_shared_tensors
+from safetensors.torch import _find_shared_tensors, storage_ptr, storage_size
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
-from safetensors.torch import storage_ptr, storage_size
 
 
 class TestCase(unittest.TestCase):
+    def test_serialization_jax(self):
+        # Create with regular int type first, reshape, then convert to int4
+        values = (
+            jnp.array([3, -2, 1, 7, -1, -7], dtype=jnp.int32)
+            .reshape(1, 2, 3)
+            .astype(jnp.int4)
+        )
+        print(values)
+        out = save({"test": values})
+
+        # Print out in hexadecimal format with newlines after every 16 bytes
+        print("Hex representation:")
+        hex_strings = [f"{b:02x}" for b in out]
+        for i in range(0, len(hex_strings), 16):
+            print(" ".join(hex_strings[i : i + 16]))
+
+        # Print out in binary format with newlines after every 16 bytes
+        print("Binary representation:")
+        binary_strings = [f"{b:08b}" for b in out]
+        for i in range(0, len(binary_strings), 16):
+            print(" ".join(binary_strings[i : i + 16]))
+
+        print(out)
+        self.assertEqual(
+            out,
+            b'H\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"PackedI4","shape":[1,2,3],"data_offsets":[0,4]}}      >\x10\x7f\x90',
+        )
+
     def test_serialization(self):
         data = np.zeros((2, 2), dtype=np.int32)
         out = save({"test": data})
@@ -55,7 +83,9 @@ class TestCase(unittest.TestCase):
 
         out = load(serialized)
         self.assertEqual(list(out.keys()), ["test"])
-        np.testing.assert_array_equal(out["test"], np.zeros((2, 2), dtype=np.int32))
+        np.testing.assert_array_equal(
+            out["test"], np.zeros((2, 2), dtype=np.int32)
+        )
 
     def test_deserialization_metadata(self):
         serialized = (
@@ -175,12 +205,16 @@ class ErrorsTestCase(unittest.TestCase):
         with self.assertRaises(FileNotFoundError) as ctx:
             with safe_open("notafile", framework="pt"):
                 pass
-        self.assertEqual(str(ctx.exception), 'No such file or directory: "notafile"')
+        self.assertEqual(
+            str(ctx.exception), 'No such file or directory: "notafile"'
+        )
 
 
 class ReadmeTestCase(unittest.TestCase):
     def assertTensorEqual(self, tensors1, tensors2, equality_fn):
-        self.assertEqual(tensors1.keys(), tensors2.keys(), "tensor keys don't match")
+        self.assertEqual(
+            tensors1.keys(), tensors2.keys(), "tensor keys don't match"
+        )
 
         for k, v1 in tensors1.items():
             v2 = tensors2[k]
@@ -244,7 +278,9 @@ class ReadmeTestCase(unittest.TestCase):
         save_file_pt(tensors, f"./slice_{ident}.safetensors")
 
         # Now loading
-        with safe_open(f"./slice_{ident}.safetensors", framework="pt", device="cpu") as f:
+        with safe_open(
+            f"./slice_{ident}.safetensors", framework="pt", device="cpu"
+        ) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
@@ -335,11 +371,15 @@ class ReadmeTestCase(unittest.TestCase):
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[2:, -6]
-            self.assertEqual(str(cm.exception), "Invalid index -6 for dimension 1 of size 5")
+            self.assertEqual(
+                str(cm.exception), "Invalid index -6 for dimension 1 of size 5"
+            )
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[[0, 1]]
-            self.assertEqual(str(cm.exception), "Non empty lists are not implemented")
+            self.assertEqual(
+                str(cm.exception), "Non empty lists are not implemented"
+            )
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[2:, 20]
