@@ -9,7 +9,9 @@ use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
-use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
+use safetensors::tensor::{
+    compute_size, serialize_u4, Dtype, Metadata, SafeTensors, TensorInfo, TensorView,
+};
 use safetensors::View;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -29,8 +31,22 @@ static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 struct PyView<'a> {
     shape: Vec<usize>,
     dtype: Dtype,
-    data: PyBound<'a, PyBytes>,
+    data: MaybeOwnedData<'a>,
     data_len: usize,
+}
+
+enum MaybeOwnedData<'a> {
+    Owned(Vec<u8>),
+    Borrowed(PyBound<'a, PyBytes>),
+}
+
+impl MaybeOwnedData<'_> {
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            MaybeOwnedData::Owned(data) => data,
+            MaybeOwnedData::Borrowed(data) => data.as_bytes(),
+        }
+    }
 }
 
 impl View for &PyView<'_> {
@@ -58,10 +74,6 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
         let pydata: PyBound<PyAny> = tensor_desc.get_item("data")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
         })?;
-        // Make sure it's extractable first.
-        let data: &[u8] = pydata.extract()?;
-        let data_len = data.len();
-        let data: PyBound<PyBytes> = pydata.extract()?;
         let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
             SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
         })?;
@@ -82,12 +94,33 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
             "bfloat16" => Dtype::BF16,
             "float8_e4m3fn" => Dtype::F8_E4M3,
             "float8_e5m2" => Dtype::F8_E5M2,
+            "int4" => Dtype::PackedI4,
+            "uint4" => Dtype::PackedU4,
             dtype_str => {
                 return Err(SafetensorError::new_err(format!(
                     "dtype {dtype_str} is not covered",
                 )));
             }
         };
+
+        // Make sure it's extractable first.
+        let raw_data: &[u8] = pydata.extract()?;
+        let data: MaybeOwnedData = match dtype {
+            Dtype::PackedI4 => {
+                let packed = serialize_u4(&shape, &raw_data);
+                MaybeOwnedData::Owned(packed)
+            }
+            Dtype::PackedU4 => {
+                let packed = serialize_u4(&shape, &raw_data);
+                MaybeOwnedData::Owned(packed)
+            }
+            _ => {
+                let unpacked: PyBound<PyBytes> = pydata.extract()?;
+                MaybeOwnedData::Borrowed(unpacked)
+            }
+        };
+
+        let data_len = compute_size(dtype, &shape);
 
         let tensor = PyView {
             shape,

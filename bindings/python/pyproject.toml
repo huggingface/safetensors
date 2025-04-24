@@ -2,7 +2,10 @@
 name = 'safetensors'
 requires-python = '>=3.7'
 authors = [
-    {name = 'Nicolas Patry', email = 'patry.nicolas@protonmail.com'}
+    { name = 'Nicolas Patry', email = 'patry.nicolas@protonmail.com' },
+    { name = 'Vladimir Vlasiuk', email = 'matterai.net@gmail.com' },
+    { name = 'Artur Chakhvadze', email = 'norpadon@gmail.com' },
+    { name = 'Eugene Bokhan', email = 'eugenebokhan@icloud.com' },
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -19,12 +22,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
-dynamic = [
-    'description',
-    'license',
-    'readme',
-    'version',
-]
+dynamic = ['description', 'license', 'readme', 'version']
 
 [project.urls]
 Homepage = 'https://github.com/huggingface/safetensors'
@@ -32,34 +30,15 @@ Source = 'https://github.com/huggingface/safetensors'
 
 [project.optional-dependencies]
 numpy = ["numpy>=1.21.6"]
-torch = [
-    "safetensors[numpy]",
-    "torch>=1.10",
-]
-tensorflow = [
-    "safetensors[numpy]",
-    "tensorflow>=2.11.0",
-]
+torch = ["safetensors[numpy]", "torch>=1.10"]
+tensorflow = ["safetensors[numpy]", "tensorflow>=2.11.0"]
 # pinning tf version 2.11.0 for doc-builder
-pinned-tf = [
-    "safetensors[numpy]",
-    "tensorflow==2.18.0",
-]
-jax = [
-    "safetensors[numpy]",
-    "flax>=0.6.3",
-    "jax>=0.3.25",
-    "jaxlib>=0.3.25",
-]
-mlx = [
-    "mlx>=0.0.9",
-]
-paddlepaddle = [
-    "safetensors[numpy]",
-    "paddlepaddle>=2.4.1",
-]
+pinned-tf = ["safetensors[numpy]", "tensorflow==2.18.0"]
+jax = ["safetensors[numpy]", "flax>=0.6.3", "jax>=0.3.25", "jaxlib>=0.3.25"]
+mlx = ["mlx>=0.0.9"]
+paddlepaddle = ["safetensors[numpy]", "paddlepaddle>=2.4.1"]
 quality = [
-    "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
+    "black==22.3",   # after updating to black 2023, also update Python version in pyproject.toml to 3.7
     "click==8.0.4",
     "isort>=5.5.4",
     "flake8>=3.8.3",
@@ -83,9 +62,10 @@ all = [
     "safetensors[quality]",
     "safetensors[testing]",
 ]
-dev = [
-    "safetensors[all]",
-]
+dev = ["safetensors[all]"]
+
+[tool.twine.repository]
+url = "https://europe-west2-python.pkg.dev/mirai-430618/pypi-pypi/"
 
 
 [build-system]
@@ -103,4 +83,4 @@ line-length = 119
 target-version = ['py35']
 
 [tool.setuptools.dynamic]
-readme = {file = ["README.rst"]}
+readme = { file = ["README.rst"] }

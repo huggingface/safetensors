@@ -163,7 +163,7 @@ fn compute_rows_cols(shape: &[usize]) -> (usize, usize) {
 
 /// Serializes a tensor of type INT4 into a byte buffer.
 /// Uses padding to ensure shape is a multiple of 2.
-fn serialize_i4(shape: &[usize], data: &[i8]) -> Vec<u8> {
+pub fn serialize_i4(shape: &[usize], data: &[i8]) -> Vec<u8> {
     let (rows, cols) = compute_rows_cols(shape);
     let mut buffer: Vec<u8> = Vec::with_capacity(rows * (cols / 2 + cols % 2));
     for row in 0..rows {
@@ -181,7 +181,7 @@ fn serialize_i4(shape: &[usize], data: &[i8]) -> Vec<u8> {
 
 /// Deserializes a byte buffer into a tensor of type INT4.
 /// Assumes the buffer is correctly formatted.
-fn deserialize_i4(shape: &[usize], packed: &[u8]) -> Vec<i8> {
+pub fn deserialize_i4(shape: &[usize], packed: &[u8]) -> Vec<i8> {
     let (rows, cols) = compute_rows_cols(shape);
     let count = rows * cols;
     let mut buffer: Vec<i8> = Vec::with_capacity(count);
@@ -202,7 +202,7 @@ fn deserialize_i4(shape: &[usize], packed: &[u8]) -> Vec<i8> {
 
 /// Serializes a tensor of type UINT4 into a byte buffer.
 /// Assumes the tensor is correctly formatted.
-fn serialize_u4(shape: &[usize], data: &[u8]) -> Vec<u8> {
+pub fn serialize_u4(shape: &[usize], data: &[u8]) -> Vec<u8> {
     let (rows, cols) = compute_rows_cols(shape);
     let mut buffer: Vec<u8> = Vec::with_capacity(rows * (cols / 2 + cols % 2));
     for row in 0..rows {
@@ -220,7 +220,7 @@ fn serialize_u4(shape: &[usize], data: &[u8]) -> Vec<u8> {
 
 /// Deserializes a tensor of type UINT4 from a byte buffer.
 /// Assumes the buffer is correctly formatted.
-fn deserialize_u4(shape: &[usize], packed: &[u8]) -> Vec<u8> {
+pub fn deserialize_u4(shape: &[usize], packed: &[u8]) -> Vec<u8> {
     let (rows, cols) = compute_rows_cols(shape);
     let count = rows * cols;
     let mut buffer: Vec<u8> = Vec::with_capacity(count);
