@@ -1,6 +1,6 @@
 [package]
-name = "safetensors-python"
-version = "0.5.3-dev.0"
+name = "miraitensors"
+version = "0.5.4-dev.0"
 edition = "2021"
 rust-version = "1.74"
 
