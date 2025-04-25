@@ -1214,6 +1214,26 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
             }
             Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
             Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
+            Dtype::PackedI4 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("int4",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "int4"))?.into()
+                }
+            }
+            Dtype::PackedU4 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("uint4",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "uint4"))?.into()
+                }
+            }
             dtype => {
                 return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {dtype:?}"
