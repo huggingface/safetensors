@@ -254,6 +254,7 @@ def load_model(
             error += f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
         if invalid:
             error += f"\n    Invalid key(s) in state_dict: {invalid_keys}, mismatchd dtypes or shape."
+        del state_dict
         raise RuntimeError(error)
 
     torch_missing, torch_unexpected = model.load_state_dict(state_dict, strict=False)
