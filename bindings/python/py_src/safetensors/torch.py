@@ -214,8 +214,13 @@ def load_model(
         for to_remove in to_remove_group:
             reverse_to_remove[to_remove] = key
 
+    # We iterate on the model, so we'll add keys we find missing
+    # here
     missing = set()
+    # We start with all keys on disk declared as unexpected, we'll
+    # slowly remove them when we find them
     unexpected = set(state_dict.keys())
+    # Some keys can be invalid too.
     invalid = set()
 
     for k, mv in model_state_dict.items():
@@ -252,6 +257,8 @@ def load_model(
         raise RuntimeError(error)
 
     torch_missing, torch_unexpected = model.load_state_dict(state_dict, strict=False)
+    # Sanity check that the work we've done matches
+    # Pytorch internal loading.
     torch_missing = set(torch_missing)
     torch_unexpected = set(torch_unexpected)
     for to_remove_group in to_removes.values():
