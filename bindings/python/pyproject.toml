@@ -1,6 +1,6 @@
 [project]
 name = 'safetensors'
-requires-python = '>=3.7'
+requires-python = '>=3.9'
 authors = [
     {name = 'Nicolas Patry', email = 'patry.nicolas@protonmail.com'}
 ]
