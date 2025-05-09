@@ -1,5 +1,6 @@
 import platform
 import unittest
+import sys
 
 
 if platform.system() != "Windows":
@@ -66,3 +67,11 @@ class LoadTestCase(unittest.TestCase):
         for k, v in weights.items():
             tv = flax_weights[k]
             self.assertTrue(jnp.allclose(v, tv))
+
+    def test_loading_without_ml_dtype(self):
+        # This does not work as we cannot unload
+        # modules, copy this into its own file to test.
+        # https://github.com/huggingface/safetensors/issues/598
+        sys.modules.pop("ml_dtypes", None)
+        with safe_open(self.sf_filename, framework="flax") as f:
+            f.get_tensor("test3")

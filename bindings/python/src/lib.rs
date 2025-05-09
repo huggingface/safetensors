@@ -1057,15 +1057,32 @@ fn create_tensor<'a>(
                     .bind(py),
                 false,
             ),
-            _ => (
-                NUMPY_MODULE
-                    .get()
-                    .ok_or_else(|| {
-                        SafetensorError::new_err(format!("Could not find module {framework:?}",))
-                    })?
-                    .bind(py),
-                true,
-            ),
+            frame => {
+                // Attempt to load the frameworks
+                // Those are needed to prepare the ml dtypes
+                // like bfloat16
+                match frame {
+                    Framework::Tensorflow => {
+                        let _ = PyModule::import(py, intern!(py, "tensorflow"));
+                    }
+                    Framework::Flax => {
+                        let _ = PyModule::import(py, intern!(py, "flax"));
+                    }
+                    _ => {}
+                };
+
+                (
+                    NUMPY_MODULE
+                        .get()
+                        .ok_or_else(|| {
+                            SafetensorError::new_err(
+                                format!("Could not find module {framework:?}",),
+                            )
+                        })?
+                        .bind(py),
+                    true,
+                )
+            }
         };
         let dtype: PyObject = get_pydtype(module, dtype, is_numpy)?;
         let count: usize = shape.iter().product();
