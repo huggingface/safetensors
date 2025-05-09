@@ -246,14 +246,14 @@ def load_model(
     if strict and (missing or unexpected or invalid):
         missing_keys = ", ".join([f'"{k}"' for k in sorted(missing)])
         unexpected_keys = ", ".join([f'"{k}"' for k in sorted(unexpected)])
-        invalid_keys = ", ".join([f'"{k}"' for k in sorted(unexpected)])
+        invalid_keys = ", ".join([f'"{k}"' for k in sorted(invalid)])
         error = f"Error(s) in loading state_dict for {model.__class__.__name__}:"
         if missing:
             error += f"\n    Missing key(s) in state_dict: {missing_keys}"
         if unexpected:
             error += f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
         if invalid:
-            error += f"\n    Invalid key(s) in state_dict: {invalid_keys}, mismatchd dtypes or shape."
+            error += f"\n    Invalid key(s) in state_dict: {invalid_keys}, mismatched dtypes or shape."
         del state_dict
         raise RuntimeError(error)
 
