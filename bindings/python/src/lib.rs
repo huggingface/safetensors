@@ -14,7 +14,6 @@ use safetensors::View;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
-use std::iter::FromIterator;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -120,8 +119,7 @@ fn serialize<'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<PyBound<'b, PyBytes>> {
     let tensors = prepare(tensor_dict)?;
-    let metadata_map = metadata.map(HashMap::from_iter);
-    let out = safetensors::tensor::serialize(&tensors, &metadata_map)
+    let out = safetensors::tensor::serialize(&tensors, &metadata)
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
