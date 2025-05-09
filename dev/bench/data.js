@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1746773996717,
+  "lastUpdate": 1746774090549,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -19146,6 +19146,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010265131364146644",
             "extra": "mean: 284.917217200001 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "40726077+cyc4188@users.noreply.github.com",
+            "name": "cychester",
+            "username": "cyc4188"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c2edc8e853134208b339bd2c15d869f73b46f6",
+          "message": "Remove useless code (#597)",
+          "timestamp": "2025-05-09T08:59:18+02:00",
+          "tree_id": "d7d93a5241984b415e63a7c5330f389def550b82",
+          "url": "https://github.com/huggingface/safetensors/commit/c7c2edc8e853134208b339bd2c15d869f73b46f6"
+        },
+        "date": 1746774089719,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.4710338383379216,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011497814044762725",
+            "extra": "mean: 404.68891379999263 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.576740570241324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03879629185227534",
+            "extra": "mean: 279.58415779999655 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 4.694559089672181,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001203063556457094",
+            "extra": "mean: 213.01254939999694 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 3.714388847581852,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004802214337389721",
+            "extra": "mean: 269.22329380000747 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 7.867479614777568,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009315762196181148",
+            "extra": "mean: 127.10550887500105 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 280.92939176609383,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000707216335184621",
+            "extra": "mean: 3.5596133025219934 msec\nrounds: 238"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.391017078674802,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0011850333657128407",
+            "extra": "mean: 87.78847341666325 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 56.925686015831246,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008408776944199547",
+            "extra": "mean: 17.566762387754032 msec\nrounds: 49"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.7997676177199087,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04274565672184077",
+            "extra": "mean: 357.1725001999937 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.5459005292240615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010861372795952527",
+            "extra": "mean: 282.0158071999913 msec\nrounds: 5"
           }
         ]
       }
