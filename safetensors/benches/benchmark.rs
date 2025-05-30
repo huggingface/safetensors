@@ -7,7 +7,9 @@ use std::hint::black_box;
 fn get_sample_data() -> (Vec<u8>, Vec<usize>, Dtype) {
     let shape = vec![1000, 500];
     let dtype = Dtype::F32;
-    let n: usize = shape.iter().product::<usize>() * dtype.size(); // 4
+    let nbits = shape.iter().product::<usize>() * dtype.bitsize();
+    assert!(nbits % 8 == 0);
+    let n: usize = nbits / 8; // 4
     let data = vec![0; n];
 
     (data, shape, dtype)
