@@ -279,7 +279,6 @@ impl<'data> SliceIterator<'data> {
         let mut newshape = Vec::with_capacity(view.shape().len());
 
         // Minimum span is the span of 1 item;
-        // TODO Handle fp4 / fp6.
         let mut span = view.dtype().bitsize();
         let mut indices = vec![];
         // Everything is row major.

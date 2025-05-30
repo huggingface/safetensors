@@ -45,6 +45,9 @@ pub enum SafeTensorError {
     /// The metadata contains information (shape or shape * dtype size) which lead to an
     /// arithmetic overflow. This is most likely an error in the file.
     ValidationOverflow,
+    /// For smaller than 1 byte dtypes, some slices will happen outside of the byte boundary, some special care has to be taken
+    /// and standard functions will fail
+    MisalignedSlice,
 }
 
 #[cfg(feature = "std")]
@@ -590,6 +593,10 @@ impl Metadata {
             let nbits = nelements
                 .checked_mul(info.dtype.bitsize())
                 .ok_or(SafeTensorError::ValidationOverflow)?;
+
+            if nbits % 8 != 0 {
+                return Err(SafeTensorError::MisalignedSlice);
+            }
             let size = nbits
                 .checked_div(8)
                 .ok_or(SafeTensorError::ValidationOverflow)?;
@@ -736,7 +743,6 @@ pub enum Dtype {
     /// Boolan type
     BOOL,
     /// MXF4 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
-    #[allow(non_camel_case_types)]
     F4,
     /// MXF6 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
     #[allow(non_camel_case_types)]
@@ -745,7 +751,6 @@ pub enum Dtype {
     #[allow(non_camel_case_types)]
     F6_E3M2,
     /// E8M0 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
-    #[allow(non_camel_case_types)]
     E8M0,
     /// Unsigned byte
     U8,
@@ -887,33 +892,41 @@ mod tests {
                     prop::collection::vec(arbitrary_shape(), size),
                 )
             })
-            .prop_map(|(dtypes, shapes)| {
+            .prop_filter_map("Misaligned slices", |(dtypes, shapes)| {
                 // Returns a valid metadata object for a random (length, dtypes, shapes) triple.
                 let mut start = 0;
                 let tensors: Vec<TensorInfo> = dtypes
                     .iter()
                     .zip(shapes)
-                    .map(|(dtype, shape)| {
+                    .flat_map(|(dtype, shape)| {
                         // This cannot overflow because the size of
                         // the vector and elements are so small.
-                        let length: usize = shape.iter().product();
-                        let end = start + length * dtype.bitsize() / 8;
+                        let bitlength: usize = shape.iter().product::<usize>() * dtype.bitsize();
+                        if bitlength % 8 != 0 {
+                            return None;
+                        }
+                        let length = bitlength.div_ceil(8);
+                        let end = start + length;
                         let tensor = TensorInfo {
                             dtype: *dtype,
                             shape,
                             data_offsets: (start, end),
                         };
                         start = end;
-                        tensor
+                        Some(tensor)
                     })
                     .collect();
                 let index_map = (0..tensors.len())
                     .map(|index| (format!("t.{index}"), index))
                     .collect();
-                Metadata {
-                    metadata: None,
-                    tensors,
-                    index_map,
+                if tensors.is_empty() {
+                    None
+                } else {
+                    Some(Metadata {
+                        metadata: None,
+                        tensors,
+                        index_map,
+                    })
                 }
             })
     }
@@ -1163,13 +1176,18 @@ mod tests {
         tensors_desc.push(("ln_f.bias".to_string(), vec![768]));
 
         let dtype = Dtype::F32;
-        let n: usize = (tensors_desc
+        let nbits: usize = tensors_desc
             .iter()
             .map(|(_, shape)| shape.iter().product::<usize>())
             .sum::<usize>()
-            * dtype.bitsize())
-        .checked_div(8)
-        .unwrap(); // 4
+            * dtype.bitsize();
+        if nbits % 8 != 0 {
+            panic!("Misaligned slice");
+        }
+        let n = nbits
+            .checked_div(8)
+            .ok_or(SafeTensorError::ValidationOverflow)
+            .unwrap(); // 4
         let all_data = vec![0; n];
         let mut metadata = HashMap::with_capacity(tensors_desc.len());
         let mut offset = 0;
