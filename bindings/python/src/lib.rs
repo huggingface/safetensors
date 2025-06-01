@@ -50,7 +50,7 @@ impl View for &PyView<'_> {
 fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in &tensor_dict {
-        let shape: Vec<usize> = tensor_desc
+        let mut shape: Vec<usize> = tensor_desc
             .get_item("shape")?
             .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc:?}")))?
             .extract()?;
@@ -81,12 +81,19 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
             "bfloat16" => Dtype::BF16,
             "float8_e4m3fn" => Dtype::F8_E4M3,
             "float8_e5m2" => Dtype::F8_E5M2,
+            "float8_e8m0fnu" => Dtype::E8M0,
+            "float4_e2m1fn_x2" => Dtype::F4,
             dtype_str => {
                 return Err(SafetensorError::new_err(format!(
                     "dtype {dtype_str} is not covered",
                 )));
             }
         };
+
+        if dtype == Dtype::F4 {
+            let n = shape.len();
+            shape[n - 1] *= 2;
+        }
 
         let tensor = PyView {
             shape,
@@ -577,7 +584,16 @@ impl Open {
                     ]
                     .into_py_dict(py)?;
                     let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                    let shape = info.shape.to_vec();
+                    let mut shape = info.shape.to_vec();
+                    if info.dtype == Dtype::F4 {
+                        let n = shape.len();
+                        if shape[n - 1] % 2 != 0 {
+                            return Err(SafetensorError::new_err(format!(
+                    "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
+                )));
+                        }
+                        shape[n - 1] /= 2;
+                    }
                     let shape: PyObject = shape.into_pyobject(py)?.into();
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
@@ -608,6 +624,7 @@ impl Open {
                             Dtype::BF16 => Some(Dtype::F16),
                             Dtype::F8_E5M2 => Some(Dtype::U8),
                             Dtype::F8_E4M3 => Some(Dtype::U8),
+                            Dtype::E8M0 => Some(Dtype::U8),
                             _ => None,
                         };
                         if let Some(intermediary_dtype) = intermediary_dtype {
@@ -987,6 +1004,7 @@ impl PySafeSlice {
                         Dtype::BF16 => Some(Dtype::F16),
                         Dtype::F8_E5M2 => Some(Dtype::U8),
                         Dtype::F8_E4M3 => Some(Dtype::U8),
+                        Dtype::E8M0 => Some(Dtype::U8),
                         _ => None,
                     };
                     if let Some(intermediary_dtype) = intermediary_dtype {
@@ -1196,6 +1214,8 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
             }
             Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
             Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
+            Dtype::E8M0 => module.getattr(intern!(py, "float8_e8m0fnu"))?.into(),
+            Dtype::F4 => module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {dtype:?}"

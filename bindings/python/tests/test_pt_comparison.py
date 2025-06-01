@@ -2,6 +2,7 @@ import sys
 import unittest
 
 import torch
+from packaging.version import Version
 
 from safetensors import safe_open
 from safetensors.torch import load, load_file, save, save_file
@@ -64,6 +65,7 @@ class TorchTestCase(unittest.TestCase):
             "test2": torch.randn((2, 2), dtype=torch.float16),
             "test3": torch.zeros((2, 2), dtype=torch.bool),
         }
+
         # Modify bool to have both values.
         data["test3"][0, 0] = True
         local = "./tests/data/out_safe_pt_mmap_small.safetensors"
@@ -91,6 +93,27 @@ class TorchTestCase(unittest.TestCase):
         self.assertEqual(reloaded["test1"].item(), -0.5)
         self.assertEqual(reloaded["test2"].dtype, torch.float8_e5m2)
         self.assertEqual(reloaded["test2"].item(), -0.5)
+
+    def test_odd_dtype_fp4(self):
+        if Version(torch.__version__) <= Version("2.7"):
+            return  # torch.float4 requires 2.8
+
+        test1 = torch.tensor([0.0], dtype=torch.float8_e8m0fnu)
+        test2 = torch.empty(2, 2, device="cpu", dtype=torch.float4_e2m1fn_x2)
+        data = {
+            "test1": test1,
+            "test2": test2,
+        }
+        local = "./tests/data/out_safe_pt_mmap_fp4.safetensors"
+
+        save_file(data, local)
+        reloaded = load_file(local)
+        # note: PyTorch doesn't implement torch.equal for float8 so we just compare the single element
+        self.assertEqual(reloaded["test1"].dtype, torch.float8_e8m0fnu)
+        self.assertEqual(reloaded["test1"], test1)
+        self.assertEqual(reloaded["test2"].dtype, torch.float4_e2m1fn_x2)
+        # TODO RuntimeError: "eq_cpu" not implemented for 'Float4_e2m1fn_x2'
+        # self.assertEqual(reloaded["test2"], test2)
 
     def test_zero_sized(self):
         data = {
@@ -156,6 +179,20 @@ class TorchTestCase(unittest.TestCase):
         save_file(data, local)
         reloaded = load_file(local)
         self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
+    def test_gpu_default_device(self):
+        data = {
+            "test": torch.arange(4).view((2, 2)).to("cuda:0"),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small.safetensors"
+        save_file(data, local)
+        with torch.device("cuda:0"):
+            reloaded = load_file(local)
+            assert reloaded["test"].device == torch.device("cpu")
+            reloaded = load_file(local, device="cuda:0")
+            assert reloaded["test"].device == torch.device("cuda:0")
+            self.assertTrue(torch.equal(torch.arange(4).view((2, 2)), reloaded["test"]))
 
     @unittest.skipIf(not npu_present, "Npu is not available")
     def test_npu(self):
