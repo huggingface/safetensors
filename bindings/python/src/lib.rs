@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 //! Dummy doc
 use memmap2::{Mmap, MmapOptions};
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::OnceLockExt;
@@ -166,7 +167,12 @@ fn serialize_file(
 ///             [("tensor_name", {"shape": [2, 3], "dtype": "F32", "data": b"\0\0.." }), (...)]
 #[pyfunction]
 #[pyo3(signature = (bytes))]
-fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
+fn deserialize(
+    py: Python,
+    bytes: PyBuffer<u8>,
+) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
+    let bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(bytes.buf_ptr() as *const u8, bytes.item_count()) };
     let safetensor = SafeTensors::deserialize(bytes)
         .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e}")))?;
 
@@ -596,7 +602,14 @@ impl Open {
                     ]
                     .into_py_dict(py)?;
                     let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                    let shape = info.shape.to_vec();
+                    let mut shape = info.shape.to_vec();
+                    if info.dtype == Dtype::F4 {
+                        let n = shape.len();
+                        if shape[n - 1] % 2 != 0 {
+                            return Err(SafetensorError::new_err(format!("Dtype _x2 requires to have a last shape be multiple of 2 to be usable in torch, got {shape:?}")));
+                        }
+                        shape[n - 1] /= 2;
+                    }
                     let shape: PyObject = shape.into_pyobject(py)?.into();
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
@@ -964,7 +977,14 @@ impl PySafeSlice {
                 let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
                 let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py)?;
                 let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                let shape = self.info.shape.to_vec();
+                let mut shape = self.info.shape.to_vec();
+                if self.info.dtype == Dtype::F4 {
+                    let n = shape.len();
+                    if shape[n - 1] % 2 != 0 {
+                        return Err(SafetensorError::new_err(format!("Dtype _x2 requires to have a last shape be multiple of 2 to be usable in torch, got {shape:?}")));
+                    }
+                    shape[n - 1] /= 2;
+                }
                 let shape: PyObject = shape.into_pyobject(py)?.into();
 
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
@@ -1096,9 +1116,17 @@ fn create_tensor<'a>(
                 )
             }
         };
-        let dtype: PyObject = get_pydtype(module, dtype, is_numpy)?;
         let count: usize = shape.iter().product();
-        let shape = shape.to_vec();
+        let mut shape = shape.to_vec();
+        if dtype == Dtype::F4 {
+            let n = shape.len();
+            if shape[n - 1] % 2 != 0 {
+                return Err(SafetensorError::new_err(format!("Dtype _x2 requires to have a last shape be multiple of 2 to be usable in torch, got {shape:?}")));
+            }
+            shape[n - 1] /= 2;
+        }
+        let dtype: PyObject = get_pydtype(module, dtype, is_numpy)?;
+
         let tensor = if count == 0 {
             // Torch==1.10 does not allow frombuffer on empty buffers so we create
             // the tensor manually.
@@ -1208,6 +1236,8 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
             }
             Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
             Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
+            Dtype::E8M0 => module.getattr(intern!(py, "float8_e8m0fnu"))?.into(),
+            Dtype::F4 => module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {dtype}"
