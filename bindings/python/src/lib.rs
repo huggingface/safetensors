@@ -1,7 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
 use memmap2::{Mmap, MmapOptions};
-use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::OnceLockExt;
@@ -51,7 +50,7 @@ impl View for &PyView<'_> {
 fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in &tensor_dict {
-        let shape: Vec<usize> = tensor_desc
+        let mut shape: Vec<usize> = tensor_desc
             .get_item("shape")?
             .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc:?}")))?
             .extract()?;
@@ -82,12 +81,19 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
             "bfloat16" => Dtype::BF16,
             "float8_e4m3fn" => Dtype::F8_E4M3,
             "float8_e5m2" => Dtype::F8_E5M2,
+            "float8_e8m0fnu" => Dtype::E8M0,
+            "float4_e2m1fn_x2" => Dtype::F4,
             dtype_str => {
                 return Err(SafetensorError::new_err(format!(
                     "dtype {dtype_str} is not covered",
                 )));
             }
         };
+
+        if dtype == Dtype::F4 {
+            let n = shape.len();
+            shape[n - 1] *= 2;
+        }
 
         let tensor = PyView {
             shape,
@@ -165,12 +171,7 @@ fn serialize_file(
 ///             [("tensor_name", {"shape": [2, 3], "dtype": "F32", "data": b"\0\0.." }), (...)]
 #[pyfunction]
 #[pyo3(signature = (bytes))]
-fn deserialize(
-    py: Python,
-    bytes: PyBuffer<u8>,
-) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
-    let bytes: &[u8] =
-        unsafe { std::slice::from_raw_parts(bytes.buf_ptr() as *const u8, bytes.item_count()) };
+fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let safetensor = SafeTensors::deserialize(bytes)
         .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e:?}")))?;
 
@@ -587,7 +588,9 @@ impl Open {
                     if info.dtype == Dtype::F4 {
                         let n = shape.len();
                         if shape[n - 1] % 2 != 0 {
-                            return Err(SafetensorError::new_err(format!("Dtype _x2 requires to have a last shape be multiple of 2 to be usable in torch, got {shape:?}")));
+                            return Err(SafetensorError::new_err(format!(
+                    "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
+                )));
                         }
                         shape[n - 1] /= 2;
                     }
@@ -621,6 +624,7 @@ impl Open {
                             Dtype::BF16 => Some(Dtype::F16),
                             Dtype::F8_E5M2 => Some(Dtype::U8),
                             Dtype::F8_E4M3 => Some(Dtype::U8),
+                            Dtype::E8M0 => Some(Dtype::U8),
                             _ => None,
                         };
                         if let Some(intermediary_dtype) = intermediary_dtype {
@@ -965,14 +969,7 @@ impl PySafeSlice {
                 let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
                 let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py)?;
                 let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                let mut shape = self.info.shape.to_vec();
-                if self.info.dtype == Dtype::F4 {
-                    let n = shape.len();
-                    if shape[n - 1] % 2 != 0 {
-                        return Err(SafetensorError::new_err(format!("Dtype _x2 requires to have a last shape be multiple of 2 to be usable in torch, got {shape:?}")));
-                    }
-                    shape[n - 1] /= 2;
-                }
+                let shape = self.info.shape.to_vec();
                 let shape: PyObject = shape.into_pyobject(py)?.into();
 
                 let start = (self.info.data_offsets.0 + self.offset) as isize;
@@ -1007,6 +1004,7 @@ impl PySafeSlice {
                         Dtype::BF16 => Some(Dtype::F16),
                         Dtype::F8_E5M2 => Some(Dtype::U8),
                         Dtype::F8_E4M3 => Some(Dtype::U8),
+                        Dtype::E8M0 => Some(Dtype::U8),
                         _ => None,
                     };
                     if let Some(intermediary_dtype) = intermediary_dtype {
@@ -1104,17 +1102,9 @@ fn create_tensor<'a>(
                 )
             }
         };
-        let count: usize = shape.iter().product();
-        let mut shape = shape.to_vec();
-        if dtype == Dtype::F4 {
-            let n = shape.len();
-            if shape[n - 1] % 2 != 0 {
-                return Err(SafetensorError::new_err(format!("Dtype _x2 requires to have a last shape be multiple of 2 to be usable in torch, got {shape:?}")));
-            }
-            shape[n - 1] /= 2;
-        }
         let dtype: PyObject = get_pydtype(module, dtype, is_numpy)?;
-
+        let count: usize = shape.iter().product();
+        let shape = shape.to_vec();
         let tensor = if count == 0 {
             // Torch==1.10 does not allow frombuffer on empty buffers so we create
             // the tensor manually.
