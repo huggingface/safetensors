@@ -226,7 +226,7 @@ where
     // Then by name
     let mut data: Vec<_> = data.into_iter().collect();
     data.sort_by(|(lname, left), (rname, right)| {
-        right.dtype().cmp(&left.dtype()).then(lname.cmp(rname))
+        right.dtype().size().cmp(&left.dtype().size()).then(lname.cmp(rname))
     });
 
     let mut tensors: Vec<V> = Vec::with_capacity(data.len());
@@ -535,15 +535,14 @@ impl Serialize for Metadata {
             names[index] = name;
         }
 
-        let tensors: Vec<_> = names.iter().zip(self.tensors.iter()).collect();
         let length = self.metadata.as_ref().map_or(0, HashMap::len);
+        let mut map = serializer.serialize_map(Some(self.tensors.len() + length))?;
 
-        let mut map = serializer.serialize_map(Some(tensors.len() + length))?;
         if let Some(metadata) = &self.metadata {
             map.serialize_entry("__metadata__", metadata)?;
         }
 
-        for (name, info) in tensors {
+        for (name, info) in names.iter().zip(&self.tensors) {
             map.serialize_entry(&name, &info)?;
         }
 

@@ -26,7 +26,7 @@ pub fn bench_serialize(c: &mut Criterion) {
 
     c.bench_function("Serialize 10_MB", |b| {
         b.iter(|| {
-            let _serialized = serialize(black_box(&metadata), black_box(None));
+            let _serialized = black_box(serialize(black_box(&metadata), black_box(None)));
         })
     });
 }
@@ -46,7 +46,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
 
     c.bench_function("Deserialize 10_MB", |b| {
         b.iter(|| {
-            let _deserialized = SafeTensors::deserialize(black_box(&out)).unwrap();
+            let _deserialized = black_box(SafeTensors::deserialize(black_box(&out))).unwrap();
         })
     });
 }
