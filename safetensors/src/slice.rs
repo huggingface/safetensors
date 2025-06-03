@@ -96,14 +96,14 @@ impl_from_range!(RangeToInclusive<usize>);
 pub trait IndexOp<'data, T> {
     /// Returns a slicing iterator which are the chunks of data necessary to
     /// reconstruct the desired tensor.
-    fn slice(&'data self, index: T) -> Result<SliceIterator<'data>, InvalidSlice>;
+    fn slice(&self, index: T) -> Result<SliceIterator<'_, 'data>, InvalidSlice>;
 }
 
 impl<'data, A> IndexOp<'data, A> for TensorView<'data>
 where
     A: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: A) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: A) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         self.sliced_data(&[index.into()])
     }
 }
@@ -112,7 +112,7 @@ impl<'data, A> IndexOp<'data, (A,)> for TensorView<'data>
 where
     A: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: (A,)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: (A,)) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         let idx_a = index.0.into();
         self.sliced_data(&[idx_a])
     }
@@ -123,7 +123,7 @@ where
     A: Into<TensorIndexer>,
     B: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: (A, B)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: (A, B)) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         self.sliced_data(&[idx_a, idx_b])
@@ -136,7 +136,7 @@ where
     B: Into<TensorIndexer>,
     C: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: (A, B, C)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: (A, B, C)) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         let idx_c = index.2.into();
@@ -144,94 +144,18 @@ where
     }
 }
 
-// impl<A, B, C, D> IndexOp<(A, B, C, D)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d])
-//     }
-// }
-//
-// impl<A, B, C, D, E> IndexOp<(A, B, C, D, E)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-//     E: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D, E)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         let idx_e = index.4.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e])
-//     }
-// }
-//
-// impl<A, B, C, D, E, F> IndexOp<(A, B, C, D, E, F)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-//     E: Into<TensorIndexer>,
-//     F: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D, E, F)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         let idx_e = index.4.into();
-//         let idx_f = index.5.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f])
-//     }
-// }
-//
-// impl<A, B, C, D, E, F, G> IndexOp<(A, B, C, D, E, F, G)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-//     E: Into<TensorIndexer>,
-//     F: Into<TensorIndexer>,
-//     G: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D, E, F, G)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         let idx_e = index.4.into();
-//         let idx_f = index.5.into();
-//         let idx_g = index.6.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f, idx_g])
-//     }
-// }
-
 /// Iterator used to return the bits of the overall tensor buffer
 /// when client asks for a slice of the original tensor.
 #[cfg_attr(test, derive(Debug, Eq, PartialEq))]
-pub struct SliceIterator<'data> {
-    view: &'data TensorView<'data>,
+pub struct SliceIterator<'view, 'data> {
+    view: &'view TensorView<'data>,
     indices: Vec<(usize, usize)>,
     newshape: Vec<usize>,
 }
 
-impl<'data> SliceIterator<'data> {
+impl<'view, 'data> SliceIterator<'view, 'data> {
     pub(crate) fn new(
-        view: &'data TensorView<'data>,
+        view: &'view TensorView<'data>,
         slices: &[TensorIndexer],
     ) -> Result<Self, InvalidSlice> {
         // Make sure n. axis does not exceed n. of dimensions
@@ -315,6 +239,7 @@ impl<'data> SliceIterator<'data> {
         // Reversing so we can pop faster while iterating on the slice
         let indices = indices.into_iter().rev().collect();
         let newshape = newshape.into_iter().rev().collect();
+
         Ok(Self {
             view,
             indices,
@@ -336,7 +261,7 @@ impl<'data> SliceIterator<'data> {
     }
 }
 
-impl<'data> Iterator for SliceIterator<'data> {
+impl<'data> Iterator for SliceIterator<'_, 'data> {
     type Item = &'data [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
