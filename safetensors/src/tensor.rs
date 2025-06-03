@@ -65,7 +65,16 @@ impl core::fmt::Display for SafeTensorError {
 }
 
 #[cfg(not(feature = "std"))]
-impl core::error::Error for SafeTensorError {}
+impl core::error::Error for SafeTensorError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            #[cfg(feature = "std")]
+            SafeTensorError::IoError(source) => Some(source),
+            SafeTensorError::JsonError(source) => Some(source),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for SafeTensorError {}
@@ -158,10 +167,13 @@ struct PreparedData {
 pub trait View {
     /// The `Dtype` of the tensor
     fn dtype(&self) -> Dtype;
+
     /// The shape of the tensor
     fn shape(&self) -> &[usize];
+
     /// The data of the tensor
     fn data(&self) -> Cow<[u8]>;
+
     /// The length of the data, in bytes.
     /// This is necessary as this might be faster to get than `data().len()`
     /// for instance for tensors residing in GPU.
@@ -170,8 +182,7 @@ pub trait View {
 
 fn prepare<S: AsRef<str> + Ord + core::fmt::Display, V: View, I: IntoIterator<Item = (S, V)>>(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
-    // ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
+    data_info: Option<&HashMap<String, String>>,
 ) -> Result<(PreparedData, Vec<V>), SafeTensorError> {
     // Make sure we're sorting by descending dtype alignment
     // Then by name
@@ -196,8 +207,8 @@ fn prepare<S: AsRef<str> + Ord + core::fmt::Display, V: View, I: IntoIterator<It
         tensors.push(tensor);
     }
 
-    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
-    let mut metadata_buf = serde_json::to_string(&metadata)?.into_bytes();
+    let metadata: Metadata = Metadata::new(data_info.cloned(), hmetadata)?;
+    let mut metadata_buf = serde_json::to_vec(&metadata)?;
     // Force alignment to 8 bytes.
     let extra = (8 - metadata_buf.len() % 8) % 8;
     metadata_buf.extend(vec![b' '; extra]);
@@ -214,14 +225,14 @@ fn prepare<S: AsRef<str> + Ord + core::fmt::Display, V: View, I: IntoIterator<It
     ))
 }
 
-/// Serialize to an owned byte buffer the dictionnary of tensors.
+/// Serialize to an owned byte buffer the dictionary of tensors.
 pub fn serialize<
     S: AsRef<str> + Ord + core::fmt::Display,
     V: View,
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: Option<&HashMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
     let (
         PreparedData {
@@ -251,22 +262,30 @@ pub fn serialize_to_file<
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: Option<&HashMap<String, String>>,
     filename: &std::path::Path,
 ) -> Result<(), SafeTensorError> {
+    use std::io::BufWriter;
+    use std::fs::File;
+
     let (
         PreparedData {
             n, header_bytes, ..
         },
         tensors,
     ) = prepare(data, data_info)?;
-    let mut f = std::io::BufWriter::new(std::fs::File::create(filename)?);
+
+    let mut f = BufWriter::new(File::create(filename)?);
+
     f.write_all(n.to_le_bytes().as_ref())?;
     f.write_all(&header_bytes)?;
+
     for tensor in tensors {
         f.write_all(tensor.data().as_ref())?;
     }
+
     f.flush()?;
+
     Ok(())
 }
 
@@ -297,6 +316,7 @@ impl<'data> SafeTensors<'data> {
         let n: usize = u64::from_le_bytes(arr)
             .try_into()
             .map_err(|_| SafeTensorError::HeaderTooLarge)?;
+
         if n > MAX_HEADER_SIZE {
             return Err(SafeTensorError::HeaderTooLarge);
         }
@@ -304,11 +324,14 @@ impl<'data> SafeTensors<'data> {
         let stop = n
             .checked_add(8)
             .ok_or(SafeTensorError::InvalidHeaderLength)?;
+
         if stop > buffer_len {
             return Err(SafeTensorError::InvalidHeaderLength);
         }
+
         let string =
             core::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
+
         // Assert the string starts with {
         // NOTE: Add when we move to 0.4.0
         // if !string.starts_with('{') {
@@ -317,11 +340,14 @@ impl<'data> SafeTensors<'data> {
         let metadata: Metadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
         let buffer_end = metadata.validate()?;
+
         if buffer_end + 8 + n != buffer_len {
             return Err(SafeTensorError::MetadataIncompleteBuffer);
         }
+
         Ok((n, metadata))
     }
+
     /// Given a byte-buffer representing the whole safetensor file
     /// parses it and returns the Deserialized form (No Tensor allocation).
     ///
@@ -388,26 +414,26 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'data>, SafeTensorError> {
-        if let Some(index) = &self.metadata.index_map.get(tensor_name) {
-            if let Some(info) = &self.metadata.tensors.get(**index) {
-                Ok(TensorView {
-                    dtype: info.dtype,
-                    shape: info.shape.clone(),
-                    data: &self.data[info.data_offsets.0..info.data_offsets.1],
-                })
-            } else {
-                Err(SafeTensorError::TensorNotFound(tensor_name.to_string()))
-            }
-        } else {
-            Err(SafeTensorError::TensorNotFound(tensor_name.to_string()))
-        }
+        let &Some(&index) = &self.metadata.index_map.get(tensor_name) else {
+            return Err(SafeTensorError::TensorNotFound(tensor_name.to_string()));
+        };
+
+        let Some(info) = &self.metadata.tensors.get(index) else {
+            return Err(SafeTensorError::TensorNotFound(tensor_name.to_string()));
+        };
+
+        Ok(TensorView {
+            dtype: info.dtype,
+            shape: info.shape.clone(),
+            data: &self.data[info.data_offsets.0..info.data_offsets.1],
+        })
     }
 
     /// Return the names of the tensors within the SafeTensors.
     /// These are used as keys to access to the actual tensors, that can be
     /// retrieved using the tensor method.
-    pub fn names(&self) -> Vec<&'_ String> {
-        self.metadata.index_map.keys().collect()
+    pub fn names(&self) -> Vec<&str> {
+        self.metadata.index_map.keys().map(String::as_str).collect()
     }
 
     /// Return how many tensors are currently stored within the SafeTensors.
@@ -465,23 +491,23 @@ impl Serialize for Metadata {
         S: Serializer,
     {
         let mut names = vec![""; self.index_map.len()];
-        for (name, index) in &self.index_map {
-            names[*index] = name;
+
+        for (name, &index) in &self.index_map {
+            names[index] = name;
         }
 
         let tensors: Vec<_> = names.iter().zip(self.tensors.iter()).collect();
-        let length = if let Some(metadata) = &self.metadata {
-            metadata.len()
-        } else {
-            0
-        };
+        let length = self.metadata.as_ref().map_or(0, HashMap::len);
+
         let mut map = serializer.serialize_map(Some(tensors.len() + length))?;
         if let Some(metadata) = &self.metadata {
             map.serialize_entry("__metadata__", metadata)?;
         }
+
         for (name, info) in tensors {
             map.serialize_entry(&name, &info)?;
         }
+
         map.end()
     }
 }
@@ -521,18 +547,23 @@ impl Metadata {
                     .iter()
                     .find_map(|(name, &index)| if index == i { Some(&name[..]) } else { None })
                     .unwrap_or("no_tensor");
+
                 return Err(SafeTensorError::InvalidOffset(tensor_name.to_string()));
             }
+
             start = e;
+
             let nelements: usize = info
                 .shape
                 .iter()
                 .cloned()
                 .try_fold(1usize, usize::checked_mul)
                 .ok_or(SafeTensorError::ValidationOverflow)?;
+
             let nbytes = nelements
                 .checked_mul(info.dtype.size())
                 .ok_or(SafeTensorError::ValidationOverflow)?;
+
             if (e - s) != nbytes {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
@@ -562,8 +593,8 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
-    pub fn metadata(&self) -> &Option<HashMap<String, String>> {
-        &self.metadata
+    pub fn metadata(&self) -> Option<&HashMap<String, String>> {
+        self.metadata.as_ref()
     }
 }
 
@@ -830,7 +861,7 @@ mod tests {
             let data: Vec<u8> = (0..data_size(&metadata)).map(|x| x as u8).collect();
             let before = SafeTensors { metadata, data: &data };
             let tensors = before.tensors();
-            let bytes = serialize(tensors.iter().map(|(name, view)| (name.to_string(), view)), &None).unwrap();
+            let bytes = serialize(tensors.iter().map(|(name, view)| (name.to_string(), view)), None).unwrap();
 
             let after = SafeTensors::deserialize(&bytes).unwrap();
 
@@ -856,7 +887,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         assert_eq!(
             out,
             [
@@ -874,7 +905,7 @@ mod tests {
     fn test_empty() {
         let tensors: HashMap<String, TensorView> = HashMap::new();
 
-        let out = serialize(&tensors, &None).unwrap();
+        let out = serialize(&tensors, None).unwrap();
         assert_eq!(
             out,
             [8, 0, 0, 0, 0, 0, 0, 0, 123, 125, 32, 32, 32, 32, 32, 32]
@@ -886,7 +917,7 @@ mod tests {
                 .into_iter()
                 .collect(),
         );
-        let out = serialize(&tensors, &metadata).unwrap();
+        let out = serialize(&tensors, metadata.as_ref()).unwrap();
         assert_eq!(
             out,
             [
@@ -910,7 +941,7 @@ mod tests {
             // Smaller string to force misalignment compared to previous test.
             [("attn0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         assert_eq!(
             out,
             [
@@ -943,7 +974,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         let parsed = SafeTensors::deserialize(&out).unwrap();
 
         let out_buffer: Vec<u8> = parsed
@@ -1029,7 +1060,7 @@ mod tests {
 
         let filename = format!("./out_{model_id}.safetensors");
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         std::fs::write(&filename, out).unwrap();
         let raw = std::fs::read(&filename).unwrap();
         let _deserialized = SafeTensors::deserialize(&raw).unwrap();
@@ -1038,7 +1069,7 @@ mod tests {
         // File api
         #[cfg(feature = "std")]
         {
-            serialize_to_file(&metadata, &None, std::path::Path::new(&filename)).unwrap();
+            serialize_to_file(&metadata, None, std::path::Path::new(&filename)).unwrap();
             let raw = std::fs::read(&filename).unwrap();
             let _deserialized = SafeTensors::deserialize(&raw).unwrap();
             std::fs::remove_file(&filename).unwrap();

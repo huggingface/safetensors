@@ -1,6 +1,7 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
-use crate::lib::{String, ToString, Vec};
+use crate::lib::Vec;
 use crate::tensor::TensorView;
+use core::fmt::Display;
 use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
@@ -29,14 +30,13 @@ pub enum TensorIndexer {
     Select(usize),
     /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
-    //IndexSelect(Tensor),
 }
 
-fn display_bound(bound: &Bound<usize>) -> String {
+fn display_bound(bound: &Bound<usize>) -> &dyn Display {
     match bound {
-        Bound::Unbounded => "".to_string(),
-        Bound::Excluded(n) => format!("{n}"),
-        Bound::Included(n) => format!("{n}"),
+        Bound::Unbounded => &"",
+        Bound::Excluded(n) => n,
+        Bound::Included(n) => n,
     }
 }
 
@@ -59,20 +59,6 @@ impl From<usize> for TensorIndexer {
         TensorIndexer::Select(index)
     }
 }
-
-// impl From<&[usize]> for TensorIndexer {
-//     fn from(index: &[usize]) -> Self {
-//         let tensor = index.into();
-//         TensorIndexer::IndexSelect(tensor)
-//     }
-// }
-//
-// impl From<Vec<usize>> for TensorIndexer {
-//     fn from(index: Vec<usize>) -> Self {
-//         let tensor = Tensor::of_slice(&index);
-//         TensorIndexer::IndexSelect(tensor)
-//     }
-// }
 
 macro_rules! impl_from_range {
     ($range_type:ty) => {
@@ -340,7 +326,7 @@ impl<'data> SliceIterator<'data> {
     pub fn remaining_byte_len(&self) -> usize {
         self.indices
             .iter()
-            .map(|(start, stop)| (stop - start))
+            .map(|(start, stop)| stop - start)
             .sum()
     }
 
