@@ -2,7 +2,7 @@
 name = "safetensors"
 version = "0.5.3-dev.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.80"
 homepage = "https://github.com/huggingface/safetensors"
 repository = "https://github.com/huggingface/safetensors"
 documentation = "https://docs.rs/safetensors/"
@@ -22,14 +22,14 @@ exclude = [ "rust-toolchain", "target/*", "Cargo.lock"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hashbrown = { version = "0.15.2", features = ["serde"], optional = true }
+hashbrown = { version = "0.15.3", features = ["serde"], optional = true }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }
 
 [dev-dependencies]
-criterion = "0.5"
-memmap2 = "0.9"
-proptest = "1.4"
+criterion = "0.6"
+memmap2 = "0.9.5"
+proptest = "1.6"
 
 [features]
 default = ["std"]

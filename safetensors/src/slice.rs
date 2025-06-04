@@ -1,13 +1,13 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
-use crate::lib::{String, ToString, Vec};
+use crate::lib::Vec;
 use crate::tensor::TensorView;
+use core::fmt::Display;
 use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
 /// Error representing invalid slicing attempt
-#[derive(Debug)]
-#[cfg_attr(test, derive(Eq, PartialEq))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InvalidSlice {
     /// When the client asked for more slices than the tensors has dimensions
     TooManySlices,
@@ -22,6 +22,23 @@ pub enum InvalidSlice {
     },
 }
 
+impl Display for InvalidSlice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            InvalidSlice::TooManySlices => f.write_str("more slicing indexes than dimensions in tensor"),
+            InvalidSlice::SliceOutOfRange { dim_index, asked, dim_size } => {
+                write!(f, "index {asked} out of bounds for tensor dimension #{dim_index} of size {dim_size}")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidSlice {}
+
+#[cfg(not(feature = "std"))]
+impl core::error::Error for InvalidSlice {}
+
 #[derive(Debug, Clone)]
 /// Generic structure used to index a slice of the tensor
 pub enum TensorIndexer {
@@ -29,14 +46,13 @@ pub enum TensorIndexer {
     Select(usize),
     /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
-    //IndexSelect(Tensor),
 }
 
-fn display_bound(bound: &Bound<usize>) -> String {
+fn display_bound(bound: &Bound<usize>) -> &dyn Display {
     match bound {
-        Bound::Unbounded => "".to_string(),
-        Bound::Excluded(n) => format!("{n}"),
-        Bound::Included(n) => format!("{n}"),
+        Bound::Unbounded => &"",
+        Bound::Excluded(n) => n,
+        Bound::Included(n) => n,
     }
 }
 
@@ -59,20 +75,6 @@ impl From<usize> for TensorIndexer {
         TensorIndexer::Select(index)
     }
 }
-
-// impl From<&[usize]> for TensorIndexer {
-//     fn from(index: &[usize]) -> Self {
-//         let tensor = index.into();
-//         TensorIndexer::IndexSelect(tensor)
-//     }
-// }
-//
-// impl From<Vec<usize>> for TensorIndexer {
-//     fn from(index: Vec<usize>) -> Self {
-//         let tensor = Tensor::of_slice(&index);
-//         TensorIndexer::IndexSelect(tensor)
-//     }
-// }
 
 macro_rules! impl_from_range {
     ($range_type:ty) => {
@@ -110,14 +112,14 @@ impl_from_range!(RangeToInclusive<usize>);
 pub trait IndexOp<'data, T> {
     /// Returns a slicing iterator which are the chunks of data necessary to
     /// reconstruct the desired tensor.
-    fn slice(&'data self, index: T) -> Result<SliceIterator<'data>, InvalidSlice>;
+    fn slice(&self, index: T) -> Result<SliceIterator<'_, 'data>, InvalidSlice>;
 }
 
 impl<'data, A> IndexOp<'data, A> for TensorView<'data>
 where
     A: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: A) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: A) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         self.sliced_data(&[index.into()])
     }
 }
@@ -126,7 +128,7 @@ impl<'data, A> IndexOp<'data, (A,)> for TensorView<'data>
 where
     A: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: (A,)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: (A,)) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         let idx_a = index.0.into();
         self.sliced_data(&[idx_a])
     }
@@ -137,7 +139,7 @@ where
     A: Into<TensorIndexer>,
     B: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: (A, B)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: (A, B)) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         self.sliced_data(&[idx_a, idx_b])
@@ -150,7 +152,7 @@ where
     B: Into<TensorIndexer>,
     C: Into<TensorIndexer>,
 {
-    fn slice(&'data self, index: (A, B, C)) -> Result<SliceIterator<'data>, InvalidSlice> {
+    fn slice(&self, index: (A, B, C)) -> Result<SliceIterator<'_, 'data>, InvalidSlice> {
         let idx_a = index.0.into();
         let idx_b = index.1.into();
         let idx_c = index.2.into();
@@ -158,94 +160,18 @@ where
     }
 }
 
-// impl<A, B, C, D> IndexOp<(A, B, C, D)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d])
-//     }
-// }
-//
-// impl<A, B, C, D, E> IndexOp<(A, B, C, D, E)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-//     E: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D, E)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         let idx_e = index.4.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e])
-//     }
-// }
-//
-// impl<A, B, C, D, E, F> IndexOp<(A, B, C, D, E, F)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-//     E: Into<TensorIndexer>,
-//     F: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D, E, F)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         let idx_e = index.4.into();
-//         let idx_f = index.5.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f])
-//     }
-// }
-//
-// impl<A, B, C, D, E, F, G> IndexOp<(A, B, C, D, E, F, G)> for TensorView<'data>
-// where
-//     A: Into<TensorIndexer>,
-//     B: Into<TensorIndexer>,
-//     C: Into<TensorIndexer>,
-//     D: Into<TensorIndexer>,
-//     E: Into<TensorIndexer>,
-//     F: Into<TensorIndexer>,
-//     G: Into<TensorIndexer>,
-// {
-//     fn slice(&self, index: (A, B, C, D, E, F, G)) -> TensorView<'data> {
-//         let idx_a = index.0.into();
-//         let idx_b = index.1.into();
-//         let idx_c = index.2.into();
-//         let idx_d = index.3.into();
-//         let idx_e = index.4.into();
-//         let idx_f = index.5.into();
-//         let idx_g = index.6.into();
-//         self.sliced_data(&[idx_a, idx_b, idx_c, idx_d, idx_e, idx_f, idx_g])
-//     }
-// }
-
 /// Iterator used to return the bits of the overall tensor buffer
 /// when client asks for a slice of the original tensor.
 #[cfg_attr(test, derive(Debug, Eq, PartialEq))]
-pub struct SliceIterator<'data> {
-    view: &'data TensorView<'data>,
+pub struct SliceIterator<'view, 'data> {
+    view: &'view TensorView<'data>,
     indices: Vec<(usize, usize)>,
     newshape: Vec<usize>,
 }
 
-impl<'data> SliceIterator<'data> {
+impl<'view, 'data> SliceIterator<'view, 'data> {
     pub(crate) fn new(
-        view: &'data TensorView<'data>,
+        view: &'view TensorView<'data>,
         slices: &[TensorIndexer],
     ) -> Result<Self, InvalidSlice> {
         // Make sure n. axis does not exceed n. of dimensions
@@ -329,6 +255,7 @@ impl<'data> SliceIterator<'data> {
         // Reversing so we can pop faster while iterating on the slice
         let indices = indices.into_iter().rev().collect();
         let newshape = newshape.into_iter().rev().collect();
+
         Ok(Self {
             view,
             indices,
@@ -340,7 +267,7 @@ impl<'data> SliceIterator<'data> {
     pub fn remaining_byte_len(&self) -> usize {
         self.indices
             .iter()
-            .map(|(start, stop)| (stop - start))
+            .map(|(start, stop)| stop - start)
             .sum()
     }
 
@@ -350,7 +277,7 @@ impl<'data> SliceIterator<'data> {
     }
 }
 
-impl<'data> Iterator for SliceIterator<'data> {
+impl<'data> Iterator for SliceIterator<'_, 'data> {
     type Item = &'data [u8];
 
     fn next(&mut self) -> Option<Self::Item> {

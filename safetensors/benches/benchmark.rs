@@ -1,6 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use safetensors::tensor::*;
 use std::collections::HashMap;
+use std::hint::black_box;
 
 // Returns a sample data of size 2_MB
 fn get_sample_data() -> (Vec<u8>, Vec<usize>, Dtype) {
@@ -25,7 +26,7 @@ pub fn bench_serialize(c: &mut Criterion) {
 
     c.bench_function("Serialize 10_MB", |b| {
         b.iter(|| {
-            let _serialized = serialize(black_box(&metadata), black_box(&None));
+            let _serialized = black_box(serialize(black_box(&metadata), black_box(None)));
         })
     });
 }
@@ -41,11 +42,11 @@ pub fn bench_deserialize(c: &mut Criterion) {
         metadata.insert(format!("weight{i}"), tensor);
     }
 
-    let out = serialize(&metadata, &None).unwrap();
+    let out = serialize(&metadata, None).unwrap();
 
     c.bench_function("Deserialize 10_MB", |b| {
         b.iter(|| {
-            let _deserialized = SafeTensors::deserialize(black_box(&out)).unwrap();
+            let _deserialized = black_box(SafeTensors::deserialize(black_box(&out))).unwrap();
         })
     });
 }
