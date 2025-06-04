@@ -7,8 +7,7 @@ use core::ops::{
 };
 
 /// Error representing invalid slicing attempt
-#[derive(Debug)]
-#[cfg_attr(test, derive(Eq, PartialEq))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InvalidSlice {
     /// When the client asked for more slices than the tensors has dimensions
     TooManySlices,
@@ -22,6 +21,23 @@ pub enum InvalidSlice {
         dim_size: usize,
     },
 }
+
+impl Display for InvalidSlice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            InvalidSlice::TooManySlices => f.write_str("more slicing indexes than dimensions in tensor"),
+            InvalidSlice::SliceOutOfRange { dim_index, asked, dim_size } => {
+                write!(f, "index {asked} out of bounds for tensor dimension #{dim_index} of size {dim_size}")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidSlice {}
+
+#[cfg(not(feature = "std"))]
+impl core::error::Error for InvalidSlice {}
 
 #[derive(Debug, Clone)]
 /// Generic structure used to index a slice of the tensor
