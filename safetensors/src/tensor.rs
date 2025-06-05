@@ -314,8 +314,9 @@ impl<'data> SafeTensors<'data> {
         // if !string.starts_with('{') {
         //     return Err(SafeTensorError::InvalidHeaderStart);
         // }
-        let metadata: Metadata = serde_json::from_str(string)
+        let metadata: HashMetadata = serde_json::from_str(string)
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
+        let metadata: Metadata = metadata.try_into()?;
         let buffer_end = metadata.validate()?;
         if buffer_end + 8 + n != buffer_len {
             return Err(SafeTensorError::MetadataIncompleteBuffer);
@@ -442,12 +443,9 @@ struct HashMetadata {
     tensors: HashMap<String, TensorInfo>,
 }
 
-impl<'de> Deserialize<'de> for Metadata {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hashdata: HashMetadata = HashMetadata::deserialize(deserializer)?;
+impl TryFrom<HashMetadata> for Metadata {
+    type Error = SafeTensorError;
+    fn try_from(hashdata: HashMetadata) -> Result<Self, Self::Error> {
         let (metadata, tensors) = (hashdata.metadata, hashdata.tensors);
         let mut tensors: Vec<_> = tensors.into_iter().collect();
         // We need to sort by offsets
@@ -455,7 +453,19 @@ impl<'de> Deserialize<'de> for Metadata {
         // Than we expect (Not aligned ordered, but purely name ordered,
         // or actually any order).
         tensors.sort_by(|(_, left), (_, right)| left.data_offsets.cmp(&right.data_offsets));
-        Metadata::new(metadata, tensors).map_err(serde::de::Error::custom)
+        Metadata::new(metadata, tensors)
+    }
+}
+
+impl<'de> Deserialize<'de> for Metadata {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hashdata: HashMetadata = HashMetadata::deserialize(deserializer)?;
+
+        let metadata: Metadata = hashdata.try_into().map_err(serde::de::Error::custom)?;
+        Ok(metadata)
     }
 }
 
@@ -487,7 +497,9 @@ impl Serialize for Metadata {
 }
 
 impl Metadata {
-    fn new(
+    /// Creates a new metadata structure.
+    /// May fail if there is incorrect data in the Tensor Info.
+    pub fn new(
         metadata: Option<HashMap<String, String>>,
         tensors: Vec<(String, TensorInfo)>,
     ) -> Result<Self, SafeTensorError> {
@@ -507,11 +519,12 @@ impl Metadata {
             tensors,
             index_map,
         };
-        // metadata.validate()?;
+        metadata.validate()?;
         Ok(metadata)
     }
 
-    fn validate(&self) -> Result<usize, SafeTensorError> {
+    /// TODO
+    pub fn validate(&self) -> Result<usize, SafeTensorError> {
         let mut start = 0;
         for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
@@ -1249,7 +1262,7 @@ mod tests {
             Err(SafeTensorError::TensorInvalidInfo) => {
                 // Yes we have the correct error
             }
-            _ => panic!("This should not be able to be deserialized"),
+            something => panic!("This should not be able to be deserialized got {something:?}"),
         }
     }
 
