@@ -316,7 +316,6 @@ impl<'data> SafeTensors<'data> {
             .checked_add(HEADER_SIZE_LEN)
             .ok_or(SafeTensorError::InvalidHeaderLength)?;
 
-
         let Some(header_bytes) = buffer.get(HEADER_SIZE_LEN..stop) else {
             return Err(SafeTensorError::InvalidHeaderLength);
         };
