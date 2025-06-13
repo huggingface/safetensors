@@ -25,7 +25,7 @@ pub fn bench_serialize(c: &mut Criterion) {
 
     c.bench_function("Serialize 10_MB", |b| {
         b.iter(|| {
-            let _serialized = serialize(black_box(&metadata), black_box(&None));
+            let _serialized = serialize(black_box(&metadata), black_box(None));
         })
     });
 }
@@ -41,7 +41,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
         metadata.insert(format!("weight{i}"), tensor);
     }
 
-    let out = serialize(&metadata, &None).unwrap();
+    let out = serialize(&metadata, None).unwrap();
 
     c.bench_function("Deserialize 10_MB", |b| {
         b.iter(|| {
