@@ -175,7 +175,7 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
 
     for (tensor_name, tensor) in tensors {
         let pyshape: PyObject = PyList::new(py, tensor.shape().iter())?.into();
-        let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_pyobject(py)?.into();
+        let pydtype: PyObject = tensor.dtype().to_string().into_pyobject(py)?.into();
 
         let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
 
@@ -1064,7 +1064,7 @@ fn create_tensor<'a>(
                 TORCH_MODULE
                     .get()
                     .ok_or_else(|| {
-                        SafetensorError::new_err(format!("Could not find module {framework:?}",))
+                        SafetensorError::new_err(format!("Could not find module {framework}",))
                     })?
                     .bind(py),
                 false,
