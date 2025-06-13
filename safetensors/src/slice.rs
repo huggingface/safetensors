@@ -1,9 +1,10 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
-use crate::lib::{String, ToString, Vec};
+use crate::lib::Vec;
 use crate::tensor::TensorView;
 use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
+use core::fmt::Display;
 
 /// Error representing invalid slicing attempt
 #[derive(Debug)]
@@ -22,6 +23,25 @@ pub enum InvalidSlice {
     },
 }
 
+impl Display for InvalidSlice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            InvalidSlice::TooManySlices => {
+                write!(f, "more slicing indexes than dimensions in tensor")
+            }
+            InvalidSlice::SliceOutOfRange { dim_index, asked, dim_size } => {
+                write!(f, "index {asked} out of bounds for tensor dimension #{dim_index} of size {dim_size}")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidSlice {}
+
+#[cfg(not(feature = "std"))]
+impl core::error::Error for InvalidSlice {}
+
 #[derive(Debug, Clone)]
 /// Generic structure used to index a slice of the tensor
 pub enum TensorIndexer {
@@ -29,19 +49,18 @@ pub enum TensorIndexer {
     Select(usize),
     /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
-    //IndexSelect(Tensor),
 }
 
-fn display_bound(bound: &Bound<usize>) -> String {
+fn display_bound(bound: &Bound<usize>) -> &dyn Display {
     match bound {
-        Bound::Unbounded => "".to_string(),
-        Bound::Excluded(n) => format!("{n}"),
-        Bound::Included(n) => format!("{n}"),
+        Bound::Unbounded => &"",
+        Bound::Excluded(n) => n,
+        Bound::Included(n) => n,
     }
 }
 
 /// Intended for Python users mostly or at least for its conventions
-impl core::fmt::Display for TensorIndexer {
+impl Display for TensorIndexer {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TensorIndexer::Select(n) => {

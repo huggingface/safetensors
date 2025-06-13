@@ -2,6 +2,8 @@
 use crate::lib::{Cow, HashMap, String, ToString, Vec};
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use core::fmt::Display;
+use core::str::Utf8Error;
 #[cfg(feature = "std")]
 use std::io::Write;
 
@@ -12,11 +14,11 @@ const MAX_HEADER_SIZE: usize = 100_000_000;
 #[derive(Debug)]
 pub enum SafeTensorError {
     /// The header is an invalid UTF-8 string and cannot be read.
-    InvalidHeader,
+    InvalidHeader(Utf8Error),
     /// The header's first byte is not the expected `{`.
     InvalidHeaderStart,
     /// The header does contain a valid string, but it is not valid JSON.
-    InvalidHeaderDeserialization,
+    InvalidHeaderDeserialization(serde_json::Error),
     /// The header is large than 100Mo which is considered too large (Might evolve in the future).
     HeaderTooLarge,
     /// The header is smaller than 8 bytes
@@ -58,17 +60,60 @@ impl From<serde_json::Error> for SafeTensorError {
     }
 }
 
-impl core::fmt::Display for SafeTensorError {
+impl Display for SafeTensorError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{self:?}")
+        use SafeTensorError::*;
+
+        match self {
+            InvalidHeader(error) => write!(f, "invalid UTF-8 in header: {error}"),
+            InvalidHeaderStart => write!(f, "invalid start character in header, must be `{{`"),
+            InvalidHeaderDeserialization(error) => write!(f, "invalid JSON in header: {error}"),
+            JsonError(error) => write!(f, "JSON error: {error}"),
+            HeaderTooLarge => write!(f, "header too large"),
+            HeaderTooSmall => write!(f, "header too small"),
+            InvalidHeaderLength => write!(f, "invalid header length"),
+            TensorNotFound(name) => write!(f, "tensor `{name}` not found"),
+            TensorInvalidInfo => write!(f, "invalid shape, data type, or offset for tensor"),
+            InvalidOffset(name) => write!(f, "invalid offset for tensor `{name}`"),
+            #[cfg(feature = "std")]
+            IoError(error) => write!(f, "I/O error: {error}"),
+            InvalidTensorView(dtype, shape, n_bytes) => {
+                write!(f, "tensor of type {dtype} and shape (")?;
+                for (i, &dim) in shape.iter().enumerate() {
+                    write!(f, "{sep}{dim}", sep = if i == 0 { "" } else { ", " })?;
+                }
+                write!(f, ") can't be created from {n_bytes} bytes")
+            }
+            MetadataIncompleteBuffer => write!(f, "incomplete metadata, file not fully covered"),
+            ValidationOverflow => write!(f, "overflow computing buffer size from shape and/or element type"),
+        }
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl core::error::Error for SafeTensorError {}
+impl core::error::Error for SafeTensorError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            SafeTensorError::InvalidHeader(source) => Some(source),
+            SafeTensorError::JsonError(source) => Some(source),
+            SafeTensorError::InvalidHeaderDeserialization(source) => Some(source),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(feature = "std")]
-impl std::error::Error for SafeTensorError {}
+impl std::error::Error for SafeTensorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SafeTensorError::InvalidHeader(source) => Some(source),
+            SafeTensorError::JsonError(source) => Some(source),
+            SafeTensorError::InvalidHeaderDeserialization(source) => Some(source),
+            SafeTensorError::IoError(source) => Some(source),
+            _ => None,
+        }
+    }
+}
 
 struct PreparedData {
     n: u64,
@@ -308,14 +353,14 @@ impl<'data> SafeTensors<'data> {
             return Err(SafeTensorError::InvalidHeaderLength);
         }
         let string =
-            core::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
+            core::str::from_utf8(&buffer[8..stop]).map_err(SafeTensorError::InvalidHeader)?;
         // Assert the string starts with {
         // NOTE: Add when we move to 0.4.0
         // if !string.starts_with('{') {
         //     return Err(SafeTensorError::InvalidHeaderStart);
         // }
         let metadata: Metadata = serde_json::from_str(string)
-            .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
+            .map_err(SafeTensorError::InvalidHeaderDeserialization)?;
         let buffer_end = metadata.validate()?;
         if buffer_end + 8 + n != buffer_len {
             return Err(SafeTensorError::MetadataIncompleteBuffer);
@@ -723,6 +768,28 @@ impl Dtype {
             Dtype::F32 => 4,
             Dtype::F64 => 8,
         }
+    }
+}
+
+impl Display for Dtype {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match *self {
+            Dtype::BOOL => "BOOL",
+            Dtype::I8 => "I8",
+            Dtype::U8 => "U8",
+            Dtype::F8_E5M2 => "F8_E5M2",
+            Dtype::F8_E4M3 => "F8_E4M3",
+            Dtype::I16 => "I16",
+            Dtype::U16 => "U16",
+            Dtype::I32 => "I32",
+            Dtype::U32 => "U32",
+            Dtype::I64 => "I64",
+            Dtype::U64 => "U64",
+            Dtype::F16 => "F16",
+            Dtype::BF16 => "BF16",
+            Dtype::F32 => "F32",
+            Dtype::F64 => "F64",
+        })
     }
 }
 
@@ -1191,7 +1258,7 @@ mod tests {
     fn test_invalid_header_non_utf8() {
         let serialized = b"\x01\x00\x00\x00\x00\x00\x00\x00\xff";
         match SafeTensors::deserialize(serialized) {
-            Err(SafeTensorError::InvalidHeader) => {
+            Err(SafeTensorError::InvalidHeader(_)) => {
                 // Yes we have the correct error
             }
             _ => panic!("This should not be able to be deserialized"),
@@ -1202,7 +1269,7 @@ mod tests {
     fn test_invalid_header_not_json() {
         let serialized = b"\x01\x00\x00\x00\x00\x00\x00\x00{";
         match SafeTensors::deserialize(serialized) {
-            Err(SafeTensorError::InvalidHeaderDeserialization) => {
+            Err(SafeTensorError::InvalidHeaderDeserialization(_)) => {
                 // Yes we have the correct error
             }
             _ => panic!("This should not be able to be deserialized"),
