@@ -629,6 +629,15 @@ impl Metadata {
         index_vec.into_iter().map(|a| a.0.clone()).collect()
     }
 
+    /// Gives the size of the content buffer in bytes.
+    pub fn data_len(&self) -> usize {
+        if let Some(tensor) = self.tensors.last() {
+            tensor.data_offsets.1
+        } else {
+            0
+        }
+    }
+
     /// Gives back the tensor metadata
     pub fn metadata(&self) -> &Option<HashMap<String, String>> {
         &self.metadata
