@@ -119,7 +119,7 @@ fn serialize<'b>(
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<PyBound<'b, PyBytes>> {
     let tensors = prepare(tensor_dict)?;
-    let out = safetensors::tensor::serialize(&tensors, &metadata)
+    let out = safetensors::tensor::serialize(&tensors, metadata)
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
@@ -148,7 +148,7 @@ fn serialize_file(
 ) -> PyResult<()> {
     let tensors = prepare(tensor_dict)?;
 
-    safetensors::tensor::serialize_to_file(&tensors, &metadata, filename.as_path())
+    safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
 
     Ok(())

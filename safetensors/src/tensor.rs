@@ -215,8 +215,7 @@ pub trait View {
 
 fn prepare<S: AsRef<str> + Ord + core::fmt::Display, V: View, I: IntoIterator<Item = (S, V)>>(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
-    // ) -> Result<(Metadata, Vec<&'hash TensorView<'data>>, usize), SafeTensorError> {
+    data_info: Option<HashMap<String, String>>,
 ) -> Result<(PreparedData, Vec<V>), SafeTensorError> {
     // Make sure we're sorting by descending dtype alignment
     // Then by name
@@ -241,7 +240,7 @@ fn prepare<S: AsRef<str> + Ord + core::fmt::Display, V: View, I: IntoIterator<It
         tensors.push(tensor);
     }
 
-    let metadata: Metadata = Metadata::new(data_info.clone(), hmetadata)?;
+    let metadata: Metadata = Metadata::new(data_info, hmetadata)?;
     let mut metadata_buf = serde_json::to_string(&metadata)?.into_bytes();
     // Force alignment to 8 bytes.
     let extra = (8 - metadata_buf.len() % 8) % 8;
@@ -266,7 +265,7 @@ pub fn serialize<
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: Option<HashMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
     let (
         PreparedData {
@@ -296,7 +295,7 @@ pub fn serialize_to_file<
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: &Option<HashMap<String, String>>,
+    data_info: Option<HashMap<String, String>>,
     filename: &std::path::Path,
 ) -> Result<(), SafeTensorError> {
     let (
@@ -910,7 +909,7 @@ mod tests {
             let data: Vec<u8> = (0..data_size(&metadata)).map(|x| x as u8).collect();
             let before = SafeTensors { metadata, data: &data };
             let tensors = before.tensors();
-            let bytes = serialize(tensors.iter().map(|(name, view)| (name.to_string(), view)), &None).unwrap();
+            let bytes = serialize(tensors.iter().map(|(name, view)| (name.to_string(), view)), None).unwrap();
 
             let after = SafeTensors::deserialize(&bytes).unwrap();
 
@@ -936,7 +935,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         assert_eq!(
             out,
             [
@@ -954,7 +953,7 @@ mod tests {
     fn test_empty() {
         let tensors: HashMap<String, TensorView> = HashMap::new();
 
-        let out = serialize(&tensors, &None).unwrap();
+        let out = serialize(&tensors, None).unwrap();
         assert_eq!(
             out,
             [8, 0, 0, 0, 0, 0, 0, 0, 123, 125, 32, 32, 32, 32, 32, 32]
@@ -966,7 +965,7 @@ mod tests {
                 .into_iter()
                 .collect(),
         );
-        let out = serialize(&tensors, &metadata).unwrap();
+        let out = serialize(&tensors, metadata).unwrap();
         assert_eq!(
             out,
             [
@@ -990,7 +989,7 @@ mod tests {
             // Smaller string to force misalignment compared to previous test.
             [("attn0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         assert_eq!(
             out,
             [
@@ -1023,7 +1022,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         let parsed = SafeTensors::deserialize(&out).unwrap();
 
         let out_buffer: Vec<u8> = parsed
@@ -1109,7 +1108,7 @@ mod tests {
 
         let filename = format!("./out_{model_id}.safetensors");
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         std::fs::write(&filename, out).unwrap();
         let raw = std::fs::read(&filename).unwrap();
         let _deserialized = SafeTensors::deserialize(&raw).unwrap();
@@ -1118,7 +1117,7 @@ mod tests {
         // File api
         #[cfg(feature = "std")]
         {
-            serialize_to_file(&metadata, &None, std::path::Path::new(&filename)).unwrap();
+            serialize_to_file(&metadata, None, std::path::Path::new(&filename)).unwrap();
             let raw = std::fs::read(&filename).unwrap();
             let _deserialized = SafeTensors::deserialize(&raw).unwrap();
             std::fs::remove_file(&filename).unwrap();
