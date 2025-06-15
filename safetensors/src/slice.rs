@@ -1,10 +1,10 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
 use crate::lib::Vec;
 use crate::tensor::TensorView;
+use core::fmt::Display;
 use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
-use core::fmt::Display;
 
 /// Error representing invalid slicing attempt
 #[derive(Debug)]
@@ -32,8 +32,15 @@ impl Display for InvalidSlice {
             InvalidSlice::TooManySlices => {
                 write!(f, "more slicing indexes than dimensions in tensor")
             }
-            InvalidSlice::SliceOutOfRange { dim_index, asked, dim_size } => {
+            InvalidSlice::SliceOutOfRange {
+                dim_index,
+                asked,
+                dim_size,
+            } => {
                 write!(f, "index {asked} out of bounds for tensor dimension #{dim_index} of size {dim_size}")
+            }
+            InvalidSlice::MisalignedSlice => {
+                write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid.")
             }
         }
     }

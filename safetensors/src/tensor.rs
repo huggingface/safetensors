@@ -1,9 +1,9 @@
 //! Module Containing the most important structures
 use crate::lib::{Cow, HashMap, String, ToString, Vec};
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
-use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 use core::fmt::Display;
 use core::str::Utf8Error;
+use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
 use std::io::Write;
 
@@ -89,6 +89,7 @@ impl Display for SafeTensorError {
             }
             MetadataIncompleteBuffer => write!(f, "incomplete metadata, file not fully covered"),
             ValidationOverflow => write!(f, "overflow computing buffer size from shape and/or element type"),
+            MisalignedSlice => write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid.")
         }
     }
 }
@@ -361,8 +362,8 @@ impl<'data> SafeTensors<'data> {
         // if !string.starts_with('{') {
         //     return Err(SafeTensorError::InvalidHeaderStart);
         // }
-        let metadata: HashMetadata = serde_json::from_str(string)
-            .map_err(SafeTensorError::InvalidHeaderDeserialization)?;
+        let metadata: HashMetadata =
+            serde_json::from_str(string).map_err(SafeTensorError::InvalidHeaderDeserialization)?;
         let metadata: Metadata = metadata.try_into()?;
         let buffer_end = metadata.validate()?;
         if buffer_end + 8 + n != buffer_len {
@@ -750,8 +751,6 @@ pub enum Dtype {
     /// MXF6 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
     #[allow(non_camel_case_types)]
     F6_E3M2,
-    /// E8M0 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
-    E8M0,
     /// Unsigned byte
     U8,
     /// Signed byte
@@ -762,6 +761,9 @@ pub enum Dtype {
     /// FP8 <https://arxiv.org/pdf/2209.05433.pdf>_
     #[allow(non_camel_case_types)]
     F8_E4M3,
+    /// F8_E8M0 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
+    #[allow(non_camel_case_types)]
+    F8_E8M0,
     /// Signed integer (16-bit)
     I16,
     /// Unsigned integer (16-bit)
@@ -791,12 +793,12 @@ impl Dtype {
             Dtype::F4 => 4,
             Dtype::F6_E3M2 => 6,
             Dtype::F6_E2M3 => 6,
-            Dtype::E8M0 => 8,
             Dtype::BOOL => 8,
             Dtype::U8 => 8,
             Dtype::I8 => 8,
             Dtype::F8_E5M2 => 8,
             Dtype::F8_E4M3 => 8,
+            Dtype::F8_E8M0 => 8,
             Dtype::I16 => 16,
             Dtype::U16 => 16,
             Dtype::I32 => 32,
@@ -822,11 +824,15 @@ impl Dtype {
 impl Display for Dtype {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match *self {
+            Dtype::F4 => "F4",
+            Dtype::F6_E2M3 => "F6_E2M3",
+            Dtype::F6_E3M2 => "F6_E3M2",
             Dtype::BOOL => "BOOL",
             Dtype::I8 => "I8",
             Dtype::U8 => "U8",
             Dtype::F8_E5M2 => "F8_E5M2",
             Dtype::F8_E4M3 => "F8_E4M3",
+            Dtype::F8_E8M0 => "F8_E8M0",
             Dtype::I16 => "I16",
             Dtype::U16 => "U16",
             Dtype::I32 => "I32",
@@ -1006,7 +1012,7 @@ mod tests {
         let metadata: HashMap<String, TensorView> =
             [("attn.0".to_string(), attn_0)].into_iter().collect();
 
-        let out = serialize(&metadata, &None).unwrap();
+        let out = serialize(&metadata, None).unwrap();
         assert_eq!(
             out,
             [
