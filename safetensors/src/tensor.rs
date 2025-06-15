@@ -7,7 +7,7 @@ use core::fmt::Display;
 use std::io::Write;
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
-const HEADER_SIZE_LEN: usize = size_of::<u64>();
+const SIZEOF_HEADER_SIZE_NUMBER: usize = size_of::<u64>();
 
 /// Possible errors that could occur while reading
 /// A Safetensor file.
@@ -179,11 +179,13 @@ where
     V: View,
     I: IntoIterator<Item = (S, V)>,
 {
-    // Make sure we're sorting by descending dtype alignment
-    // Then by name
+    // Make sure we're sorting by descending dtype alignment,
+    // then by name. We don't want to just compare the size of
+    // the left and right dtypes because we do want to maintain
+    // a total order.
     let mut data: Vec<_> = data.into_iter().collect();
     data.sort_by(|(lname, left), (rname, right)| {
-        right.dtype().size().cmp(&left.dtype().size()).then(lname.cmp(rname))
+        right.dtype().cmp(&left.dtype()).then(lname.cmp(rname))
     });
 
     let mut tensors: Vec<V> = Vec::with_capacity(data.len());
@@ -206,7 +208,7 @@ where
     let mut metadata_buf = serde_json::to_vec(&metadata)?;
 
     // Force alignment to 8 bytes.
-    let aligned_metadata_len = metadata_buf.len().next_multiple_of(HEADER_SIZE_LEN);
+    let aligned_metadata_len = metadata_buf.len().next_multiple_of(SIZEOF_HEADER_SIZE_NUMBER);
     metadata_buf.resize(aligned_metadata_len, b' ');
 
     Ok((
@@ -237,7 +239,7 @@ pub fn serialize<
         tensors,
     ) = prepare(data, data_info)?;
 
-    let expected_size = HEADER_SIZE_LEN + header_bytes.len() + offset;
+    let expected_size = SIZEOF_HEADER_SIZE_NUMBER + header_bytes.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
     buffer.extend(n.to_le_bytes());
     buffer.extend(header_bytes);
@@ -298,12 +300,12 @@ impl<'data> SafeTensors<'data> {
         buffer: &'data [u8],
     ) -> Result<(usize, Metadata), SafeTensorError>{
         let buffer_len = buffer.len();
-        let Some(header_size_bytes) = buffer.get(..HEADER_SIZE_LEN) else {
+        let Some(header_size_bytes) = buffer.get(..SIZEOF_HEADER_SIZE_NUMBER) else {
             return Err(SafeTensorError::HeaderTooSmall);
         };
-        let arr: [u8; HEADER_SIZE_LEN] = header_size_bytes
+        let arr: [u8; SIZEOF_HEADER_SIZE_NUMBER] = header_size_bytes
             .try_into()
-            .map_err(|_| SafeTensorError::InvalidHeaderLength)?;
+            .expect("this can't fail due to how `header_size_bytes` is defined above");
         let n: usize = u64::from_le_bytes(arr)
             .try_into()
             .map_err(|_| SafeTensorError::HeaderTooLarge)?;
@@ -313,10 +315,12 @@ impl<'data> SafeTensors<'data> {
         }
 
         let stop = n
-            .checked_add(HEADER_SIZE_LEN)
+            .checked_add(SIZEOF_HEADER_SIZE_NUMBER)
             .ok_or(SafeTensorError::InvalidHeaderLength)?;
 
-        let Some(header_bytes) = buffer.get(HEADER_SIZE_LEN..stop) else {
+        // the `.get(start..stop)` returns None if either index is out of bounds,
+        // so this implicitly also ensures that `stop <= buffer.len()`.
+        let Some(header_bytes) = buffer.get(SIZEOF_HEADER_SIZE_NUMBER..stop) else {
             return Err(SafeTensorError::InvalidHeaderLength);
         };
         let string = core::str::from_utf8(header_bytes).map_err(|_| SafeTensorError::InvalidHeader)?;
@@ -330,7 +334,7 @@ impl<'data> SafeTensors<'data> {
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
 
         let buffer_end = metadata.validate()?;
-        if buffer_end + HEADER_SIZE_LEN + n != buffer_len {
+        if buffer_end + SIZEOF_HEADER_SIZE_NUMBER + n != buffer_len {
             return Err(SafeTensorError::MetadataIncompleteBuffer);
         }
 
@@ -358,7 +362,7 @@ impl<'data> SafeTensors<'data> {
     /// ```
     pub fn deserialize(buffer: &'data [u8]) -> Result<Self, SafeTensorError> {
         let (n, metadata) = SafeTensors::read_metadata(buffer)?;
-        let data = &buffer[HEADER_SIZE_LEN + n..];
+        let data = &buffer[SIZEOF_HEADER_SIZE_NUMBER + n..];
         Ok(Self { metadata, data })
     }
 
@@ -400,13 +404,13 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'data>, SafeTensorError> {
-        let &Some(&index) = &self.metadata.index_map.get(tensor_name) else {
-            return Err(SafeTensorError::TensorNotFound(tensor_name.to_string()));
-        };
+        let &index = self.metadata.index_map.get(tensor_name).ok_or_else(
+            || SafeTensorError::TensorNotFound(tensor_name.to_string())
+        )?;
 
-        let Some(info) = &self.metadata.tensors.get(index) else {
-            return Err(SafeTensorError::TensorNotFound(tensor_name.to_string()));
-        };
+        let info = self.metadata.tensors.get(index).ok_or_else(
+            || SafeTensorError::TensorNotFound(tensor_name.to_string())
+        )?;
 
         Ok(TensorView {
             dtype: info.dtype,
@@ -517,6 +521,7 @@ impl Metadata {
             tensors,
             index_map,
         };
+        // metadata.validate()?;
 
         Ok(metadata)
     }
@@ -863,7 +868,7 @@ mod tests {
     fn test_serialization() {
         let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
             .into_iter()
-            .flat_map(f32::to_le_bytes)
+            .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 2, 3];
         let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
@@ -916,7 +921,7 @@ mod tests {
     fn test_serialization_forced_alignement() {
         let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
             .into_iter()
-            .flat_map(f32::to_le_bytes)
+            .flat_map(|f| f.to_le_bytes())
             .collect();
         let shape = vec![1, 1, 2, 3];
         let attn_0 = TensorView::new(Dtype::F32, shape, &data).unwrap();
@@ -947,7 +952,7 @@ mod tests {
     fn test_slicing() {
         let data: Vec<u8> = vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0]
             .into_iter()
-            .flat_map(f32::to_le_bytes)
+            .flat_map(|f| f.to_le_bytes())
             .collect();
         let attn_0 = TensorView {
             dtype: Dtype::F32,
@@ -972,7 +977,7 @@ mod tests {
             out_buffer,
             vec![0.0f32, 1.0, 2.0]
                 .into_iter()
-                .flat_map(f32::to_le_bytes)
+                .flat_map(|f| f.to_le_bytes())
                 .collect::<Vec<_>>()
         );
         let out_buffer: Vec<u8> = parsed
@@ -987,7 +992,7 @@ mod tests {
             out_buffer,
             vec![0.0f32, 3.0]
                 .into_iter()
-                .flat_map(f32::to_le_bytes)
+                .flat_map(|f| f.to_le_bytes())
                 .collect::<Vec<_>>()
         );
     }
