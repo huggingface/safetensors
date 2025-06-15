@@ -1,9 +1,9 @@
 //! Module Containing the most important structures
 use crate::lib::{Cow, HashMap, String, ToString, Vec};
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
-use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 use core::fmt::Display;
 use core::str::Utf8Error;
+use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
 use std::io::Write;
 
@@ -45,6 +45,9 @@ pub enum SafeTensorError {
     /// The metadata contains information (shape or shape * dtype size) which lead to an
     /// arithmetic overflow. This is most likely an error in the file.
     ValidationOverflow,
+    /// For smaller than 1 byte dtypes, some slices will happen outside of the byte boundary, some special care has to be taken
+    /// and standard functions will fail
+    MisalignedSlice,
 }
 
 #[cfg(feature = "std")]
@@ -86,6 +89,7 @@ impl Display for SafeTensorError {
             }
             MetadataIncompleteBuffer => write!(f, "incomplete metadata, file not fully covered"),
             ValidationOverflow => write!(f, "overflow computing buffer size from shape and/or element type"),
+            MisalignedSlice => write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid.")
         }
     }
 }
@@ -358,8 +362,8 @@ impl<'data> SafeTensors<'data> {
         // if !string.starts_with('{') {
         //     return Err(SafeTensorError::InvalidHeaderStart);
         // }
-        let metadata: HashMetadata = serde_json::from_str(string)
-            .map_err(SafeTensorError::InvalidHeaderDeserialization)?;
+        let metadata: HashMetadata =
+            serde_json::from_str(string).map_err(SafeTensorError::InvalidHeaderDeserialization)?;
         let metadata: Metadata = metadata.try_into()?;
         let buffer_end = metadata.validate()?;
         if buffer_end + 8 + n != buffer_len {
@@ -587,10 +591,17 @@ impl Metadata {
                 .cloned()
                 .try_fold(1usize, usize::checked_mul)
                 .ok_or(SafeTensorError::ValidationOverflow)?;
-            let nbytes = nelements
-                .checked_mul(info.dtype.size())
+            let nbits = nelements
+                .checked_mul(info.dtype.bitsize())
                 .ok_or(SafeTensorError::ValidationOverflow)?;
-            if (e - s) != nbytes {
+
+            if nbits % 8 != 0 {
+                return Err(SafeTensorError::MisalignedSlice);
+            }
+            let size = nbits
+                .checked_div(8)
+                .ok_or(SafeTensorError::ValidationOverflow)?;
+            if (e - s) != size {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
         }
@@ -679,7 +690,11 @@ impl<'data> TensorView<'data> {
     ) -> Result<Self, SafeTensorError> {
         let n = data.len();
         let n_elements: usize = shape.iter().product();
-        if n != n_elements * dtype.size() {
+        let size = (n_elements * dtype.bitsize())
+            .checked_div(8)
+            .ok_or(SafeTensorError::ValidationOverflow)?;
+
+        if n != size {
             Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
         } else {
             Ok(Self { dtype, shape, data })
@@ -728,6 +743,14 @@ pub struct TensorInfo {
 pub enum Dtype {
     /// Boolan type
     BOOL,
+    /// MXF4 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
+    F4,
+    /// MXF6 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
+    #[allow(non_camel_case_types)]
+    F6_E2M3,
+    /// MXF6 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
+    #[allow(non_camel_case_types)]
+    F6_E3M2,
     /// Unsigned byte
     U8,
     /// Signed byte
@@ -738,6 +761,9 @@ pub enum Dtype {
     /// FP8 <https://arxiv.org/pdf/2209.05433.pdf>_
     #[allow(non_camel_case_types)]
     F8_E4M3,
+    /// F8_E8M0 <https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf>_
+    #[allow(non_camel_case_types)]
+    F8_E8M0,
     /// Signed integer (16-bit)
     I16,
     /// Unsigned integer (16-bit)
@@ -761,36 +787,52 @@ pub enum Dtype {
 }
 
 impl Dtype {
-    /// Gives out the size (in bytes) of 1 element of this dtype.
-    pub fn size(&self) -> usize {
+    /// Gives out the size (in bits) of 1 element of this dtype.
+    pub fn bitsize(&self) -> usize {
         match self {
-            Dtype::BOOL => 1,
-            Dtype::U8 => 1,
-            Dtype::I8 => 1,
-            Dtype::F8_E5M2 => 1,
-            Dtype::F8_E4M3 => 1,
-            Dtype::I16 => 2,
-            Dtype::U16 => 2,
-            Dtype::I32 => 4,
-            Dtype::U32 => 4,
-            Dtype::I64 => 8,
-            Dtype::U64 => 8,
-            Dtype::F16 => 2,
-            Dtype::BF16 => 2,
-            Dtype::F32 => 4,
-            Dtype::F64 => 8,
+            Dtype::F4 => 4,
+            Dtype::F6_E3M2 => 6,
+            Dtype::F6_E2M3 => 6,
+            Dtype::BOOL => 8,
+            Dtype::U8 => 8,
+            Dtype::I8 => 8,
+            Dtype::F8_E5M2 => 8,
+            Dtype::F8_E4M3 => 8,
+            Dtype::F8_E8M0 => 8,
+            Dtype::I16 => 16,
+            Dtype::U16 => 16,
+            Dtype::I32 => 32,
+            Dtype::U32 => 32,
+            Dtype::I64 => 64,
+            Dtype::U64 => 64,
+            Dtype::F16 => 16,
+            Dtype::BF16 => 16,
+            Dtype::F32 => 32,
+            Dtype::F64 => 64,
         }
+    }
+    /// Gives out the size (in bytes) of 1 element of this dtype.
+    #[deprecated(
+        since = "0.6.0",
+        note = "Use `bitsize` instead as some elements have smaller than a full byte of width"
+    )]
+    pub fn size(&self) -> usize {
+        self.bitsize() / 8
     }
 }
 
 impl Display for Dtype {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match *self {
+            Dtype::F4 => "F4",
+            Dtype::F6_E2M3 => "F6_E2M3",
+            Dtype::F6_E3M2 => "F6_E3M2",
             Dtype::BOOL => "BOOL",
             Dtype::I8 => "I8",
             Dtype::U8 => "U8",
             Dtype::F8_E5M2 => "F8_E5M2",
             Dtype::F8_E4M3 => "F8_E4M3",
+            Dtype::F8_E8M0 => "F8_E8M0",
             Dtype::I16 => "I16",
             Dtype::U16 => "U16",
             Dtype::I32 => "I32",
@@ -821,6 +863,11 @@ mod tests {
     fn arbitrary_dtype() -> impl Strategy<Value = Dtype> {
         prop_oneof![
             Just(Dtype::BOOL),
+            Just(Dtype::F4),
+            Just(Dtype::F6_E3M2),
+            Just(Dtype::F6_E2M3),
+            Just(Dtype::F8_E5M2),
+            Just(Dtype::F8_E4M3),
             Just(Dtype::U8),
             Just(Dtype::I8),
             Just(Dtype::I16),
@@ -851,33 +898,41 @@ mod tests {
                     prop::collection::vec(arbitrary_shape(), size),
                 )
             })
-            .prop_map(|(dtypes, shapes)| {
+            .prop_filter_map("Misaligned slices", |(dtypes, shapes)| {
                 // Returns a valid metadata object for a random (length, dtypes, shapes) triple.
                 let mut start = 0;
                 let tensors: Vec<TensorInfo> = dtypes
                     .iter()
                     .zip(shapes)
-                    .map(|(dtype, shape)| {
+                    .flat_map(|(dtype, shape)| {
                         // This cannot overflow because the size of
                         // the vector and elements are so small.
-                        let length: usize = shape.iter().product();
-                        let end = start + length * dtype.size();
+                        let bitlength: usize = shape.iter().product::<usize>() * dtype.bitsize();
+                        if bitlength % 8 != 0 {
+                            return None;
+                        }
+                        let length = bitlength.div_ceil(8);
+                        let end = start + length;
                         let tensor = TensorInfo {
                             dtype: *dtype,
                             shape,
                             data_offsets: (start, end),
                         };
                         start = end;
-                        tensor
+                        Some(tensor)
                     })
                     .collect();
                 let index_map = (0..tensors.len())
                     .map(|index| (format!("t.{index}"), index))
                     .collect();
-                Metadata {
-                    metadata: None,
-                    tensors,
-                    index_map,
+                if tensors.is_empty() {
+                    None
+                } else {
+                    Some(Metadata {
+                        metadata: None,
+                        tensors,
+                        index_map,
+                    })
                 }
             })
     }
@@ -918,7 +973,7 @@ mod tests {
             for name in before.names() {
                 let tensor_before = before.tensor(name).unwrap();
                 let tensor_after = after.tensor(name).unwrap();
-                assert_eq!(tensor_after.data().as_ptr() as usize % tensor_after.dtype().size(), 0);
+                assert_eq!(tensor_after.data().as_ptr() as usize % tensor_after.dtype().bitsize().div_ceil(8), 0);
                 assert_eq!(tensor_before, tensor_after);
             }
         }
@@ -947,6 +1002,40 @@ mod tests {
             ]
         );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_serialization_fp4() {
+        let data: Vec<u8> = vec![0u8];
+        let shape = vec![1, 2];
+        let attn_0 = TensorView::new(Dtype::F4, shape, &data).unwrap();
+        let metadata: HashMap<String, TensorView> =
+            [("attn.0".to_string(), attn_0)].into_iter().collect();
+
+        let out = serialize(&metadata, None).unwrap();
+        assert_eq!(
+            out,
+            [
+                64, 0, 0, 0, 0, 0, 0, 0, 123, 34, 97, 116, 116, 110, 46, 48, 34, 58, 123, 34, 100,
+                116, 121, 112, 101, 34, 58, 34, 70, 52, 34, 44, 34, 115, 104, 97, 112, 101, 34, 58,
+                91, 49, 44, 50, 93, 44, 34, 100, 97, 116, 97, 95, 111, 102, 102, 115, 101, 116,
+                115, 34, 58, 91, 48, 44, 49, 93, 125, 125, 32, 32, 32, 32, 0
+            ]
+        );
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+        let tensors: HashMap<_, _> = parsed.tensors().into_iter().collect();
+        assert_eq!(tensors, metadata);
+    }
+
+    #[test]
+    fn test_serialization_fp4_misaligned() {
+        let data: Vec<u8> = vec![0u8, 1u8];
+        let shape = vec![1, 3];
+        let attn_0 = TensorView::new(Dtype::F4, shape, &data);
+        assert!(matches!(
+            attn_0,
+            Err(SafeTensorError::InvalidTensorView(Dtype::F4, _shape, _size))
+        ));
     }
 
     #[test]
@@ -1005,7 +1094,10 @@ mod tests {
         );
         let parsed = SafeTensors::deserialize(&out).unwrap();
         let tensor = parsed.tensor("attn0").unwrap();
-        assert_eq!(tensor.data().as_ptr() as usize % tensor.dtype().size(), 0);
+        assert_eq!(
+            tensor.data().as_ptr() as usize % tensor.dtype().bitsize().div_ceil(8),
+            0
+        );
     }
 
     #[test]
@@ -1090,17 +1182,24 @@ mod tests {
         tensors_desc.push(("ln_f.bias".to_string(), vec![768]));
 
         let dtype = Dtype::F32;
-        let n: usize = tensors_desc
+        let nbits: usize = tensors_desc
             .iter()
             .map(|(_, shape)| shape.iter().product::<usize>())
             .sum::<usize>()
-            * dtype.size(); // 4
+            * dtype.bitsize();
+        if nbits % 8 != 0 {
+            panic!("Misaligned slice");
+        }
+        let n = nbits
+            .checked_div(8)
+            .ok_or(SafeTensorError::ValidationOverflow)
+            .unwrap(); // 4
         let all_data = vec![0; n];
         let mut metadata = HashMap::with_capacity(tensors_desc.len());
         let mut offset = 0;
         for (name, shape) in tensors_desc {
             let n: usize = shape.iter().product();
-            let buffer = &all_data[offset..offset + n * dtype.size()];
+            let buffer = &all_data[offset..offset + (n * dtype.bitsize()) / 8];
             let tensor = TensorView::new(dtype, shape, buffer).unwrap();
             metadata.insert(name, tensor);
             offset += n;

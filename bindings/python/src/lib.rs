@@ -50,20 +50,20 @@ impl View for &PyView<'_> {
 fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in tensor_dict {
-        let shape: Vec<usize> = tensor_desc
+        let mut shape: Vec<usize> = tensor_desc
             .get_item("shape")?
             .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
             .extract()?;
-        let pydata: PyBound<PyAny> = tensor_desc.get_item("data")?.ok_or_else(|| {
-            SafetensorError::new_err(format!("Missing `data` in {tensor_desc}"))
-        })?;
+        let pydata: PyBound<PyAny> = tensor_desc
+            .get_item("data")?
+            .ok_or_else(|| SafetensorError::new_err(format!("Missing `data` in {tensor_desc}")))?;
         // Make sure it's extractable first.
         let data: &[u8] = pydata.extract()?;
         let data_len = data.len();
         let data: PyBound<PyBytes> = pydata.extract()?;
-        let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
-            SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}"))
-        })?;
+        let pydtype = tensor_desc
+            .get_item("dtype")?
+            .ok_or_else(|| SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}")))?;
         let dtype: String = pydtype.extract()?;
         let dtype = match dtype.as_ref() {
             "bool" => Dtype::BOOL,
@@ -81,12 +81,19 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
             "bfloat16" => Dtype::BF16,
             "float8_e4m3fn" => Dtype::F8_E4M3,
             "float8_e5m2" => Dtype::F8_E5M2,
+            "float8_e8m0fnu" => Dtype::F8_E8M0,
+            "float4_e2m1fn_x2" => Dtype::F4,
             dtype_str => {
                 return Err(SafetensorError::new_err(format!(
                     "dtype {dtype_str} is not covered",
                 )));
             }
         };
+
+        if dtype == Dtype::F4 {
+            let n = shape.len();
+            shape[n - 1] *= 2;
+        }
 
         let tensor = PyView {
             shape,
@@ -286,7 +293,6 @@ enum Device {
     Anonymous(usize),
 }
 
-
 impl fmt::Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -351,7 +357,9 @@ impl<'py> IntoPyObject<'py> for Device {
     type Error = std::convert::Infallible;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.to_string().into_pyobject(py).map(pyo3::BoundObject::into_any)
+        self.to_string()
+            .into_pyobject(py)
+            .map(pyo3::BoundObject::into_any)
     }
 }
 
@@ -417,7 +425,10 @@ struct Open {
 impl Open {
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
         let file = File::open(&filename).map_err(|_| {
-            PyFileNotFoundError::new_err(format!("No such file or directory: {}", filename.display()))
+            PyFileNotFoundError::new_err(format!(
+                "No such file or directory: {}",
+                filename.display()
+            ))
         })?;
         let device = device.unwrap_or(Device::Cpu);
 
@@ -466,7 +477,10 @@ impl Open {
                     let py_filename: PyObject = filename
                         .to_str()
                         .ok_or_else(|| {
-                            SafetensorError::new_err(format!("Path {} is not valid UTF-8", filename.display()))
+                            SafetensorError::new_err(format!(
+                                "Path {} is not valid UTF-8",
+                                filename.display()
+                            ))
                         })?
                         .into_pyobject(py)?
                         .into();
@@ -596,7 +610,16 @@ impl Open {
                     ]
                     .into_py_dict(py)?;
                     let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                    let shape = info.shape.to_vec();
+                    let mut shape = info.shape.to_vec();
+                    if info.dtype == Dtype::F4 {
+                        let n = shape.len();
+                        if shape[n - 1] % 2 != 0 {
+                            return Err(SafetensorError::new_err(format!(
+                    "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
+                )));
+                        }
+                        shape[n - 1] /= 2;
+                    }
                     let shape: PyObject = shape.into_pyobject(py)?.into();
 
                     let start = (info.data_offsets.0 + self.offset) as isize;
@@ -627,6 +650,7 @@ impl Open {
                             Dtype::BF16 => Some(Dtype::F16),
                             Dtype::F8_E5M2 => Some(Dtype::U8),
                             Dtype::F8_E4M3 => Some(Dtype::U8),
+                            Dtype::F8_E8M0 => Some(Dtype::U8),
                             _ => None,
                         };
                         if let Some(intermediary_dtype) = intermediary_dtype {
@@ -999,6 +1023,7 @@ impl PySafeSlice {
                         Dtype::BF16 => Some(Dtype::F16),
                         Dtype::F8_E5M2 => Some(Dtype::U8),
                         Dtype::F8_E4M3 => Some(Dtype::U8),
+                        Dtype::F8_E8M0 => Some(Dtype::U8),
                         _ => None,
                     };
                     if let Some(intermediary_dtype) = intermediary_dtype {
@@ -1087,9 +1112,7 @@ fn create_tensor<'a>(
                     NUMPY_MODULE
                         .get()
                         .ok_or_else(|| {
-                            SafetensorError::new_err(
-                                format!("Could not find module {framework}",),
-                            )
+                            SafetensorError::new_err(format!("Could not find module {framework}",))
                         })?
                         .bind(py),
                     true,
@@ -1208,6 +1231,8 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
             }
             Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
             Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
+            Dtype::F8_E8M0 => module.getattr(intern!(py, "float8_e8m0fnu"))?.into(),
+            Dtype::F4 => module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
                     "Dtype not understood: {dtype}"
