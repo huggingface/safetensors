@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1749982274995,
+  "lastUpdate": 1749982479446,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -21072,6 +21072,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00587039678242324",
             "extra": "mean: 278.76179200000024 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa6a19c6438ab60085417d6acba4f5fa29f4c859",
+          "message": "Bumping version because of breaking changes. (#619)",
+          "timestamp": "2025-06-15T12:12:27+02:00",
+          "tree_id": "ccf45ede3824e28df9762262cbb53588c363b6e9",
+          "url": "https://github.com/huggingface/safetensors/commit/fa6a19c6438ab60085417d6acba4f5fa29f4c859"
+        },
+        "date": 1749982478161,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.3362523922313287,
+            "unit": "iter/sec",
+            "range": "stddev: 0.041740862054941645",
+            "extra": "mean: 428.0359448000013 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.8361437477391367,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008291473799731167",
+            "extra": "mean: 260.6784484000002 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 5.966681667699912,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001845483233468958",
+            "extra": "mean: 167.5973440000007 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 5.663170920566317,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006385128298221041",
+            "extra": "mean: 176.57951950000475 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 9.163943899328556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018490186460312181",
+            "extra": "mean: 109.12332190000313 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 276.62454748248183,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008552746672082494",
+            "extra": "mean: 3.615008172994222 msec\nrounds: 237"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.616828023617893,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0029237601770234815",
+            "extra": "mean: 86.08201808332912 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 56.08309209742651,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0013784079930896304",
+            "extra": "mean: 17.83068590909393 msec\nrounds: 55"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.211769520672393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015919753417077208",
+            "extra": "mean: 311.3548446000095 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.214524214072829,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013050342822829554",
+            "extra": "mean: 311.0880284000075 msec\nrounds: 5"
           }
         ]
       }
