@@ -499,6 +499,7 @@ impl Serialize for Metadata {
 impl Metadata {
     /// Creates a new metadata structure.
     /// May fail if there is incorrect data in the Tensor Info.
+    /// Notably the tensors need to be ordered by increasing data_offsets.
     pub fn new(
         metadata: Option<HashMap<String, String>>,
         tensors: Vec<(String, TensorInfo)>,
@@ -523,8 +524,7 @@ impl Metadata {
         Ok(metadata)
     }
 
-    /// TODO
-    pub fn validate(&self) -> Result<usize, SafeTensorError> {
+    fn validate(&self) -> Result<usize, SafeTensorError> {
         let mut start = 0;
         for (i, info) in self.tensors.iter().enumerate() {
             let (s, e) = info.data_offsets;
