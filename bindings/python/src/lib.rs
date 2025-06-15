@@ -49,20 +49,20 @@ impl View for &PyView<'_> {
 
 fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
-    for (tensor_name, tensor_desc) in &tensor_dict {
+    for (tensor_name, tensor_desc) in tensor_dict {
         let shape: Vec<usize> = tensor_desc
             .get_item("shape")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc:?}")))?
+            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
             .extract()?;
         let pydata: PyBound<PyAny> = tensor_desc.get_item("data")?.ok_or_else(|| {
-            SafetensorError::new_err(format!("Missing `data` in {tensor_desc:?}"))
+            SafetensorError::new_err(format!("Missing `data` in {tensor_desc}"))
         })?;
         // Make sure it's extractable first.
         let data: &[u8] = pydata.extract()?;
         let data_len = data.len();
         let data: PyBound<PyBytes> = pydata.extract()?;
         let pydtype = tensor_desc.get_item("dtype")?.ok_or_else(|| {
-            SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc:?}"))
+            SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}"))
         })?;
         let dtype: String = pydtype.extract()?;
         let dtype = match dtype.as_ref() {
@@ -94,7 +94,7 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
             data,
             data_len,
         };
-        tensors.insert(tensor_name.to_string(), tensor);
+        tensors.insert(tensor_name, tensor);
     }
     Ok(tensors)
 }
@@ -120,7 +120,7 @@ fn serialize<'b>(
 ) -> PyResult<PyBound<'b, PyBytes>> {
     let tensors = prepare(tensor_dict)?;
     let out = safetensors::tensor::serialize(&tensors, metadata)
-        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
 }
@@ -149,7 +149,7 @@ fn serialize_file(
     let tensors = prepare(tensor_dict)?;
 
     safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
-        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e:?}")))?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
 
     Ok(())
 }
@@ -168,14 +168,14 @@ fn serialize_file(
 #[pyo3(signature = (bytes))]
 fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let safetensor = SafeTensors::deserialize(bytes)
-        .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e:?}")))?;
+        .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e}")))?;
 
     let tensors = safetensor.tensors();
     let mut items = Vec::with_capacity(tensors.len());
 
     for (tensor_name, tensor) in tensors {
         let pyshape: PyObject = PyList::new(py, tensor.shape().iter())?.into();
-        let pydtype: PyObject = format!("{:?}", tensor.dtype()).into_pyobject(py)?.into();
+        let pydtype: PyObject = tensor.dtype().to_string().into_pyobject(py)?.into();
 
         let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
 
@@ -235,6 +235,18 @@ enum Framework {
     Mlx,
 }
 
+impl fmt::Display for Framework {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            Framework::Pytorch => "pytorch",
+            Framework::Numpy => "numpy",
+            Framework::Tensorflow => "tensorflow",
+            Framework::Flax => "flax",
+            Framework::Mlx => "mlx",
+        })
+    }
+}
+
 impl<'source> FromPyObject<'source> for Framework {
     fn extract_bound(ob: &PyBound<'source, PyAny>) -> PyResult<Self> {
         let name: String = ob.extract()?;
@@ -274,12 +286,28 @@ enum Device {
     Anonymous(usize),
 }
 
+
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Device::Cpu => write!(f, "cpu"),
+            Device::Mps => write!(f, "mps"),
+            Device::Cuda(index) => write!(f, "cuda:{index}"),
+            Device::Npu(index) => write!(f, "npu:{index}"),
+            Device::Xpu(index) => write!(f, "xpu:{index}"),
+            Device::Xla(index) => write!(f, "xla:{index}"),
+            Device::Mlu(index) => write!(f, "mlu:{index}"),
+            Device::Hpu(index) => write!(f, "hpu:{index}"),
+            Device::Anonymous(index) => write!(f, "{index}"),
+        }
+    }
+}
+
 /// Parsing the device index.
 fn parse_device(name: &str) -> PyResult<usize> {
     let tokens: Vec<_> = name.split(':').collect();
-    if tokens.len() == 2 {
-        let device: usize = tokens[1].parse()?;
-        Ok(device)
+    if let Ok([_, token]) = <[_; 2]>::try_from(tokens) {
+        Ok(token.parse()?)
     } else {
         Err(SafetensorError::new_err(format!(
             "device {name} is invalid"
@@ -290,7 +318,7 @@ fn parse_device(name: &str) -> PyResult<usize> {
 impl<'source> FromPyObject<'source> for Device {
     fn extract_bound(ob: &PyBound<'source, PyAny>) -> PyResult<Self> {
         if let Ok(name) = ob.extract::<String>() {
-            match &name[..] {
+            match name.as_str() {
                 "cpu" => Ok(Device::Cpu),
                 "cuda" => Ok(Device::Cuda(0)),
                 "mps" => Ok(Device::Mps),
@@ -323,17 +351,7 @@ impl<'py> IntoPyObject<'py> for Device {
     type Error = std::convert::Infallible;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self {
-            Device::Cpu => "cpu".into_pyobject(py).map(|x| x.into_any()),
-            Device::Cuda(n) => format!("cuda:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Mps => "mps".into_pyobject(py).map(|x| x.into_any()),
-            Device::Npu(n) => format!("npu:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Xla(n) => format!("xla:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Mlu(n) => format!("mlu:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Hpu(n) => format!("hpu:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Anonymous(n) => n.into_pyobject(py).map(|x| x.into_any()),
-        }
+        self.to_string().into_pyobject(py).map(pyo3::BoundObject::into_any)
     }
 }
 
@@ -399,13 +417,13 @@ struct Open {
 impl Open {
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
         let file = File::open(&filename).map_err(|_| {
-            PyFileNotFoundError::new_err(format!("No such file or directory: {filename:?}"))
+            PyFileNotFoundError::new_err(format!("No such file or directory: {}", filename.display()))
         })?;
         let device = device.unwrap_or(Device::Cpu);
 
         if device != Device::Cpu && framework != Framework::Pytorch {
             return Err(SafetensorError::new_err(format!(
-                "Device {device:?} is not support for framework {framework:?}",
+                "Device {device} is not supported for framework {framework}",
             )));
         }
 
@@ -414,7 +432,7 @@ impl Open {
         let buffer = unsafe { MmapOptions::new().map_copy_read_only(&file)? };
 
         let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
-            SafetensorError::new_err(format!("Error while deserializing header: {e:?}"))
+            SafetensorError::new_err(format!("Error while deserializing header: {e}"))
         })?;
 
         let offset = n + 8;
@@ -448,7 +466,7 @@ impl Open {
                     let py_filename: PyObject = filename
                         .to_str()
                         .ok_or_else(|| {
-                            SafetensorError::new_err(format!("Path {filename:?} is not a string"))
+                            SafetensorError::new_err(format!("Path {} is not valid UTF-8", filename.display()))
                         })?
                         .into_pyobject(py)?
                         .into();
@@ -521,8 +539,7 @@ impl Open {
     ///     (`List[str]`):
     ///         The name of the tensors contained in that file
     pub fn offset_keys(&self) -> PyResult<Vec<String>> {
-        let keys: Vec<String> = self.metadata.offset_keys();
-        Ok(keys)
+        Ok(self.metadata.offset_keys())
     }
 
     /// Returns a full tensor
@@ -825,11 +842,7 @@ impl fmt::Display for Disp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for (i, item) in self.0.iter().enumerate() {
-            if i != self.0.len() - 1 {
-                write!(f, "{item}, ")?;
-            } else {
-                write!(f, "{item}")?;
-            }
+            write!(f, "{prefix}{item}", prefix = if i == 0 { "" } else { ", " })?;
         }
         write!(f, "]")
     }
@@ -874,9 +887,7 @@ impl PySafeSlice {
     ///     dtype = tslice.get_dtype() # "F32"
     /// ```
     pub fn get_dtype(&self, py: Python) -> PyResult<PyObject> {
-        let dtype = self.info.dtype;
-        let dtype: PyObject = format!("{:?}", dtype).into_pyobject(py)?.into();
-        Ok(dtype)
+        Ok(self.info.dtype.to_string().into_pyobject(py)?.into())
     }
 
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<PyObject> {
@@ -906,7 +917,7 @@ impl PySafeSlice {
 
                 let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
                     .map_err(|e| {
-                        SafetensorError::new_err(format!("Error preparing tensor view: {e:?}"))
+                        SafetensorError::new_err(format!("Error preparing tensor view: {e}"))
                     })?;
                 let slices: Vec<TensorIndexer> = slices
                     .into_iter()
@@ -917,10 +928,9 @@ impl PySafeSlice {
 
                 let iterator = tensor.sliced_data(&slices).map_err(|e| {
                     SafetensorError::new_err(format!(
-                        "Error during slicing {} with shape {:?}:  {:?}",
+                        "Error during slicing {} with shape {:?}: {e}",
                         Disp(slices),
                         self.info.shape,
-                        e
                     ))
                 })?;
                 let newshape = iterator.newshape();
@@ -1054,7 +1064,7 @@ fn create_tensor<'a>(
                 TORCH_MODULE
                     .get()
                     .ok_or_else(|| {
-                        SafetensorError::new_err(format!("Could not find module {framework:?}",))
+                        SafetensorError::new_err(format!("Could not find module {framework}",))
                     })?
                     .bind(py),
                 false,
@@ -1078,7 +1088,7 @@ fn create_tensor<'a>(
                         .get()
                         .ok_or_else(|| {
                             SafetensorError::new_err(
-                                format!("Could not find module {framework:?}",),
+                                format!("Could not find module {framework}",),
                             )
                         })?
                         .bind(py),
@@ -1200,7 +1210,7 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
             Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
-                    "Dtype not understood: {dtype:?}"
+                    "Dtype not understood: {dtype}"
                 )))
             }
         };
