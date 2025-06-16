@@ -4,12 +4,11 @@ use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
 use core::fmt::Display;
 use core::str::Utf8Error;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
-use core::fmt::Display;
 #[cfg(feature = "std")]
 use std::io::Write;
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
-const SIZEOF_HEADER_SIZE_NUMBER: usize = size_of::<u64>();
+const N_LEN: usize = size_of::<u64>();
 
 /// Possible errors that could occur while reading
 /// A Safetensor file.
@@ -222,12 +221,11 @@ pub trait View {
 fn prepare<S, V, I>(
     data: I,
     data_info: Option<HashMap<String, String>>,
-) -> Result<(PreparedData, Vec<V>), SafeTensorError> 
+) -> Result<(PreparedData, Vec<V>), SafeTensorError>
 where
     S: AsRef<str> + Ord + Display,
     V: View,
     I: IntoIterator<Item = (S, V)>,
-
 {
     // Make sure we're sorting by descending dtype alignment
     // Then by name
@@ -252,12 +250,11 @@ where
         tensors.push(tensor);
     }
 
-
     let metadata: Metadata = Metadata::new(data_info, hmetadata)?;
     let mut metadata_buf = serde_json::to_string(&metadata)?.into_bytes();
 
     // Force alignment to 8 bytes.
-    let aligned_metadata_len = metadata_buf.len().next_multiple_of(SIZEOF_HEADER_SIZE_NUMBER);
+    let aligned_metadata_len = metadata_buf.len().next_multiple_of(N_LEN);
     metadata_buf.resize(aligned_metadata_len, b' ');
 
     Ok((
@@ -288,7 +285,7 @@ pub fn serialize<
         tensors,
     ) = prepare(data, data_info)?;
 
-    let expected_size = SIZEOF_HEADER_SIZE_NUMBER + header_bytes.len() + offset;
+    let expected_size = N_LEN + header_bytes.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
     buffer.extend(n.to_le_bytes());
     buffer.extend(header_bytes);
@@ -345,14 +342,12 @@ pub struct SafeTensors<'data> {
 impl<'data> SafeTensors<'data> {
     /// Given a byte-buffer representing the whole safetensor file
     /// parses the header, and returns the size of the header + the parsed data.
-    pub fn read_metadata(
-        buffer: &'data [u8],
-    ) -> Result<(usize, Metadata), SafeTensorError>{
+    pub fn read_metadata(buffer: &'data [u8]) -> Result<(usize, Metadata), SafeTensorError> {
         let buffer_len = buffer.len();
-        let Some(header_size_bytes) = buffer.get(..SIZEOF_HEADER_SIZE_NUMBER) else {
+        let Some(header_size_bytes) = buffer.get(..N_LEN) else {
             return Err(SafeTensorError::HeaderTooSmall);
         };
-        let arr: [u8; SIZEOF_HEADER_SIZE_NUMBER] = header_size_bytes
+        let arr: [u8; N_LEN] = header_size_bytes
             .try_into()
             .expect("this can't fail due to how `header_size_bytes` is defined above");
         let n: usize = u64::from_le_bytes(arr)
@@ -364,16 +359,15 @@ impl<'data> SafeTensors<'data> {
         }
 
         let stop = n
-            .checked_add(SIZEOF_HEADER_SIZE_NUMBER)
+            .checked_add(N_LEN)
             .ok_or(SafeTensorError::InvalidHeaderLength)?;
 
         // the `.get(start..stop)` returns None if either index is out of bounds,
         // so this implicitly also ensures that `stop <= buffer.len()`.
-        let Some(header_bytes) = buffer.get(SIZEOF_HEADER_SIZE_NUMBER..stop) else {
+        let Some(header_bytes) = buffer.get(N_LEN..stop) else {
             return Err(SafeTensorError::InvalidHeaderLength);
         };
-        let string =
-            core::str::from_utf8(&buffer[8..stop]).map_err(SafeTensorError::InvalidHeader)?;
+        let string = core::str::from_utf8(header_bytes).map_err(SafeTensorError::InvalidHeader)?;
         // Assert the string starts with {
         // NOTE: Add when we move to 0.4.0
         // if !string.starts_with('{') {
@@ -383,7 +377,7 @@ impl<'data> SafeTensors<'data> {
             serde_json::from_str(string).map_err(SafeTensorError::InvalidHeaderDeserialization)?;
         let metadata: Metadata = metadata.try_into()?;
         let buffer_end = metadata.validate()?;
-        if buffer_end + SIZEOF_HEADER_SIZE_NUMBER + n != buffer_len {
+        if buffer_end + N_LEN + n != buffer_len {
             return Err(SafeTensorError::MetadataIncompleteBuffer);
         }
 
@@ -411,7 +405,7 @@ impl<'data> SafeTensors<'data> {
     /// ```
     pub fn deserialize(buffer: &'data [u8]) -> Result<Self, SafeTensorError> {
         let (n, metadata) = SafeTensors::read_metadata(buffer)?;
-        let data = &buffer[SIZEOF_HEADER_SIZE_NUMBER + n..];
+        let data = &buffer[N_LEN + n..];
         Ok(Self { metadata, data })
     }
 
@@ -453,13 +447,17 @@ impl<'data> SafeTensors<'data> {
     /// The tensor returned is merely a view and the data is not owned by this
     /// structure.
     pub fn tensor(&self, tensor_name: &str) -> Result<TensorView<'data>, SafeTensorError> {
-        let &index = self.metadata.index_map.get(tensor_name).ok_or_else(
-            || SafeTensorError::TensorNotFound(tensor_name.to_string())
-        )?;
+        let &index = self
+            .metadata
+            .index_map
+            .get(tensor_name)
+            .ok_or_else(|| SafeTensorError::TensorNotFound(tensor_name.to_string()))?;
 
-        let info = self.metadata.tensors.get(index).ok_or_else(
-            || SafeTensorError::TensorNotFound(tensor_name.to_string())
-        )?;
+        let info = self
+            .metadata
+            .tensors
+            .get(index)
+            .ok_or_else(|| SafeTensorError::TensorNotFound(tensor_name.to_string()))?;
 
         Ok(TensorView {
             dtype: info.dtype,
@@ -618,7 +616,7 @@ impl Metadata {
                 .checked_div(8)
                 .ok_or(SafeTensorError::ValidationOverflow)?;
 
-            if e - s != nbytes {
+            if e - s != size {
                 return Err(SafeTensorError::TensorInvalidInfo);
             }
         }
@@ -714,15 +712,18 @@ impl<'data> TensorView<'data> {
         shape: Vec<usize>,
         data: &'data [u8],
     ) -> Result<Self, SafeTensorError> {
-        let n_bytes = data.len();
         let n_elements: usize = shape.iter().product();
 
-        let size = (n_elements * dtype.bitsize())
+        let nbits = n_elements * dtype.bitsize();
+        if nbits % 8 != 0 {
+            return Err(SafeTensorError::MisalignedSlice);
+        }
+        let size = nbits
             .checked_div(8)
             .ok_or(SafeTensorError::ValidationOverflow)?;
 
-        if n != size {
-            Err(SafeTensorError::InvalidTensorView(dtype, shape, n))
+        if data.len() != size {
+            Err(SafeTensorError::InvalidTensorView(dtype, shape, data.len()))
         } else {
             Ok(Self { dtype, shape, data })
         }
@@ -1058,6 +1059,14 @@ mod tests {
     fn test_serialization_fp4_misaligned() {
         let data: Vec<u8> = vec![0u8, 1u8];
         let shape = vec![1, 3];
+        let attn_0 = TensorView::new(Dtype::F4, shape, &data);
+        assert!(matches!(attn_0, Err(SafeTensorError::MisalignedSlice)));
+    }
+
+    #[test]
+    fn test_serialization_fp4_invalid() {
+        let data: Vec<u8> = vec![0u8, 1u8];
+        let shape = vec![1, 2];
         let attn_0 = TensorView::new(Dtype::F4, shape, &data);
         assert!(matches!(
             attn_0,

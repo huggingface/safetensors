@@ -376,10 +376,7 @@ impl<'data> SliceIterator<'data> {
 
     /// Gives back the amount of bytes still being in the iterator
     pub fn remaining_byte_len(&self) -> usize {
-        self.indices
-            .iter()
-            .map(|(start, stop)| stop - start)
-            .sum()
+        self.indices.iter().map(|(start, stop)| stop - start).sum()
     }
 
     /// Gives back the amount of bytes still being in the iterator
