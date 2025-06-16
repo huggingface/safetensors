@@ -1,6 +1,7 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
-use crate::lib::{String, ToString, Vec};
+use crate::lib::Vec;
 use crate::tensor::TensorView;
+use core::fmt::Display;
 use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
@@ -20,7 +21,36 @@ pub enum InvalidSlice {
         /// The dimension size we shouldn't go over.
         dim_size: usize,
     },
+    /// For smaller than 1 byte dtypes, some slices will happen outside of the byte boundary, some special care has to be taken
+    /// and standard functions will fail
+    MisalignedSlice,
 }
+
+impl Display for InvalidSlice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            InvalidSlice::TooManySlices => {
+                write!(f, "more slicing indexes than dimensions in tensor")
+            }
+            InvalidSlice::SliceOutOfRange {
+                dim_index,
+                asked,
+                dim_size,
+            } => {
+                write!(f, "index {asked} out of bounds for tensor dimension #{dim_index} of size {dim_size}")
+            }
+            InvalidSlice::MisalignedSlice => {
+                write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid.")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidSlice {}
+
+#[cfg(not(feature = "std"))]
+impl core::error::Error for InvalidSlice {}
 
 #[derive(Debug, Clone)]
 /// Generic structure used to index a slice of the tensor
@@ -29,19 +59,18 @@ pub enum TensorIndexer {
     Select(usize),
     /// This is a regular slice, purely indexing a chunk of the tensor
     Narrow(Bound<usize>, Bound<usize>),
-    //IndexSelect(Tensor),
 }
 
-fn display_bound(bound: &Bound<usize>) -> String {
+fn display_bound(bound: &Bound<usize>) -> &dyn Display {
     match bound {
-        Bound::Unbounded => "".to_string(),
-        Bound::Excluded(n) => format!("{n}"),
-        Bound::Included(n) => format!("{n}"),
+        Bound::Unbounded => &"",
+        Bound::Excluded(n) => n,
+        Bound::Included(n) => n,
     }
 }
 
 /// Intended for Python users mostly or at least for its conventions
-impl core::fmt::Display for TensorIndexer {
+impl Display for TensorIndexer {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TensorIndexer::Select(n) => {
@@ -257,7 +286,7 @@ impl<'data> SliceIterator<'data> {
         let mut newshape = Vec::with_capacity(view.shape().len());
 
         // Minimum span is the span of 1 item;
-        let mut span = view.dtype().size();
+        let mut span = view.dtype().bitsize();
         let mut indices = vec![];
         // Everything is row major.
         for (i, &shape) in view.shape().iter().enumerate().rev() {
@@ -305,15 +334,24 @@ impl<'data> SliceIterator<'data> {
                     if start == 0 && stop == shape {
                         // We haven't started to slice yet, just increase the span
                     } else {
-                        let offset = start * span;
-                        let small_span = stop * span - offset;
+                        if start * span % 8 != 0 {
+                            return Err(InvalidSlice::MisalignedSlice);
+                        }
+                        let offset = (start * span) / 8;
+                        if stop * span % 8 != 0 {
+                            return Err(InvalidSlice::MisalignedSlice);
+                        }
+                        let small_span = (stop * span) / 8 - offset;
                         indices.push((offset, offset + small_span));
                     }
                 } else {
                     let capacity = (stop - start) * indices.len();
                     let mut newindices = Vec::with_capacity(capacity);
                     for n in start..stop {
-                        let offset = n * span;
+                        if n * span % 8 != 0 {
+                            return Err(InvalidSlice::MisalignedSlice);
+                        }
+                        let offset = (n * span) / 8;
                         for (old_start, old_stop) in &indices {
                             newindices.push((old_start + offset, old_stop + offset));
                         }
@@ -394,6 +432,57 @@ mod tests {
         .unwrap();
         assert_eq!(iterator.remaining_byte_len(), 12);
         assert_eq!(iterator.newshape(), vec![1, 1, 3]);
+    }
+
+    #[test]
+    fn test_fp4_simple() {
+        let data: Vec<u8> = vec![0u8, 1u8];
+
+        let attn_0 = TensorView::new(Dtype::F4, vec![1, 2, 2], &data).unwrap();
+
+        let iterator = SliceIterator::new(
+            &attn_0,
+            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
+        )
+        .unwrap();
+        assert_eq!(iterator.remaining_byte_len(), 2);
+        assert_eq!(iterator.newshape(), vec![1, 2, 2]);
+
+        let iterator = SliceIterator::new(
+            &attn_0,
+            &[
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
+                TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(iterator.remaining_byte_len(), 1);
+        assert_eq!(iterator.newshape(), vec![1, 1, 2]);
+    }
+
+    #[test]
+    fn test_fp4_misaligned() {
+        let data: Vec<u8> = vec![0u8];
+
+        let attn_0 = TensorView::new(Dtype::F4, vec![1, 2], &data).unwrap();
+
+        let iterator = SliceIterator::new(
+            &attn_0,
+            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded)],
+        )
+        .unwrap();
+        assert_eq!(iterator.remaining_byte_len(), 1);
+        assert_eq!(iterator.newshape(), vec![1, 2]);
+
+        let iterator = SliceIterator::new(
+            &attn_0,
+            &[
+                TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded),
+                TensorIndexer::Narrow(Bound::Included(0), Bound::Excluded(1)),
+            ],
+        );
+
+        assert_eq!(iterator, Err(InvalidSlice::MisalignedSlice));
     }
 
     #[test]

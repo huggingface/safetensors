@@ -397,6 +397,8 @@ def load(data: bytes) -> Dict[str, torch.Tensor]:
 # torch.float8 formats require 2.1; we do not support these dtypes on earlier versions
 _float8_e4m3fn = getattr(torch, "float8_e4m3fn", None)
 _float8_e5m2 = getattr(torch, "float8_e5m2", None)
+_float8_e8m0 = getattr(torch, "float8_e8m0fnu", None)
+_float4_e2m1_x2 = getattr(torch, "float4_e2m1fn_x2", None)
 
 _SIZE = {
     torch.int64: 8,
@@ -411,6 +413,8 @@ _SIZE = {
     torch.float64: 8,
     _float8_e4m3fn: 1,
     _float8_e5m2: 1,
+    _float8_e8m0: 1,
+    _float4_e2m1_x2: 1,
 }
 
 _TYPES = {
