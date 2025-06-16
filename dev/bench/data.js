@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750081196056,
+  "lastUpdate": 1750081204705,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -21808,6 +21808,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01235058335436655",
             "extra": "mean: 284.52290560001074 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f79f19d13277ec2f53fe107ee335f6492400b0cf",
+          "message": "Adding a failing test on the device cast. (#623)",
+          "timestamp": "2025-06-16T15:37:54+02:00",
+          "tree_id": "52c4a8210f3789baffcfd0114ff333faf086f9fd",
+          "url": "https://github.com/huggingface/safetensors/commit/f79f19d13277ec2f53fe107ee335f6492400b0cf"
+        },
+        "date": 1750081203504,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.606467945724211,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02736386640956634",
+            "extra": "mean: 383.6609621999969 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.046196395332613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005513766672220012",
+            "extra": "mean: 247.1456900000021 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 6.056977336496355,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006164814535911959",
+            "extra": "mean: 165.09885120000263 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 3.1241331448236758,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0034444581586579497",
+            "extra": "mean: 320.0887906000048 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 8.174712255595573,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006954740646886226",
+            "extra": "mean: 122.32846474999803 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 271.988399949109,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007520715323190146",
+            "extra": "mean: 3.6766273862676027 msec\nrounds: 233"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.516285513316735,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0020974735801268856",
+            "extra": "mean: 86.83355399999944 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 54.2991405900074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007491419707557228",
+            "extra": "mean: 18.416497740740095 msec\nrounds: 54"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.6923797258916675,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016678538396711164",
+            "extra": "mean: 371.4186340000083 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.174802017996964,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025833345980318285",
+            "extra": "mean: 314.98027099999035 msec\nrounds: 5"
           }
         ]
       }
