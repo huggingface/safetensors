@@ -312,8 +312,8 @@ impl fmt::Display for Device {
 /// Parsing the device index.
 fn parse_device(name: &str) -> PyResult<usize> {
     let tokens: Vec<_> = name.split(':').collect();
-    if let Ok([_, token]) = <[_; 2]>::try_from(tokens) {
-        Ok(token.parse()?)
+    if tokens.len() == 2 {
+        Ok(tokens[1].parse()?)
     } else {
         Err(SafetensorError::new_err(format!(
             "device {name} is invalid"
@@ -357,9 +357,17 @@ impl<'py> IntoPyObject<'py> for Device {
     type Error = std::convert::Infallible;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.to_string()
-            .into_pyobject(py)
-            .map(pyo3::BoundObject::into_any)
+        match self {
+            Device::Cpu => "cpu".into_pyobject(py).map(|x| x.into_any()),
+            Device::Cuda(n) => format!("cuda:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Mps => "mps".into_pyobject(py).map(|x| x.into_any()),
+            Device::Npu(n) => format!("npu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Xla(n) => format!("xla:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Mlu(n) => format!("mlu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Hpu(n) => format!("hpu:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Anonymous(n) => n.into_pyobject(py).map(|x| x.into_any()),
+        }
     }
 }
 
