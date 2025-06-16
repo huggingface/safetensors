@@ -39,7 +39,7 @@ repos:
         args: ["--line-length", "119", "--target-version", "py35"]
         types: ["python"]
   - repo: https://github.com/pycqa/flake8
-    rev: 3.8.3
+    rev: 7.2.0
     hooks:
       - id: flake8
         args: ["--config", "bindings/python/setup.cfg"]
