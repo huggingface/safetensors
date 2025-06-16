@@ -378,7 +378,7 @@ impl<'data> SliceIterator<'data> {
     pub fn remaining_byte_len(&self) -> usize {
         self.indices
             .iter()
-            .map(|(start, stop)| (stop - start))
+            .map(|(start, stop)| stop - start)
             .sum()
     }
 
