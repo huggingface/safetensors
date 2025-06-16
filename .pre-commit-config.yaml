@@ -38,12 +38,11 @@ repos:
         name: "Python (black)"
         args: ["--line-length", "119", "--target-version", "py35"]
         types: ["python"]
-  - repo: https://github.com/pycqa/flake8
-    rev: 3.8.3
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.11.11
     hooks:
-      - id: flake8
-        args: ["--config", "bindings/python/setup.cfg"]
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.7.0 # Use the revision sha / tag you want to point at
-    hooks:
-      - id: isort
+      # Run the linter.
+      - id: ruff-check
+      # Run the formatter.
+      - id: ruff-format
