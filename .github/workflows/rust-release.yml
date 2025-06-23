@@ -5,8 +5,8 @@ env:
 
 on:
   push:
-    tags:
-      - v*
+    # tags:
+    #   - v*
 
 jobs:
   rust_publish:
@@ -21,7 +21,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo Registry
-        uses: actions/cache@v1
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ubuntu-latest-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
