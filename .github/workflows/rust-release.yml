@@ -15,13 +15,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
+      - uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo Registry
-        uses: actions/cache@v1
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ubuntu-latest-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
