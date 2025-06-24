@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750666150152,
+  "lastUpdate": 1750750563877,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -22082,6 +22082,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0068669910840858765",
             "extra": "mean: 322.5771036000083 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6544bf21bfa416999ea4c304d11e1d2b9379518d",
+          "message": "Rust release upgrade (cache v1 is discontinued). (#627)",
+          "timestamp": "2025-06-24T09:33:58+02:00",
+          "tree_id": "6f508d5792dc401068cc0efdf3dcf8653a33472c",
+          "url": "https://github.com/huggingface/safetensors/commit/6544bf21bfa416999ea4c304d11e1d2b9379518d"
+        },
+        "date": 1750750563005,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.516688672214957,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0567374361912251",
+            "extra": "mean: 397.3475189999931 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.986691463898262,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008285321319918765",
+            "extra": "mean: 250.83456019999628 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 5.8137390087235685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005544334626655726",
+            "extra": "mean: 172.00634540000692 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.070728003500758,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002289523624560511",
+            "extra": "mean: 245.6563049999943 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 7.914972074855841,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003212175679935873",
+            "extra": "mean: 126.34283362499588 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 287.9568806534593,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000053920337698437545",
+            "extra": "mean: 3.4727421610162756 msec\nrounds: 236"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.381517967829097,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005286477104217515",
+            "extra": "mean: 87.86174241666107 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 57.074882416946494,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017395352235723754",
+            "extra": "mean: 17.520842052634404 msec\nrounds: 57"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.853211910464753,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06167871166703358",
+            "extra": "mean: 350.48220439999227 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.9617856928127986,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008769049645752165",
+            "extra": "mean: 252.41143200000238 msec\nrounds: 5"
           }
         ]
       }
