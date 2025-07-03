@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1751555985657,
+  "lastUpdate": 1751567071471,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -22266,6 +22266,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0024645760428184437",
             "extra": "mean: 254.1670967999835 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8814598e41e2f840bef3a8f491a952ae999bf7ca",
+          "message": "Re-adding support for u16, u32, u64. (#629)",
+          "timestamp": "2025-07-03T20:22:13+02:00",
+          "tree_id": "535b0be0e3226fa9403dd87b652c8d44e17a1aea",
+          "url": "https://github.com/huggingface/safetensors/commit/8814598e41e2f840bef3a8f491a952ae999bf7ca"
+        },
+        "date": 1751567070126,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 4.26575465514681,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0028877762778858384",
+            "extra": "mean: 234.42510899998865 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.406551788813341,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01082066193958153",
+            "extra": "mean: 226.93481160000033 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 6.622700588421904,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017908464071183306",
+            "extra": "mean: 150.9958039999942 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.233508097204487,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0024560907101744338",
+            "extra": "mean: 236.21072099999765 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 9.336974939054336,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001197564359991652",
+            "extra": "mean: 107.10106929999768 msec\nrounds: 10"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 280.255184064857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00004039761026988707",
+            "extra": "mean: 3.5681766363635887 msec\nrounds: 231"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.23742959002323,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0016889358874955175",
+            "extra": "mean: 88.98832175000375 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 55.8589076791375,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00011864520405265497",
+            "extra": "mean: 17.90224767272858 msec\nrounds: 55"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.234717323594002,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013443062727653598",
+            "extra": "mean: 309.1460242000153 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.630141365495037,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012674308948760012",
+            "extra": "mean: 275.4713658000014 msec\nrounds: 5"
           }
         ]
       }
