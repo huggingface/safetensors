@@ -1,6 +1,9 @@
+import threading
 import unittest
 
 import numpy as np
+
+from safetensors import safe_open
 
 
 try:
@@ -45,3 +48,67 @@ class SafeTestCase(unittest.TestCase):
         for k, v in weights.items():
             tv = paddle_weights[k]
             self.assertTrue(np.allclose(v, tv))
+
+
+@unittest.skipIf(not HAS_PADDLE, "Paddle is not available")
+class WithOpenCase(unittest.TestCase):
+    def test_paddle_tensor(self):
+        A = paddle.randn((10, 5))
+        tensors = {
+            "a": A,
+        }
+        ident = threading.get_ident()
+        save_file(tensors, f"./tensor_{ident}.safetensors")
+
+        # Now loading
+        with safe_open(f"./tensor_{ident}.safetensors", framework="pp", device="cpu") as f:
+            tensor = f.get_tensor("a")
+            self.assertEqual(list(tensor.shape), [10, 5])
+            assert paddle.allclose(tensor, A).item()
+
+    def test_paddle_slice(self):
+        A = paddle.randn((10, 5))
+        tensors = {
+            "a": A,
+        }
+        ident = threading.get_ident()
+        save_file(tensors, f"./slice_{ident}.safetensors")
+
+        # Now loading
+        with safe_open(f"./slice_{ident}.safetensors", framework="pp", device="cpu") as f:
+            slice_ = f.get_slice("a")
+            tensor = slice_[:]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            assert paddle.allclose(tensor, A).item()
+
+            tensor = slice_[tuple()]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            assert paddle.allclose(tensor, A).item()
+
+            tensor = slice_[:2]
+            self.assertEqual(list(tensor.shape), [2, 5])
+            assert paddle.allclose(tensor, A[:2]).item()
+
+            tensor = slice_[:, :2]
+            self.assertEqual(list(tensor.shape), [10, 2])
+            assert paddle.allclose(tensor, A[:, :2]).item()
+
+            tensor = slice_[0, :2]
+            self.assertEqual(list(tensor.shape), [2])
+            assert paddle.allclose(tensor, A[0, :2]).item()
+
+            tensor = slice_[2:, 0]
+            self.assertEqual(list(tensor.shape), [8])
+            assert paddle.allclose(tensor, A[2:, 0]).item()
+
+            tensor = slice_[2:, 1]
+            self.assertEqual(list(tensor.shape), [8])
+            assert paddle.allclose(tensor, A[2:, 1]).item()
+
+            tensor = slice_[2:, -1]
+            self.assertEqual(list(tensor.shape), [8])
+            assert paddle.allclose(tensor, A[2:, -1]).item()
+
+            tensor = slice_[list()]
+            self.assertEqual(list(tensor.shape), [0, 5])
+            assert paddle.allclose(tensor, A[list()]).item()

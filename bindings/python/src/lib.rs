@@ -24,6 +24,7 @@ static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 
 struct PyView<'a> {
     shape: Vec<usize>,
@@ -240,6 +241,7 @@ enum Framework {
     Tensorflow,
     Flax,
     Mlx,
+    Paddle,
 }
 
 impl fmt::Display for Framework {
@@ -250,6 +252,7 @@ impl fmt::Display for Framework {
             Framework::Tensorflow => "tensorflow",
             Framework::Flax => "flax",
             Framework::Mlx => "mlx",
+            Framework::Paddle => "paddle",
         })
     }
 }
@@ -271,6 +274,10 @@ impl<'source> FromPyObject<'source> for Framework {
             "jax" => Ok(Framework::Flax),
             "flax" => Ok(Framework::Flax),
             "mlx" => Ok(Framework::Mlx),
+
+            "paddle" => Ok(Framework::Paddle),
+            "paddlepaddle" => Ok(Framework::Paddle),
+            "pp" => Ok(Framework::Paddle),
             name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
             ))),
@@ -282,6 +289,7 @@ impl<'source> FromPyObject<'source> for Framework {
 enum Device {
     Cpu,
     Cuda(usize),
+    Gpu(usize),
     Mps,
     Npu(usize),
     Xpu(usize),
@@ -299,6 +307,7 @@ impl fmt::Display for Device {
             Device::Cpu => write!(f, "cpu"),
             Device::Mps => write!(f, "mps"),
             Device::Cuda(index) => write!(f, "cuda:{index}"),
+            Device::Gpu(index) => write!(f, "gpu:{index}"),
             Device::Npu(index) => write!(f, "npu:{index}"),
             Device::Xpu(index) => write!(f, "xpu:{index}"),
             Device::Xla(index) => write!(f, "xla:{index}"),
@@ -327,6 +336,7 @@ impl<'source> FromPyObject<'source> for Device {
             match name.as_str() {
                 "cpu" => Ok(Device::Cpu),
                 "cuda" => Ok(Device::Cuda(0)),
+                "gpu" => Ok(Device::Gpu(0)),
                 "mps" => Ok(Device::Mps),
                 "npu" => Ok(Device::Npu(0)),
                 "xpu" => Ok(Device::Xpu(0)),
@@ -334,6 +344,7 @@ impl<'source> FromPyObject<'source> for Device {
                 "mlu" => Ok(Device::Mlu(0)),
                 "hpu" => Ok(Device::Hpu(0)),
                 name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
+                name if name.starts_with("gpu:") => parse_device(name).map(Device::Gpu),
                 name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
                 name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
                 name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
@@ -360,6 +371,7 @@ impl<'py> IntoPyObject<'py> for Device {
         match self {
             Device::Cpu => "cpu".into_pyobject(py).map(|x| x.into_any()),
             Device::Cuda(n) => format!("cuda:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Gpu(n) => format!("gpu:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Mps => "mps".into_pyobject(py).map(|x| x.into_any()),
             Device::Npu(n) => format!("npu:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
@@ -378,6 +390,7 @@ enum Storage {
     /// so Pytorch can handle the whole lifecycle.
     /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
     TorchStorage(OnceLock<PyObject>),
+    PaddleStorage(OnceLock<PyObject>),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -439,8 +452,10 @@ impl Open {
             ))
         })?;
         let device = device.unwrap_or(Device::Cpu);
-
-        if device != Device::Cpu && framework != Framework::Pytorch {
+        if device != Device::Cpu
+            && framework != Framework::Pytorch
+            && framework != Framework::Paddle
+        {
             return Err(SafetensorError::new_err(format!(
                 "Device {device} is not supported for framework {framework}",
             )));
@@ -455,12 +470,15 @@ impl Open {
         })?;
 
         let offset = n + 8;
-
         Python::with_gil(|py| -> PyResult<()> {
             match framework {
                 Framework::Pytorch => {
                     let module = PyModule::import(py, intern!(py, "torch"))?;
                     TORCH_MODULE.get_or_init_py_attached(py, || module.into())
+                }
+                Framework::Paddle => {
+                    let module = PyModule::import(py, intern!(py, "paddle"))?;
+                    PADDLE_MODULE.get_or_init_py_attached(py, || module.into())
                 }
                 _ => {
                     let module = PyModule::import(py, intern!(py, "numpy"))?;
@@ -472,6 +490,43 @@ impl Open {
         })?;
 
         let storage = match &framework {
+            Framework::Paddle => Python::with_gil(|py| -> PyResult<Storage> {
+                let paddle = get_module(py, &PADDLE_MODULE)?;
+                let version: String = paddle.getattr(intern!(py, "__version__"))?.extract()?;
+                let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
+
+                // todo: version check, only paddle 3.1 or develop
+                if version >= Version::new(3, 1, 0) || version >= Version::new(0, 0, 0) {
+                    let py_filename: PyObject = filename
+                        .to_str()
+                        .ok_or_else(|| {
+                            SafetensorError::new_err(format!(
+                                "Path {} is not valid UTF-8",
+                                filename.display()
+                            ))
+                        })?
+                        .into_pyobject(py)?
+                        .into();
+                    let size: PyObject = buffer.len().into_pyobject(py)?.into();
+                    let init_kargs = [
+                        (intern!(py, "filename"), py_filename),
+                        (intern!(py, "nbytes"), size),
+                    ]
+                    .into_py_dict(py)?;
+                    let storage = paddle
+                        .getattr(intern!(py, "MmapStorage"))?
+                        .call((), Some(&init_kargs))?
+                        .into_pyobject(py)?
+                        .into();
+                    let gil_storage = OnceLock::new();
+                    gil_storage.get_or_init_py_attached(py, || storage);
+                    Ok(Storage::PaddleStorage(gil_storage))
+                } else {
+                    let module = PyModule::import(py, intern!(py, "numpy"))?;
+                    NUMPY_MODULE.get_or_init_py_attached(py, || module.into());
+                    Ok(Storage::Mmap(buffer))
+                }
+            })?,
             Framework::Pytorch => Python::with_gil(|py| -> PyResult<Storage> {
                 let module = get_module(py, &TORCH_MODULE)?;
 
@@ -605,6 +660,88 @@ impl Open {
                     array,
                     &self.device,
                 )
+            }
+            Storage::PaddleStorage(storage) => {
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    let paddle = get_module(py, &PADDLE_MODULE)?;
+                    let mut cur_type = info.dtype;
+                    if cur_type == Dtype::U16 {
+                        // paddle set bf16 as u16
+                        cur_type = Dtype::BF16;
+                    }
+                    let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
+                    let paddle_uint8: PyObject = get_pydtype(paddle, Dtype::U8, false)?;
+                    let mut shape = info.shape.to_vec();
+                    if cur_type == Dtype::F4 {
+                        let n = shape.len();
+                        if shape[n - 1] % 2 != 0 {
+                            return Err(SafetensorError::new_err(format!(
+                        "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
+                                )));
+                        }
+                        shape[n - 1] /= 2;
+                    }
+                    let shape: PyObject = shape.into_pyobject(py)?.into();
+                    let start = (info.data_offsets.0 + self.offset) as isize;
+                    let stop = (info.data_offsets.1 + self.offset) as isize;
+
+                    let kwargs = [
+                        (intern!(py, "dtype"), paddle_uint8),
+                        (intern!(py, "start"), start.into_pyobject(py)?.into()),
+                        (intern!(py, "stop"), stop.into_pyobject(py)?.into()),
+                    ]
+                    .into_py_dict(py)?;
+                    let sys = PyModule::import(py, intern!(py, "sys"))?;
+                    let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
+                    let storage: &PyObject = storage
+                        .get()
+                        .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
+                    let storage: &PyBound<PyAny> = storage.bind(py);
+                    let storage_slice = storage
+                        .getattr(intern!(py, "get_slice"))?
+                        .call((), Some(&kwargs))?;
+                    let mut tensor = storage_slice
+                        .getattr(intern!(py, "view"))?
+                        .call1((dtype,))?;
+
+                    if byteorder == "big" {
+                        let inplace_kwargs =
+                            [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
+
+                        let intermediary_dtype = match cur_type {
+                            Dtype::BF16 => Some(Dtype::F16),
+                            Dtype::F8_E5M2 => Some(Dtype::U8),
+                            Dtype::F8_E4M3 => Some(Dtype::U8),
+                            Dtype::F8_E8M0 => Some(Dtype::U8),
+                            _ => None,
+                        };
+                        if let Some(intermediary_dtype) = intermediary_dtype {
+                            // Reinterpret to f16 for numpy compatibility.
+                            let dtype: PyObject = get_pydtype(paddle, intermediary_dtype, false)?;
+                            tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
+                        }
+                        let numpy = tensor
+                            .getattr(intern!(py, "numpy"))?
+                            .call0()?
+                            .getattr("byteswap")?
+                            .call((), Some(&inplace_kwargs))?;
+                        tensor = paddle.getattr(intern!(py, "to_tensor"))?.call1((numpy,))?;
+                        if intermediary_dtype.is_some() {
+                            // Reinterpret to f16 for numpy compatibility.
+                            let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
+                            tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
+                        }
+                    }
+
+                    if self.device != Device::Cpu {
+                        let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                        let kwargs = PyDict::new(py);
+                        tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
+                    }
+
+                    let tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+                    Ok(tensor.into_pyobject(py)?.into())
+                })
             }
             Storage::TorchStorage(storage) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
@@ -1069,6 +1206,77 @@ impl PySafeSlice {
                 }
                 Ok(tensor.into())
             }),
+            Storage::PaddleStorage(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
+                let paddle = get_module(py, &PADDLE_MODULE)?;
+                let mut cur_type = self.info.dtype;
+                if cur_type == Dtype::U16 {
+                    cur_type = Dtype::BF16;
+                }
+                let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
+                let paddle_uint8: PyObject = get_pydtype(paddle, Dtype::U8, false)?;
+                let shape = self.info.shape.to_vec();
+                let shape: PyObject = shape.into_pyobject(py)?.into();
+                let start = (self.info.data_offsets.0 + self.offset) as isize;
+                let stop = (self.info.data_offsets.1 + self.offset) as isize;
+                let slices = slices.into_pyobject(py)?;
+                let storage: &PyObject = storage
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
+                let storage: &PyBound<'_, PyAny> = storage.bind(py);
+                let slice_kwargs = [
+                    (intern!(py, "dtype"), paddle_uint8),
+                    (intern!(py, "start"), start.into_pyobject(py)?.into()),
+                    (intern!(py, "stop"), stop.into_pyobject(py)?.into()),
+                ]
+                .into_py_dict(py)?;
+                let storage_slice = storage
+                    .getattr(intern!(py, "get_slice"))?
+                    .call((), Some(&slice_kwargs))?;
+                let mut tensor = storage_slice
+                    .getattr(intern!(py, "view"))?
+                    .call1((dtype,))?;
+                let sys = PyModule::import(py, intern!(py, "sys"))?;
+                let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
+                if byteorder == "big" {
+                    let inplace_kwargs =
+                        [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
+
+                    let intermediary_dtype = match cur_type {
+                        Dtype::BF16 => Some(Dtype::F16),
+                        Dtype::F8_E5M2 => Some(Dtype::U8),
+                        Dtype::F8_E4M3 => Some(Dtype::U8),
+                        Dtype::F8_E8M0 => Some(Dtype::U8),
+                        _ => None,
+                    };
+                    if let Some(intermediary_dtype) = intermediary_dtype {
+                        // Reinterpret to f16 for numpy compatibility.
+                        let dtype: PyObject = get_pydtype(paddle, intermediary_dtype, false)?;
+                        tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
+                    }
+                    let numpy = tensor
+                        .getattr(intern!(py, "numpy"))?
+                        .call0()?
+                        .getattr("byteswap")?
+                        .call((), Some(&inplace_kwargs))?;
+                    tensor = paddle.getattr(intern!(py, "to_tensor"))?.call1((numpy,))?;
+                    if intermediary_dtype.is_some() {
+                        // Reinterpret to f16 for numpy compatibility.
+                        let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
+                        tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
+                    }
+                }
+                tensor = tensor
+                    .getattr(intern!(py, "reshape"))?
+                    .call1((shape,))?
+                    .getattr(intern!(py, "__getitem__"))?
+                    .call1((slices,))?;
+                if self.device != Device::Cpu {
+                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                    let kwargs = PyDict::new(py);
+                    tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
+                }
+                Ok(tensor.into())
+            }),
         }
     }
 }
@@ -1113,18 +1321,13 @@ fn create_tensor<'a>(
                     Framework::Flax => {
                         let _ = PyModule::import(py, intern!(py, "flax"));
                     }
+                    Framework::Paddle => {
+                        let _ = PyModule::import(py, intern!(py, "paddle"));
+                    }
                     _ => {}
                 };
 
-                (
-                    NUMPY_MODULE
-                        .get()
-                        .ok_or_else(|| {
-                            SafetensorError::new_err(format!("Could not find module {framework}",))
-                        })?
-                        .bind(py),
-                    true,
-                )
+                (get_module(py, &NUMPY_MODULE)?, true)
             }
         };
         let dtype: PyObject = get_pydtype(module, dtype, is_numpy)?;
@@ -1190,6 +1393,19 @@ fn create_tensor<'a>(
                     .getattr(intern!(py, "core"))?
                     // .getattr(intern!(py, "array"))?
                     .call_method1("array", (tensor,))?
+            }
+            Framework::Paddle => {
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "paddle"))?;
+                    Ok(PADDLE_MODULE.get_or_init_py_attached(py, || module.into()))
+                })?
+                .bind(py);
+                let device: PyObject = device.clone().into_pyobject(py)?.into();
+                let kwargs = [(intern!(py, "place"), device)].into_py_dict(py)?;
+                let tensor = module
+                    .getattr(intern!(py, "to_tensor"))?
+                    .call((tensor,), Some(&kwargs))?;
+                tensor
             }
             Framework::Pytorch => {
                 if device != &Device::Cpu {
