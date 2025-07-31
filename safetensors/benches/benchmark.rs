@@ -1,12 +1,15 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use safetensors::tensor::*;
 use std::collections::HashMap;
+use std::hint::black_box;
 
 // Returns a sample data of size 2_MB
 fn get_sample_data() -> (Vec<u8>, Vec<usize>, Dtype) {
     let shape = vec![1000, 500];
     let dtype = Dtype::F32;
-    let n: usize = shape.iter().product::<usize>() * dtype.size(); // 4
+    let nbits = shape.iter().product::<usize>() * dtype.bitsize();
+    assert!(nbits % 8 == 0);
+    let n: usize = nbits / 8; // 4
     let data = vec![0; n];
 
     (data, shape, dtype)
@@ -25,7 +28,7 @@ pub fn bench_serialize(c: &mut Criterion) {
 
     c.bench_function("Serialize 10_MB", |b| {
         b.iter(|| {
-            let _serialized = serialize(black_box(&metadata), black_box(&None));
+            let _serialized = serialize(black_box(&metadata), black_box(None));
         })
     });
 }
@@ -41,7 +44,7 @@ pub fn bench_deserialize(c: &mut Criterion) {
         metadata.insert(format!("weight{i}"), tensor);
     }
 
-    let out = serialize(&metadata, &None).unwrap();
+    let out = serialize(&metadata, None).unwrap();
 
     c.bench_function("Deserialize 10_MB", |b| {
         b.iter(|| {
