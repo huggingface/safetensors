@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from safetensors import safe_open_handle
+from safetensors import _safe_open_handle
 from safetensors.numpy import save_file, save
 
 

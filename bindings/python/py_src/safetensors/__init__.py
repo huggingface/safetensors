@@ -4,7 +4,7 @@ from ._safetensors_rust import (  # noqa: F401
     __version__,
     deserialize,
     safe_open,
-    safe_open_handle,
+    _safe_open_handle,
     serialize,
     serialize_file,
 )

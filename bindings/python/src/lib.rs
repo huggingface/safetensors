@@ -1215,11 +1215,11 @@ pyo3::create_exception!(
 
 #[pyclass]
 #[allow(non_camel_case_types)]
-struct safe_open_handle {
+struct _safe_open_handle {
     inner: Option<Open>,
 }
 
-impl safe_open_handle {
+impl _safe_open_handle {
     fn inner(&self) -> PyResult<&Open> {
         let inner = self
             .inner
@@ -1230,7 +1230,7 @@ impl safe_open_handle {
 }
 
 #[pymethods]
-impl safe_open_handle {
+impl _safe_open_handle {
     #[new]
     #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
     fn new(f: PyObject, framework: Framework, device: Option<Device>) -> PyResult<Self> {
@@ -1332,7 +1332,7 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
-    m.add_class::<safe_open_handle>()?;
+    m.add_class::<_safe_open_handle>()?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
