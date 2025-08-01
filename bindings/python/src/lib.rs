@@ -276,7 +276,6 @@ impl<'source> FromPyObject<'source> for Framework {
             "mlx" => Ok(Framework::Mlx),
 
             "paddle" => Ok(Framework::Paddle),
-            "paddlepaddle" => Ok(Framework::Paddle),
             "pp" => Ok(Framework::Paddle),
             name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
@@ -289,7 +288,6 @@ impl<'source> FromPyObject<'source> for Framework {
 enum Device {
     Cpu,
     Cuda(usize),
-    Gpu(usize),
     Mps,
     Npu(usize),
     Xpu(usize),
@@ -307,7 +305,6 @@ impl fmt::Display for Device {
             Device::Cpu => write!(f, "cpu"),
             Device::Mps => write!(f, "mps"),
             Device::Cuda(index) => write!(f, "cuda:{index}"),
-            Device::Gpu(index) => write!(f, "gpu:{index}"),
             Device::Npu(index) => write!(f, "npu:{index}"),
             Device::Xpu(index) => write!(f, "xpu:{index}"),
             Device::Xla(index) => write!(f, "xla:{index}"),
@@ -336,7 +333,6 @@ impl<'source> FromPyObject<'source> for Device {
             match name.as_str() {
                 "cpu" => Ok(Device::Cpu),
                 "cuda" => Ok(Device::Cuda(0)),
-                "gpu" => Ok(Device::Gpu(0)),
                 "mps" => Ok(Device::Mps),
                 "npu" => Ok(Device::Npu(0)),
                 "xpu" => Ok(Device::Xpu(0)),
@@ -344,7 +340,6 @@ impl<'source> FromPyObject<'source> for Device {
                 "mlu" => Ok(Device::Mlu(0)),
                 "hpu" => Ok(Device::Hpu(0)),
                 name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
-                name if name.starts_with("gpu:") => parse_device(name).map(Device::Gpu),
                 name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
                 name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
                 name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
@@ -371,7 +366,6 @@ impl<'py> IntoPyObject<'py> for Device {
         match self {
             Device::Cpu => "cpu".into_pyobject(py).map(|x| x.into_any()),
             Device::Cuda(n) => format!("cuda:{n}").into_pyobject(py).map(|x| x.into_any()),
-            Device::Gpu(n) => format!("gpu:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Mps => "mps".into_pyobject(py).map(|x| x.into_any()),
             Device::Npu(n) => format!("npu:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
@@ -390,6 +384,9 @@ enum Storage {
     /// so Pytorch can handle the whole lifecycle.
     /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
     TorchStorage(OnceLock<PyObject>),
+    // Paddle specific mmap
+    // Paddle can handle the whole lifecycle.
+    // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     PaddleStorage(OnceLock<PyObject>),
 }
 
@@ -495,8 +492,8 @@ impl Open {
                 let version: String = paddle.getattr(intern!(py, "__version__"))?.extract()?;
                 let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
 
-                // todo: version check, only paddle 3.1 or develop
-                if version >= Version::new(3, 1, 0) || version >= Version::new(0, 0, 0) {
+                // todo: version check, only paddle 3.1.1 or develop
+                if version >= Version::new(3, 1, 1) || version == Version::new(0, 0, 0) {
                     let py_filename: PyObject = filename
                         .to_str()
                         .ok_or_else(|| {
@@ -664,11 +661,11 @@ impl Open {
             Storage::PaddleStorage(storage) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
                     let paddle = get_module(py, &PADDLE_MODULE)?;
-                    let mut cur_type = info.dtype;
-                    if cur_type == Dtype::U16 {
-                        // paddle set bf16 as u16
-                        cur_type = Dtype::BF16;
-                    }
+                    let cur_type = if info.dtype == Dtype::U16 {
+                        Dtype::BF16
+                    } else {
+                        info.dtype
+                    };
                     let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
                     let paddle_uint8: PyObject = get_pydtype(paddle, Dtype::U8, false)?;
                     let mut shape = info.shape.to_vec();
@@ -734,7 +731,11 @@ impl Open {
                     }
 
                     if self.device != Device::Cpu {
-                        let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                        let device: PyObject = if let Device::Cuda(index) = self.device {
+                            format!("gpu:{index}").into_pyobject(py)?.into()
+                        } else {
+                            self.device.clone().into_pyobject(py)?.into()
+                        };
                         let kwargs = PyDict::new(py);
                         tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                     }
@@ -1208,10 +1209,11 @@ impl PySafeSlice {
             }),
             Storage::PaddleStorage(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
                 let paddle = get_module(py, &PADDLE_MODULE)?;
-                let mut cur_type = self.info.dtype;
-                if cur_type == Dtype::U16 {
-                    cur_type = Dtype::BF16;
-                }
+                let cur_type = if self.info.dtype == Dtype::U16 {
+                    Dtype::BF16
+                } else {
+                    self.info.dtype
+                };
                 let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
                 let paddle_uint8: PyObject = get_pydtype(paddle, Dtype::U8, false)?;
                 let shape = self.info.shape.to_vec();
@@ -1271,7 +1273,11 @@ impl PySafeSlice {
                     .getattr(intern!(py, "__getitem__"))?
                     .call1((slices,))?;
                 if self.device != Device::Cpu {
-                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                    let device: PyObject = if let Device::Cuda(index) = self.device {
+                        format!("gpu:{index}").into_pyobject(py)?.into()
+                    } else {
+                        self.device.clone().into_pyobject(py)?.into()
+                    };
                     let kwargs = PyDict::new(py);
                     tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                 }
