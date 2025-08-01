@@ -1,4 +1,3 @@
-import threading
 import unittest
 
 import numpy as np
@@ -52,63 +51,139 @@ class SafeTestCase(unittest.TestCase):
 
 @unittest.skipIf(not HAS_PADDLE, "Paddle is not available")
 class WithOpenCase(unittest.TestCase):
-    def test_paddle_tensor(self):
+    def test_paddle_tensor_cpu(self):
         A = paddle.randn((10, 5))
         tensors = {
             "a": A,
         }
-        ident = threading.get_ident()
-        save_file(tensors, f"./tensor_{ident}.safetensors")
+        save_file(tensors, f"./tensor_paddle.safetensors")
 
-        # Now loading
-        with safe_open(f"./tensor_{ident}.safetensors", framework="pp", device="cpu") as f:
+        # Now loading cpu
+        with safe_open(f"./tensor_paddle.safetensors", framework="pp", device="cpu") as f:
             tensor = f.get_tensor("a")
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
+            assert not tensor.place.is_gpu_place()
 
-    def test_paddle_slice(self):
+    def test_paddle_tensor_gpu(self):
         A = paddle.randn((10, 5))
         tensors = {
             "a": A,
         }
-        ident = threading.get_ident()
-        save_file(tensors, f"./slice_{ident}.safetensors")
+        save_file(tensors, f"./tensor_paddle.safetensors")
+        # Now loading gpu
+        with safe_open(f"./tensor_paddle.safetensors", framework="pp", device="cuda") as f:
+            tensor = f.get_tensor("a")
+            self.assertEqual(list(tensor.shape), [10, 5])
+            assert paddle.allclose(tensor, A).item()
+            assert tensor.place.is_gpu_place()
+
+    def test_paddle_slice_cpu(self):
+        A = paddle.randn((10, 5))
+        tensors = {
+            "a": A,
+        }
+        save_file(tensors, f"./slice_paddle.safetensors")
 
         # Now loading
-        with safe_open(f"./slice_{ident}.safetensors", framework="pp", device="cpu") as f:
+        with safe_open(f"./slice_paddle.safetensors", framework="pp", device="cpu") as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[tuple()]
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[:2]
             self.assertEqual(list(tensor.shape), [2, 5])
             assert paddle.allclose(tensor, A[:2]).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[:, :2]
             self.assertEqual(list(tensor.shape), [10, 2])
             assert paddle.allclose(tensor, A[:, :2]).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[0, :2]
             self.assertEqual(list(tensor.shape), [2])
             assert paddle.allclose(tensor, A[0, :2]).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[2:, 0]
             self.assertEqual(list(tensor.shape), [8])
             assert paddle.allclose(tensor, A[2:, 0]).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[2:, 1]
             self.assertEqual(list(tensor.shape), [8])
             assert paddle.allclose(tensor, A[2:, 1]).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[2:, -1]
             self.assertEqual(list(tensor.shape), [8])
             assert paddle.allclose(tensor, A[2:, -1]).item()
+            assert not tensor.place.is_gpu_place()
 
             tensor = slice_[list()]
             self.assertEqual(list(tensor.shape), [0, 5])
             assert paddle.allclose(tensor, A[list()]).item()
+            assert not tensor.place.is_gpu_place()
+
+    def test_paddle_slice_gpu(self):
+        A = paddle.randn((10, 5))
+        tensors = {
+            "a": A,
+        }
+        save_file(tensors, f"./slice_paddle.safetensors")
+
+        # Now loading
+        with safe_open(f"./slice_paddle.safetensors", framework="pp", device="cuda") as f:
+            slice_ = f.get_slice("a")
+            tensor = slice_[:]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            assert paddle.allclose(tensor, A).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[tuple()]
+            self.assertEqual(list(tensor.shape), [10, 5])
+            assert paddle.allclose(tensor, A).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[:2]
+            self.assertEqual(list(tensor.shape), [2, 5])
+            assert paddle.allclose(tensor, A[:2]).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[:, :2]
+            self.assertEqual(list(tensor.shape), [10, 2])
+            assert paddle.allclose(tensor, A[:, :2]).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[0, :2]
+            self.assertEqual(list(tensor.shape), [2])
+            assert paddle.allclose(tensor, A[0, :2]).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[2:, 0]
+            self.assertEqual(list(tensor.shape), [8])
+            assert paddle.allclose(tensor, A[2:, 0]).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[2:, 1]
+            self.assertEqual(list(tensor.shape), [8])
+            assert paddle.allclose(tensor, A[2:, 1]).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[2:, -1]
+            self.assertEqual(list(tensor.shape), [8])
+            assert paddle.allclose(tensor, A[2:, -1]).item()
+            assert tensor.place.is_gpu_place()
+
+            tensor = slice_[list()]
+            self.assertEqual(list(tensor.shape), [0, 5])
+            assert paddle.allclose(tensor, A[list()]).item()
+            assert tensor.place.is_gpu_place()
