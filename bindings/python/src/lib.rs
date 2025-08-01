@@ -1258,6 +1258,118 @@ pyo3::create_exception!(
     "Custom Python Exception for Safetensor errors."
 );
 
+#[pyclass]
+#[allow(non_camel_case_types)]
+struct _safe_open_handle {
+    inner: Option<Open>,
+}
+
+impl _safe_open_handle {
+    fn inner(&self) -> PyResult<&Open> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| SafetensorError::new_err("File is closed".to_string()))?;
+        Ok(inner)
+    }
+}
+
+#[pymethods]
+impl _safe_open_handle {
+    #[new]
+    #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
+    fn new(f: PyObject, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+        let filename = Python::with_gil(|py| -> PyResult<PathBuf> {
+            let _ = f.getattr(py, "fileno")?;
+            let filename = f.getattr(py, "name")?;
+            let filename: PathBuf = filename.extract(py)?;
+            Ok(filename)
+        })?;
+        let inner = Some(Open::new(filename, framework, device)?);
+        Ok(Self { inner })
+    }
+
+    /// Return the special non tensor information in the header
+    ///
+    /// Returns:
+    ///     (`Dict[str, str]`):
+    ///         The freeform metadata.
+    pub fn metadata(&self) -> PyResult<Option<HashMap<String, String>>> {
+        Ok(self.inner()?.metadata())
+    }
+
+    /// Returns the names of the tensors in the file.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn keys(&self) -> PyResult<Vec<String>> {
+        self.inner()?.keys()
+    }
+
+    /// Returns the names of the tensors in the file, ordered by offset.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn offset_keys(&self) -> PyResult<Vec<String>> {
+        self.inner()?.offset_keys()
+    }
+
+    /// Returns a full tensor
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (`Tensor`):
+    ///         The tensor in the framework you opened the file for.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor = f.get_tensor("embedding")
+    ///
+    /// ```
+    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
+        self.inner()?.get_tensor(name)
+    }
+
+    /// Returns a full slice view object
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (`PySafeSlice`):
+    ///         A dummy object you can slice into to get a real tensor
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor_part = f.get_slice("embedding")[:, ::8]
+    ///
+    /// ```
+    pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
+        self.inner()?.get_slice(name)
+    }
+
+    /// Start the context manager
+    pub fn __enter__(slf: Py<Self>) -> Py<Self> {
+        slf
+    }
+
+    /// Exits the context manager
+    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
+        self.inner = None;
+    }
+}
+
 /// A Python module implemented in Rust.
 #[pymodule(gil_used = false)]
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
@@ -1265,6 +1377,7 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
+    m.add_class::<_safe_open_handle>()?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
