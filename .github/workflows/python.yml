@@ -71,6 +71,7 @@ jobs:
       - name: Install (torch)
         if: matrix.version.arch != 'x64-freethreaded'
         run: |
+          pip install ".[numpy]"
           pip install ${{ matrix.version.torch }}
         shell: bash
 
