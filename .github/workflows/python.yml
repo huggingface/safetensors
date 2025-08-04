@@ -82,10 +82,10 @@ jobs:
         shell: bash
 
       - name: Install (hdf5 non windows)
-        if: matrix.os != 'windows-latest' && matrix.version.arch != 'x64-freethreaded'
+        if: matrix.os == 'ubuntu-latest' && matrix.version.arch != 'x64-freethreaded'
         run: |
-          apt-get update
-          apt-get install libhdf5-dev
+          sudo apt-get update
+          sudo apt-get install libhdf5-dev
 
       - name: Install (tensorflow)
         if: matrix.version.arch != 'x64-freethreaded'
