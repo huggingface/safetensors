@@ -1765,7 +1765,7 @@ requires-dist = [
     { name = "jax", marker = "extra == 'jax'", specifier = ">=0.3.25" },
     { name = "jaxlib", marker = "extra == 'jax'", specifier = ">=0.3.25" },
     { name = "mlx", marker = "extra == 'mlx'", specifier = ">=0.0.9" },
-    { name = "numpy", marker = "extra == 'numpy'", specifier = ">=2.0" },
+    { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.21.6" },
     { name = "paddlepaddle", marker = "extra == 'paddlepaddle'", specifier = ">=2.4.1" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=7.2.0" },
     { name = "pytest-benchmark", marker = "extra == 'testing'", specifier = ">=4.0.0" },
