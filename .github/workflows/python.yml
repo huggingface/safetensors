@@ -12,7 +12,7 @@ jobs:
         os: [ubuntu-latest, macos-13, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
-      version: [{torch: torch==1.10, python: "3.9", arch: "x64", numpy: "numpy==1.26.4"}, {torch: torch, python: "3.12", arch: "x64", numpy: "numpy"}]
+      version: [{torch: torch==1.10, python: "3.9", arch: "x64", numpy: numpy==1.26.4}, {torch: torch, python: "3.12", arch: "x64", numpy: numpy}]
           # TODO this would include macos ARM target.
           # however jax has an illegal instruction issue
           # that exists only in CI (probably difference in instruction support).
@@ -26,6 +26,7 @@ jobs:
             version:
               torch: torch
               python: "3.13"
+              numpy: numpy
               arch: "x64-freethreaded"
     defaults:
       run:
