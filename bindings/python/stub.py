@@ -132,12 +132,13 @@ def py_file(module, origin):
 
 def do_black(content):
     content = content.replace("$self", "self")
-    with tempfile.NamedTemporaryFile(mode="w+") as f:
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".pyi") as f:
         f.write(content)
+        f.flush()
         _ = subprocess.check_output(["ruff", "format", f.name])
         f.seek(0)
-        content = f.read()
-        return content
+        new_content = f.read()
+        return new_content
 
 
 def write(module, directory, origin, check=False):
