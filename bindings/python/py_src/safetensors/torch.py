@@ -2,6 +2,7 @@ import os
 import sys
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from packaging.version import Version
 
 import torch
 
@@ -418,14 +419,11 @@ _float4_e2m1_x2 = getattr(torch, "float4_e2m1fn_x2", None)
 
 _SIZE = {
     torch.int64: 8,
-    torch.uint64: 8,
     torch.float32: 4,
     torch.int32: 4,
-    torch.uint32: 4,
     torch.bfloat16: 2,
     torch.float16: 2,
     torch.int16: 2,
-    torch.uint16: 2,
     torch.uint8: 1,
     torch.int8: 1,
     torch.bool: 1,
@@ -435,6 +433,14 @@ _SIZE = {
     _float8_e8m0: 1,
     _float4_e2m1_x2: 1,
 }
+if Version(torch.__version__) > Version("2.0.0"):
+    _SIZE.update(
+        {
+            torch.uint64: 8,
+            torch.uint32: 4,
+            torch.uint16: 2,
+        }
+    )
 
 _TYPES = {
     "F64": torch.float64,
@@ -442,17 +448,22 @@ _TYPES = {
     "F16": torch.float16,
     "BF16": torch.bfloat16,
     "I64": torch.int64,
-    "U64": torch.uint64,
     "I32": torch.int32,
-    "U32": torch.uint32,
     "I16": torch.int16,
-    "U16": torch.uint16,
     "I8": torch.int8,
     "U8": torch.uint8,
     "BOOL": torch.bool,
     "F8_E4M3": _float8_e4m3fn,
     "F8_E5M2": _float8_e5m2,
 }
+if Version(torch.__version__) > Version("2.0.0"):
+    _TYPES.update(
+        {
+            "U64": torch.uint64,
+            "U32": torch.uint32,
+            "U16": torch.uint16,
+        }
+    )
 
 
 def _getdtype(dtype_str: str) -> torch.dtype:
