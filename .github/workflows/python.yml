@@ -84,8 +84,8 @@ jobs:
       - name: Install (tensorflow)
         if: matrix.version.arch != 'x64-freethreaded'
         run: |
-          sudo apt-get update
-          sudo apt-get install libhdf5-dev
+          apt-get update
+          apt-get install libhdf5-dev
           pip install .[tensorflow]
           # Force reinstall of numpy, tensorflow uses numpy 2 even on 3.9
           pip install ${{ matrix.version.numpy }}
