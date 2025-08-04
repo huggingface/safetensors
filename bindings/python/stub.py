@@ -1,9 +1,8 @@
 import argparse
 import inspect
 import os
-
-import black
-
+import subprocess
+import tempfile
 
 INDENT = " " * 4
 GENERATED_COMMENT = "# Generated content DO NOT EDIT\n"
@@ -131,18 +130,13 @@ def py_file(module, origin):
     return string
 
 
-def do_black(content, is_pyi):
-    mode = black.Mode(
-        target_versions={black.TargetVersion.PY35},
-        line_length=119,
-        is_pyi=is_pyi,
-        string_normalization=True,
-        experimental_string_processing=False,
-    )
-    try:
-        content = content.replace("$self", "self")
-        return black.format_file_contents(content, fast=True, mode=mode)
-    except black.NothingChanged:
+def do_black(content):
+    content = content.replace("$self", "self")
+    with tempfile.NamedTemporaryFile(mode="w+") as f:
+        f.write(content)
+        _ = subprocess.check_output(["ruff", "format", f.name])
+        f.seek(0)
+        content = f.read()
         return content
 
 
@@ -155,7 +149,7 @@ def write(module, directory, origin, check=False):
 
     filename = os.path.join(directory, "__init__.pyi")
     pyi_content = pyi_file(module)
-    pyi_content = do_black(pyi_content, is_pyi=True)
+    pyi_content = do_black(pyi_content)
     os.makedirs(directory, exist_ok=True)
     if check:
         with open(filename, "r") as f:
@@ -169,7 +163,7 @@ def write(module, directory, origin, check=False):
 
     filename = os.path.join(directory, "__init__.py")
     py_content = py_file(module, origin)
-    py_content = do_black(py_content, is_pyi=False)
+    py_content = do_black(py_content)
     os.makedirs(directory, exist_ok=True)
 
     is_auto = False
