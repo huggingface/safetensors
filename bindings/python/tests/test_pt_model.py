@@ -100,7 +100,9 @@ class TorchModelTestCase(unittest.TestCase):
         C = A[2:]
         D = A[:1]
         # Shared storage but *do* overlap
-        self.assertEqual(_find_shared_tensors({"B": B, "C": C, "D": D}), [{"B", "D"}, {"C"}])
+        self.assertEqual(
+            _find_shared_tensors({"B": B, "C": C, "D": D}), [{"B", "D"}, {"C"}]
+        )
 
     def test_end_ptr(self):
         A = torch.zeros((4,))
@@ -133,7 +135,9 @@ class TorchModelTestCase(unittest.TestCase):
         B = A[:1, :]
 
         self.assertEqual(_remove_duplicate_names({"A": A, "B": B}), {"A": ["B"]})
-        self.assertEqual(_remove_duplicate_names({"A": A, "B": B, "C": A}), {"A": ["B", "C"]})
+        self.assertEqual(
+            _remove_duplicate_names({"A": A, "B": B, "C": A}), {"A": ["B", "C"]}
+        )
         with self.assertRaises(RuntimeError):
             self.assertEqual(_remove_duplicate_names({"B": B}), [])
 
@@ -216,7 +220,8 @@ class TorchModelTestCase(unittest.TestCase):
     def test_workaround_copy(self):
         model = CopyModel()
         self.assertEqual(
-            _find_shared_tensors(model.state_dict()), [{"a.weight"}, {"a.bias"}, {"b.weight"}, {"b.bias"}]
+            _find_shared_tensors(model.state_dict()),
+            [{"a.weight"}, {"a.bias"}, {"b.weight"}, {"b.bias"}],
         )
         save_model(model, "tmp.safetensors")
 
@@ -237,11 +242,13 @@ class TorchModelTestCase(unittest.TestCase):
         # The model happily loads the tensors, and ends up *not* sharing the tensors by.
         # doing copies
         self.assertEqual(
-            _find_shared_tensors(model2.state_dict()), [{"a.weight"}, {"a.bias"}, {"b.weight"}, {"b.bias"}]
+            _find_shared_tensors(model2.state_dict()),
+            [{"a.weight"}, {"a.bias"}, {"b.weight"}, {"b.bias"}],
         )
         model2.load_state_dict(torch.load("tmp2.bin"))
         self.assertEqual(
-            _find_shared_tensors(model2.state_dict()), [{"a.weight"}, {"a.bias"}, {"b.weight"}, {"b.bias"}]
+            _find_shared_tensors(model2.state_dict()),
+            [{"a.weight"}, {"a.bias"}, {"b.weight"}, {"b.bias"}],
         )
 
         # However safetensors cannot save those, so we cannot
@@ -249,7 +256,9 @@ class TorchModelTestCase(unittest.TestCase):
         save_model(model, "tmp2.safetensors")
         with self.assertRaises(RuntimeError) as ctx:
             load_model(model2, "tmp2.safetensors")
-        self.assertIn("""Missing key(s) in state_dict: "b.bias", "b.weight""", str(ctx.exception))
+        self.assertIn(
+            """Missing key(s) in state_dict: "b.bias", "b.weight""", str(ctx.exception)
+        )
 
     def test_difference_torch_odd(self):
         model = NoSharedModel()
@@ -259,14 +268,20 @@ class TorchModelTestCase(unittest.TestCase):
         torch.save(model.state_dict(), "tmp3.bin")
 
         model2 = Model()
-        self.assertEqual(_find_shared_tensors(model2.state_dict()), [{"a.weight", "b.weight"}, {"b.bias", "a.bias"}])
+        self.assertEqual(
+            _find_shared_tensors(model2.state_dict()),
+            [{"a.weight", "b.weight"}, {"b.bias", "a.bias"}],
+        )
         # Torch will affect either `b` or `a` to the shared tensor in the `model2`
         model2.load_state_dict(torch.load("tmp3.bin"))
 
         # XXX: model2 uses only the B weight not the A weight anymore.
         self.assertFalse(torch.allclose(model2.a.weight, model.a.weight))
         torch.testing.assert_close(model2.a.weight, model.b.weight)
-        self.assertEqual(_find_shared_tensors(model2.state_dict()), [{"a.weight", "b.weight"}, {"b.bias", "a.bias"}])
+        self.assertEqual(
+            _find_shared_tensors(model2.state_dict()),
+            [{"a.weight", "b.weight"}, {"b.bias", "a.bias"}],
+        )
 
         # Everything is saved as-is
         save_model(model, "tmp3.safetensors")
@@ -275,4 +290,7 @@ class TorchModelTestCase(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             load_model(model2, "tmp3.safetensors")
         # Safetensors properly warns the user that some ke
-        self.assertIn("""Unexpected key(s) in state_dict: "b.bias", "b.weight""", str(ctx.exception))
+        self.assertIn(
+            """Unexpected key(s) in state_dict: "b.bias", "b.weight""",
+            str(ctx.exception),
+        )

@@ -49,7 +49,7 @@ def serialize_file(tensor_dict, filename, metadata=None):
 
     Returns:
         (`NoneType`):
-            On success return None.
+            On success return None
     """
     pass
 
@@ -140,6 +140,15 @@ class safe_open:
         Returns:
             (`Dict[str, str]`):
                 The freeform metadata.
+        """
+        pass
+    def offset_keys(self):
+        """
+        Returns the names of the tensors in the file, ordered by offset.
+
+        Returns:
+            (`List[str]`):
+                The name of the tensors contained in that file
         """
         pass
 

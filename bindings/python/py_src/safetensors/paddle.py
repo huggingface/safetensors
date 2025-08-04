@@ -7,7 +7,9 @@ import paddle
 from safetensors import numpy
 
 
-def save(tensors: Dict[str, paddle.Tensor], metadata: Optional[Dict[str, str]] = None) -> bytes:
+def save(
+    tensors: Dict[str, paddle.Tensor], metadata: Optional[Dict[str, str]] = None
+) -> bytes:
     """
     Saves a dictionary of tensors into raw bytes in safetensors format.
 
@@ -98,7 +100,9 @@ def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
     return _np2paddle(flat, device)
 
 
-def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, paddle.Tensor]:
+def load_file(
+    filename: Union[str, os.PathLike], device="cpu"
+) -> Dict[str, paddle.Tensor]:
     """
     Loads a safetensors file into paddle format.
 
@@ -126,7 +130,9 @@ def load_file(filename: Union[str, os.PathLike], device="cpu") -> Dict[str, padd
     return output
 
 
-def _np2paddle(numpy_dict: Dict[str, np.ndarray], device: str = "cpu") -> Dict[str, paddle.Tensor]:
+def _np2paddle(
+    numpy_dict: Dict[str, np.ndarray], device: str = "cpu"
+) -> Dict[str, paddle.Tensor]:
     for k, v in numpy_dict.items():
         numpy_dict[k] = paddle.to_tensor(v, place=device)
     return numpy_dict
