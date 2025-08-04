@@ -116,14 +116,14 @@ jobs:
         if: matrix.version.arch != 'x64-freethreaded'
         run: |
           cargo test
-          pip install .[testing]
+          pip install ".[testing]"
           pytest -sv tests/
 
       - name: Run tests (freethreaded)
         if: matrix.version.arch == 'x64-freethreaded'
         run: |
           cargo test
-          pip install .[testing_free]
+          pip install ".[testing_free]"
           pytest -sv tests/
 
   test_s390x_big_endian:
