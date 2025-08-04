@@ -37,7 +37,7 @@ jobs:
             version:
               torch: torch
               python: "3.12"
-              arch: "aarch64"
+              arch: "arm64"
     defaults:
       run:
         working-directory: ./bindings/python
