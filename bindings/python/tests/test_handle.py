@@ -23,7 +23,7 @@ class ReadmeTestCase(unittest.TestCase):
         # Now loading
         loaded = {}
         with open("./out_np.safetensors", "r") as f:
-            with safe_open_handle(f, framework="np", device="cpu") as g:
+            with _safe_open_handle(f, framework="np", device="cpu") as g:
                 for key in g.keys():
                     loaded[key] = g.get_tensor(key)
         self.assertTensorEqual(tensors, loaded, np.allclose)
@@ -40,7 +40,7 @@ class ReadmeTestCase(unittest.TestCase):
         # Now loading
         loaded = {}
         with fs.open("fs.safetensors", "rb") as f:
-            with safe_open_handle(f, framework="np", device="cpu") as g:
+            with _safe_open_handle(f, framework="np", device="cpu") as g:
                 for key in g.keys():
                     loaded[key] = g.get_tensor(key)
         self.assertTensorEqual(tensors, loaded, np.allclose)
@@ -59,7 +59,7 @@ class ReadmeTestCase(unittest.TestCase):
         # Now loading
         loaded = {}
         with s3.open("out/fs.safetensors", "rb") as f:
-            with safe_open_handle(f, framework="np", device="cpu") as g:
+            with _safe_open_handle(f, framework="np", device="cpu") as g:
                 for key in g.keys():
                     loaded[key] = g.get_tensor(key)
         self.assertTensorEqual(tensors, loaded, np.allclose)
