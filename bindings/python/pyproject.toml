@@ -31,7 +31,7 @@ Homepage = 'https://github.com/huggingface/safetensors'
 Source = 'https://github.com/huggingface/safetensors'
 
 [project.optional-dependencies]
-numpy = ["numpy>=2.0"]
+numpy = ["numpy>=1.21.6"]
 torch = [
     "safetensors[numpy]",
     "torch>=1.10",
