@@ -64,9 +64,9 @@ jobs:
       - name: Run Audit
         run: cargo audit -D warnings
 
-      - name: Install
-        run: |
-          pip install -U pip
+      # - name: Install
+      #   run: |
+      #     pip install -U pip
 
       - name: Install (torch)
         if: matrix.version.arch != 'x64-freethreaded'
