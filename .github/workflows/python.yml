@@ -124,6 +124,7 @@ jobs:
         run: |
           cargo test
           pip install ".[testingfree]"
+          pip install pytest
           pytest -sv tests/
 
   test_s390x_big_endian:
