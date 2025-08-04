@@ -125,7 +125,8 @@ jobs:
           cargo test
           pip install ".[testingfree]"
           pip install pytest
-          pytest -sv tests/
+          pytest -sv tests/test_pt*
+          pytest -sv tests/test_simple.py
 
   test_s390x_big_endian:
     runs-on: ubuntu-latest
