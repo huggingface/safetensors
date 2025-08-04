@@ -385,6 +385,7 @@ enum Storage {
     /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
     TorchStorage(OnceLock<PyObject>),
     // Paddle specific mmap
+    // This allows us to not manage the lifecycle of the storage,
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     PaddleStorage(OnceLock<PyObject>),
