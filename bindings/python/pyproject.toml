@@ -71,6 +71,15 @@ testing = [
     # "python-afl>=0.7.3",
     "hypothesis>=6.70.2",
 ]
+testingfree = [
+    "safetensors[numpy]",
+    "huggingface_hub>=0.12.1",
+    "setuptools_rust>=1.5.2",
+    "pytest>=7.2.0",
+    "pytest-benchmark>=4.0.0",
+    # "python-afl>=0.7.3",
+    "hypothesis>=6.70.2",
+]
 all = [
     "safetensors[torch]",
     "safetensors[numpy]",
