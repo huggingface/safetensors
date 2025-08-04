@@ -1751,6 +1751,14 @@ testing = [
     { name = "pytest-benchmark" },
     { name = "setuptools-rust" },
 ]
+testingfree = [
+    { name = "huggingface-hub" },
+    { name = "hypothesis" },
+    { name = "numpy" },
+    { name = "pytest" },
+    { name = "pytest-benchmark" },
+    { name = "setuptools-rust" },
+]
 torch = [
     { name = "numpy" },
     { name = "torch" },
@@ -1761,14 +1769,18 @@ requires-dist = [
     { name = "flax", marker = "extra == 'jax'", specifier = ">=0.6.3" },
     { name = "h5py", marker = "extra == 'testing'", specifier = ">=3.7.0" },
     { name = "huggingface-hub", marker = "extra == 'testing'", specifier = ">=0.12.1" },
+    { name = "huggingface-hub", marker = "extra == 'testingfree'", specifier = ">=0.12.1" },
     { name = "hypothesis", marker = "extra == 'testing'", specifier = ">=6.70.2" },
+    { name = "hypothesis", marker = "extra == 'testingfree'", specifier = ">=6.70.2" },
     { name = "jax", marker = "extra == 'jax'", specifier = ">=0.3.25" },
     { name = "jaxlib", marker = "extra == 'jax'", specifier = ">=0.3.25" },
     { name = "mlx", marker = "extra == 'mlx'", specifier = ">=0.0.9" },
     { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.21.6" },
     { name = "paddlepaddle", marker = "extra == 'paddlepaddle'", specifier = ">=2.4.1" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=7.2.0" },
+    { name = "pytest", marker = "extra == 'testingfree'", specifier = ">=7.2.0" },
     { name = "pytest-benchmark", marker = "extra == 'testing'", specifier = ">=4.0.0" },
+    { name = "pytest-benchmark", marker = "extra == 'testingfree'", specifier = ">=4.0.0" },
     { name = "ruff", marker = "extra == 'quality'" },
     { name = "safetensors", extras = ["all"], marker = "extra == 'dev'" },
     { name = "safetensors", extras = ["jax"], marker = "extra == 'all'" },
@@ -1778,6 +1790,7 @@ requires-dist = [
     { name = "safetensors", extras = ["numpy"], marker = "extra == 'pinned-tf'" },
     { name = "safetensors", extras = ["numpy"], marker = "extra == 'tensorflow'" },
     { name = "safetensors", extras = ["numpy"], marker = "extra == 'testing'" },
+    { name = "safetensors", extras = ["numpy"], marker = "extra == 'testingfree'" },
     { name = "safetensors", extras = ["numpy"], marker = "extra == 'torch'" },
     { name = "safetensors", extras = ["paddlepaddle"], marker = "extra == 'all'" },
     { name = "safetensors", extras = ["pinned-tf"], marker = "extra == 'all'" },
@@ -1785,11 +1798,12 @@ requires-dist = [
     { name = "safetensors", extras = ["testing"], marker = "extra == 'all'" },
     { name = "safetensors", extras = ["torch"], marker = "extra == 'all'" },
     { name = "setuptools-rust", marker = "extra == 'testing'", specifier = ">=1.5.2" },
+    { name = "setuptools-rust", marker = "extra == 'testingfree'", specifier = ">=1.5.2" },
     { name = "tensorflow", marker = "extra == 'pinned-tf'", specifier = "==2.18.0" },
     { name = "tensorflow", marker = "extra == 'tensorflow'", specifier = ">=2.11.0" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=1.10" },
 ]
-provides-extras = ["numpy", "torch", "tensorflow", "pinned-tf", "jax", "mlx", "paddlepaddle", "quality", "testing", "all", "dev"]
+provides-extras = ["numpy", "torch", "tensorflow", "pinned-tf", "jax", "mlx", "paddlepaddle", "quality", "testing", "testingfree", "all", "dev"]
 
 [[package]]
 name = "scipy"
