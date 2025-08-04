@@ -37,6 +37,7 @@ jobs:
             version:
               torch: torch
               python: "3.12"
+              numpy: numpy
               arch: "arm64"
     defaults:
       run:
