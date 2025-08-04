@@ -124,7 +124,7 @@ jobs:
         run: |
           cargo test
           pip install ".[testingfree]"
-          pip install pytest
+          pip install pytest numpy
           pytest -sv tests/test_pt*
           pytest -sv tests/test_simple.py
 
