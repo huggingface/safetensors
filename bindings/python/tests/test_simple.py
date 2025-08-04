@@ -175,7 +175,7 @@ class ErrorsTestCase(unittest.TestCase):
         with self.assertRaises(FileNotFoundError) as ctx:
             with safe_open("notafile", framework="pt"):
                 pass
-        self.assertEqual(str(ctx.exception), 'No such file or directory: "notafile"')
+        self.assertEqual(str(ctx.exception), 'No such file or directory: notafile')
 
 
 class ReadmeTestCase(unittest.TestCase):
@@ -345,19 +345,19 @@ class ReadmeTestCase(unittest.TestCase):
                 tensor = slice_[2:, 20]
             self.assertEqual(
                 str(cm.exception),
-                "Error during slicing [2:, 20] with shape [10, 5]:  SliceOutOfRange { dim_index: 1, asked: 20, dim_size: 5 }",
+                "Error during slicing [2:, 20] with shape [10, 5]: index 20 out of bounds for tensor dimension #1 of size 5",
             )
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[:20]
             self.assertEqual(
                 str(cm.exception),
-                "Error during slicing [:20] with shape [10, 5]:  SliceOutOfRange { dim_index: 0, asked: 19, dim_size: 10 }",
+                "Error during slicing [:20] with shape [10, 5]: index 19 out of bounds for tensor dimension #0 of size 10",
             )
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[:, :20]
             self.assertEqual(
                 str(cm.exception),
-                "Error during slicing [:, :20] with shape [10, 5]:  SliceOutOfRange { dim_index: 1, asked: 19, dim_size: 5 }",
+                "Error during slicing [:, :20] with shape [10, 5]: index 19 out of bounds for tensor dimension #1 of size 5",
             )
