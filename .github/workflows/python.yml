@@ -9,7 +9,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
         version: [{torch: torch==1.10, python: "3.9", arch: "x64", numpy: numpy==1.26.4}, {torch: torch, python: "3.12", arch: "x64", numpy: numpy}]
@@ -28,6 +28,16 @@ jobs:
               python: "3.13"
               numpy: numpy
               arch: "x64-freethreaded"
+          - os: macos-13
+            version:
+              torch: torch==1.10
+              python: "3.9"
+              arch: "x64"
+          - os: macos-latest
+            version:
+              torch: torch
+              python: "3.12"
+              arch: "aarc64"
     defaults:
       run:
         working-directory: ./bindings/python
