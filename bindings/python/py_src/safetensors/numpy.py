@@ -13,7 +13,9 @@ def _tobytes(tensor: np.ndarray) -> bytes:
     return tensor.tobytes()
 
 
-def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None) -> bytes:
+def save(
+    tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] = None
+) -> bytes:
     """
     Saves a dictionary of tensors into raw bytes in safetensors format.
 
@@ -38,14 +40,19 @@ def save(tensor_dict: Dict[str, np.ndarray], metadata: Optional[Dict[str, str]] 
     byte_data = save(tensors)
     ```
     """
-    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
+    flattened = {
+        k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)}
+        for k, v in tensor_dict.items()
+    }
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
 
 
 def save_file(
-    tensor_dict: Dict[str, np.ndarray], filename: Union[str, os.PathLike], metadata: Optional[Dict[str, str]] = None
+    tensor_dict: Dict[str, np.ndarray],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
 ) -> None:
     """
     Saves a dictionary of tensors into raw bytes in safetensors format.
@@ -73,7 +80,10 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    flattened = {k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)} for k, v in tensor_dict.items()}
+    flattened = {
+        k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)}
+        for k, v in tensor_dict.items()
+    }
     serialize_file(flattened, filename, metadata=metadata)
 
 

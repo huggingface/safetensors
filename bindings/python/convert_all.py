@@ -1,4 +1,5 @@
 """Simple utility tool to convert automatically most downloaded models"""
+
 from convert import AlreadyExists, convert
 from huggingface_hub import HfApi, ModelFilter, ModelSearchArguments
 from transformers import AutoConfig
@@ -10,7 +11,11 @@ if __name__ == "__main__":
 
     total = 50
     models = list(
-        api.list_models(filter=ModelFilter(library=args.library.Transformers), sort="downloads", direction=-1)
+        api.list_models(
+            filter=ModelFilter(library=args.library.Transformers),
+            sort="downloads",
+            direction=-1,
+        )
     )[:total]
 
     correct = 0
@@ -40,4 +45,4 @@ if __name__ == "__main__":
 
     print(f"Errors: {errors}")
     print(f"File size is difference {len(errors)}")
-    print(f"Correct rate {correct}/{total} ({correct/total * 100:.2f}%)")
+    print(f"Correct rate {correct}/{total} ({correct / total * 100:.2f}%)")

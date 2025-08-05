@@ -59,14 +59,20 @@ paddlepaddle = [
     "paddlepaddle>=2.4.1",
 ]
 quality = [
-    "black==22.3",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
-    "click==8.0.4",
-    "isort>=5.5.4",
-    "flake8>=3.8.3",
+    "ruff",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
 ]
 testing = [
     "safetensors[numpy]",
     "h5py>=3.7.0",
+    "huggingface_hub>=0.12.1",
+    "setuptools_rust>=1.5.2",
+    "pytest>=7.2.0",
+    "pytest-benchmark>=4.0.0",
+    # "python-afl>=0.7.3",
+    "hypothesis>=6.70.2",
+]
+testingfree = [
+    "safetensors[numpy]",
     "huggingface_hub>=0.12.1",
     "setuptools_rust>=1.5.2",
     "pytest>=7.2.0",

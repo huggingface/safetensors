@@ -8,7 +8,13 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import torch
 
-from huggingface_hub import CommitInfo, CommitOperationAdd, Discussion, HfApi, hf_hub_download
+from huggingface_hub import (
+    CommitInfo,
+    CommitOperationAdd,
+    Discussion,
+    HfApi,
+    hf_hub_download,
+)
 from huggingface_hub.file_download import repo_folder_name
 from safetensors.torch import _find_shared_tensors, _is_complete, load_file, save_file
 
@@ -49,7 +55,9 @@ def _remove_duplicate_names(
     shareds = _find_shared_tensors(state_dict)
     to_remove = defaultdict(list)
     for shared in shareds:
-        complete_names = set([name for name in shared if _is_complete(state_dict[name])])
+        complete_names = set(
+            [name for name in shared if _is_complete(state_dict[name])]
+        )
         if not complete_names:
             if len(shared) == 1:
                 # Force contiguous
@@ -81,14 +89,20 @@ def _remove_duplicate_names(
     return to_remove
 
 
-def get_discard_names(model_id: str, revision: Optional[str], folder: str, token: Optional[str]) -> List[str]:
+def get_discard_names(
+    model_id: str, revision: Optional[str], folder: str, token: Optional[str]
+) -> List[str]:
     try:
         import json
 
         import transformers
 
         config_filename = hf_hub_download(
-            model_id, revision=revision, filename="config.json", token=token, cache_dir=folder
+            model_id,
+            revision=revision,
+            filename="config.json",
+            token=token,
+            cache_dir=folder,
         )
         with open(config_filename, "r") as f:
             config = json.load(f)
@@ -129,10 +143,19 @@ def rename(pt_filename: str) -> str:
 
 
 def convert_multi(
-    model_id: str, *, revision=Optional[str], folder: str, token: Optional[str], discard_names: List[str]
+    model_id: str,
+    *,
+    revision=Optional[str],
+    folder: str,
+    token: Optional[str],
+    discard_names: List[str],
 ) -> ConversionResult:
     filename = hf_hub_download(
-        repo_id=model_id, revision=revision, filename="pytorch_model.bin.index.json", token=token, cache_dir=folder
+        repo_id=model_id,
+        revision=revision,
+        filename="pytorch_model.bin.index.json",
+        token=token,
+        cache_dir=folder,
     )
     with open(filename, "r") as f:
         data = json.load(f)
@@ -140,7 +163,9 @@ def convert_multi(
     filenames = set(data["weight_map"].values())
     local_filenames = []
     for filename in filenames:
-        pt_filename = hf_hub_download(repo_id=model_id, filename=filename, token=token, cache_dir=folder)
+        pt_filename = hf_hub_download(
+            repo_id=model_id, filename=filename, token=token, cache_dir=folder
+        )
 
         sf_filename = rename(pt_filename)
         sf_filename = os.path.join(folder, sf_filename)
@@ -156,7 +181,8 @@ def convert_multi(
     local_filenames.append(index)
 
     operations = [
-        CommitOperationAdd(path_in_repo=os.path.basename(local), path_or_fileobj=local) for local in local_filenames
+        CommitOperationAdd(path_in_repo=os.path.basename(local), path_or_fileobj=local)
+        for local in local_filenames
     ]
     errors: List[Tuple[str, "Exception"]] = []
 
@@ -164,10 +190,19 @@ def convert_multi(
 
 
 def convert_single(
-    model_id: str, *, revision: Optional[str], folder: str, token: Optional[str], discard_names: List[str]
+    model_id: str,
+    *,
+    revision: Optional[str],
+    folder: str,
+    token: Optional[str],
+    discard_names: List[str],
 ) -> ConversionResult:
     pt_filename = hf_hub_download(
-        repo_id=model_id, revision=revision, filename="pytorch_model.bin", token=token, cache_dir=folder
+        repo_id=model_id,
+        revision=revision,
+        filename="pytorch_model.bin",
+        token=token,
+        cache_dir=folder,
     )
 
     sf_name = "model.safetensors"
@@ -219,20 +254,30 @@ def create_diff(pt_infos: Dict[str, List[str]], sf_infos: Dict[str, List[str]]) 
         sf_only = sf_set - pt_set
 
         if pt_only:
-            errors.append(f"{key} : PT warnings contain {pt_only} which are not present in SF warnings")
+            errors.append(
+                f"{key} : PT warnings contain {pt_only} which are not present in SF warnings"
+            )
         if sf_only:
-            errors.append(f"{key} : SF warnings contain {sf_only} which are not present in PT warnings")
+            errors.append(
+                f"{key} : SF warnings contain {sf_only} which are not present in PT warnings"
+            )
     return "\n".join(errors)
 
 
-def previous_pr(api: "HfApi", model_id: str, pr_title: str, revision=Optional[str]) -> Optional["Discussion"]:
+def previous_pr(
+    api: "HfApi", model_id: str, pr_title: str, revision=Optional[str]
+) -> Optional["Discussion"]:
     try:
         revision_commit = api.model_info(model_id, revision=revision).sha
         discussions = api.get_repo_discussions(repo_id=model_id)
     except Exception:
         return None
     for discussion in discussions:
-        if discussion.status in {"open", "closed"} and discussion.is_pull_request and discussion.title == pr_title:
+        if (
+            discussion.status in {"open", "closed"}
+            and discussion.is_pull_request
+            and discussion.title == pr_title
+        ):
             commits = api.list_repo_commits(model_id, revision=discussion.git_reference)
 
             if revision_commit == commits[1].commit_id:
@@ -241,7 +286,12 @@ def previous_pr(api: "HfApi", model_id: str, pr_title: str, revision=Optional[st
 
 
 def convert_generic(
-    model_id: str, *, revision=Optional[str], folder: str, filenames: Set[str], token: Optional[str]
+    model_id: str,
+    *,
+    revision=Optional[str],
+    folder: str,
+    filenames: Set[str],
+    token: Optional[str],
 ) -> ConversionResult:
     operations = []
     errors = []
@@ -251,7 +301,11 @@ def convert_generic(
         prefix, ext = os.path.splitext(filename)
         if ext in extensions:
             pt_filename = hf_hub_download(
-                model_id, revision=revision, filename=filename, token=token, cache_dir=folder
+                model_id,
+                revision=revision,
+                filename=filename,
+                token=token,
+                cache_dir=folder,
             )
             dirname, raw_filename = os.path.split(filename)
             if raw_filename == "pytorch_model.bin":
@@ -263,7 +317,11 @@ def convert_generic(
             sf_filename = os.path.join(folder, sf_in_repo)
             try:
                 convert_file(pt_filename, sf_filename, discard_names=[])
-                operations.append(CommitOperationAdd(path_in_repo=sf_in_repo, path_or_fileobj=sf_filename))
+                operations.append(
+                    CommitOperationAdd(
+                        path_in_repo=sf_in_repo, path_or_fileobj=sf_filename
+                    )
+                )
             except Exception as e:
                 errors.append((pt_filename, e))
     return operations, errors
@@ -285,28 +343,50 @@ def convert(
             pr = previous_pr(api, model_id, pr_title, revision=revision)
 
             library_name = getattr(info, "library_name", None)
-            if any(filename.endswith(".safetensors") for filename in filenames) and not force:
-                raise AlreadyExists(f"Model {model_id} is already converted, skipping..")
+            if (
+                any(filename.endswith(".safetensors") for filename in filenames)
+                and not force
+            ):
+                raise AlreadyExists(
+                    f"Model {model_id} is already converted, skipping.."
+                )
             elif pr is not None and not force:
                 url = f"https://huggingface.co/{model_id}/discussions/{pr.num}"
                 new_pr = pr
-                raise AlreadyExists(f"Model {model_id} already has an open PR check out {url}")
+                raise AlreadyExists(
+                    f"Model {model_id} already has an open PR check out {url}"
+                )
             elif library_name == "transformers":
-
-                discard_names = get_discard_names(model_id, revision=revision, folder=folder, token=api.token)
+                discard_names = get_discard_names(
+                    model_id, revision=revision, folder=folder, token=api.token
+                )
                 if "pytorch_model.bin" in filenames:
                     operations, errors = convert_single(
-                        model_id, revision=revision, folder=folder, token=api.token, discard_names=discard_names
+                        model_id,
+                        revision=revision,
+                        folder=folder,
+                        token=api.token,
+                        discard_names=discard_names,
                     )
                 elif "pytorch_model.bin.index.json" in filenames:
                     operations, errors = convert_multi(
-                        model_id, revision=revision, folder=folder, token=api.token, discard_names=discard_names
+                        model_id,
+                        revision=revision,
+                        folder=folder,
+                        token=api.token,
+                        discard_names=discard_names,
                     )
                 else:
-                    raise RuntimeError(f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert")
+                    raise RuntimeError(
+                        f"Model {model_id} doesn't seem to be a valid pytorch model. Cannot convert"
+                    )
             else:
                 operations, errors = convert_generic(
-                    model_id, revision=revision, folder=folder, filenames=filenames, token=api.token
+                    model_id,
+                    revision=revision,
+                    folder=folder,
+                    filenames=filenames,
+                    token=api.token,
                 )
 
             if operations:
@@ -366,7 +446,9 @@ if __name__ == "__main__":
             " Continue [Y/n] ?"
         )
     if txt.lower() in {"", "y"}:
-        commit_info, errors = convert(api, model_id, revision=args.revision, force=args.force)
+        commit_info, errors = convert(
+            api, model_id, revision=args.revision, force=args.force
+        )
         string = f"""
 ### Success 🔥
 Yay! This model was successfully converted and a PR was open using your token, here:
@@ -375,7 +457,8 @@ Yay! This model was successfully converted and a PR was open using your token, h
         if errors:
             string += "\nErrors during conversion:\n"
             string += "\n".join(
-                f"Error while converting {filename}: {e}, skipped conversion" for filename, e in errors
+                f"Error while converting {filename}: {e}, skipped conversion"
+                for filename, e in errors
             )
         print(string)
     else:

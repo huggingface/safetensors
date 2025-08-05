@@ -175,7 +175,7 @@ class ErrorsTestCase(unittest.TestCase):
         with self.assertRaises(FileNotFoundError) as ctx:
             with safe_open("notafile", framework="pt"):
                 pass
-        self.assertEqual(str(ctx.exception), 'No such file or directory: notafile')
+        self.assertEqual(str(ctx.exception), "No such file or directory: notafile")
 
 
 class ReadmeTestCase(unittest.TestCase):
@@ -244,7 +244,9 @@ class ReadmeTestCase(unittest.TestCase):
         save_file_pt(tensors, f"./slice_{ident}.safetensors")
 
         # Now loading
-        with safe_open(f"./slice_{ident}.safetensors", framework="pt", device="cpu") as f:
+        with safe_open(
+            f"./slice_{ident}.safetensors", framework="pt", device="cpu"
+        ) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
@@ -335,7 +337,9 @@ class ReadmeTestCase(unittest.TestCase):
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[2:, -6]
-            self.assertEqual(str(cm.exception), "Invalid index -6 for dimension 1 of size 5")
+            self.assertEqual(
+                str(cm.exception), "Invalid index -6 for dimension 1 of size 5"
+            )
 
             with self.assertRaises(SafetensorError) as cm:
                 tensor = slice_[[0, 1]]

@@ -23,13 +23,13 @@ if platform.system() == "Darwin":
 class LoadTestCase(unittest.TestCase):
     def setUp(self):
         data = {
-            "test": mx.randn((1024, 1024), dtype=mx.float32),
-            "test2": mx.randn((1024, 1024), dtype=mx.float32),
-            "test3": mx.randn((1024, 1024), dtype=mx.float32),
+            "test": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32),
+            "test2": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32),
+            "test3": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32),
             # This doesn't work because bfloat16 is not implemented
             # with similar workarounds as jax/tensorflow.
             # https://github.com/ml-explore/mlx/issues/1296
-            # "test4": mx.randn((1024, 1024), dtype=mx.bfloat16),
+            # "test4": mx.random.uniform(shape=(1024, 1024), dtype=mx.bfloat16),
         }
         self.mlx_filename = "./tests/data/mlx_load.npz"
         self.sf_filename = "./tests/data/mlx_load.safetensors"

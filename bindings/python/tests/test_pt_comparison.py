@@ -95,7 +95,7 @@ class TorchTestCase(unittest.TestCase):
         self.assertEqual(reloaded["test2"].item(), -0.5)
 
     def test_odd_dtype_fp4(self):
-        if Version(torch.__version__) <= Version("2.7"):
+        if Version(torch.__version__) < Version("2.8"):
             return  # torch.float4 requires 2.8
 
         test1 = torch.tensor([0.0], dtype=torch.float8_e8m0fnu)

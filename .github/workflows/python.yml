@@ -9,10 +9,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-13, windows-latest]
+        os: [ubuntu-latest, windows-latest]
         # Lowest and highest, no version specified so that 
         # new releases get automatically tested against
-        version: [{torch: torch==1.10, python: "3.9", arch: "x64"}, {torch: torch, python: "3.12", arch: "x64"}]
+        version: [{torch: torch==1.10, python: "3.9", arch: "x64", numpy: numpy==1.26.4}, {torch: torch, python: "3.12", arch: "x64", numpy: numpy}]
           # TODO this would include macos ARM target.
           # however jax has an illegal instruction issue
           # that exists only in CI (probably difference in instruction support).
@@ -26,7 +26,20 @@ jobs:
             version:
               torch: torch
               python: "3.13"
+              numpy: numpy
               arch: "x64-freethreaded"
+          - os: macos-13
+            version:
+              torch: torch==1.10
+              numpy: "numpy==1.26"
+              python: "3.9"
+              arch: "x64"
+          - os: macos-latest
+            version:
+              torch: torch
+              python: "3.12"
+              numpy: numpy
+              arch: "arm64"
     defaults:
       run:
         working-directory: ./bindings/python
@@ -63,14 +76,14 @@ jobs:
       - name: Run Audit
         run: cargo audit -D warnings
 
-      - name: Install
-        run: |
-          pip install -U pip
-          pip install .[numpy]
+      # - name: Install
+      #   run: |
+      #     pip install -U pip
 
       - name: Install (torch)
         if: matrix.version.arch != 'x64-freethreaded'
         run: |
+          pip install ${{ matrix.version.numpy }}
           pip install ${{ matrix.version.torch }}
         shell: bash
 
@@ -80,14 +93,22 @@ jobs:
           pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cu126
         shell: bash
 
+      - name: Install (hdf5 non windows)
+        if: matrix.os == 'ubuntu-latest' && matrix.version.arch != 'x64-freethreaded'
+        run: |
+          sudo apt-get update
+          sudo apt-get install libhdf5-dev
+
       - name: Install (tensorflow)
         if: matrix.version.arch != 'x64-freethreaded'
         run: |
           pip install .[tensorflow]
+          # Force reinstall of numpy, tensorflow uses numpy 2 even on 3.9
+          pip install ${{ matrix.version.numpy }}
         shell: bash
 
       - name: Install (jax, flax)
-        if: matrix.os != 'windows-latest' && matrix.version.arch != "x64-freethreaded"
+        if: matrix.os != 'windows-latest' && matrix.version.arch != 'x64-freethreaded'
         run: 
           pip install .[jax]
         shell: bash
@@ -101,13 +122,23 @@ jobs:
       - name: Check style
         run: |
           pip install .[quality]
-          black --check --line-length 119 --target-version py35 py_src/safetensors tests
+          ruff format --check .
 
       - name: Run tests
+        if: matrix.version.arch != 'x64-freethreaded'
         run: |
           cargo test
-          pip install .[testing]
+          pip install ".[testing]"
           pytest -sv tests/
+
+      - name: Run tests (freethreaded)
+        if: matrix.version.arch == 'x64-freethreaded'
+        run: |
+          cargo test
+          pip install ".[testingfree]"
+          pip install pytest numpy
+          pytest -sv tests/test_pt*
+          pytest -sv tests/test_simple.py
 
   test_s390x_big_endian:
     runs-on: ubuntu-latest
