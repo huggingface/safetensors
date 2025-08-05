@@ -31,7 +31,7 @@ jobs:
           - os: macos-13
             version:
               torch: torch==1.10
-              numpy: "numpy<2.0"
+              numpy: "numpy==1.26"
               python: "3.9"
               arch: "x64"
           - os: macos-latest
