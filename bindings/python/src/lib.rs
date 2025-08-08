@@ -33,7 +33,7 @@ struct PyView<'a> {
 }
 
 impl View for &PyView<'_> {
-    fn data(&self) -> std::borrow::Cow<[u8]> {
+    fn data(&self) -> std::borrow::Cow<'_, [u8]> {
         Cow::Borrowed(self.data.as_bytes())
     }
     fn shape(&self) -> &[usize] {
