@@ -14,6 +14,7 @@ from safetensors.torch import save_file as save_file_pt
 NUM_THREADS = 4
 NUM_ITERATIONS = 10
 
+
 def run_thread_pool(save_worker, barrier, tensors):
     try:
         # the default thread switch interval is 5 milliseconds
@@ -21,7 +22,8 @@ def run_thread_pool(save_worker, barrier, tensors):
         sys.setswitchinterval(0.000001)  # in seconds
 
         tasks = [
-            threading.Thread(target=save_worker, args=(tensors, barrier)) for _ in range(NUM_THREADS)
+            threading.Thread(target=save_worker, args=(tensors, barrier))
+            for _ in range(NUM_THREADS)
         ]
         [t.start() for t in tasks]
         [t.join() for t in tasks]
