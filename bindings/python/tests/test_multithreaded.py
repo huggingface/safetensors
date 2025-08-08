@@ -1,3 +1,4 @@
+import pytest
 import sys
 import tempfile
 import threading
@@ -53,6 +54,14 @@ def test_multithreaded_roundtripping_numpy():
 
     run_thread_pool(save_worker, threading.Barrier(NUM_THREADS), tensors)
 
+
+@pytest.mark.skipif(
+    not getattr(sys, "_is_gil_enabled", lambda: True)(),
+    reason=(
+        "Crashes if the GIL is disabled, see "
+        "https://github.com/pytorch/pytorch/issues/158071"
+    ),
+)
 def test_multithreaded_roundtripping_torch():
     def save_worker(tensors, barrier):
         barrier.wait()
