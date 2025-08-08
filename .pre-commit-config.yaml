@@ -31,13 +31,14 @@ repos:
             "--",
             "-Dwarnings",
           ]
-  - repo: https://github.com/psf/black
-    rev: 22.3.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.12.8
     hooks:
-      - id: black
-        name: "Python (black)"
-        args: ["--line-length", "119", "--target-version", "py35"]
-        types: ["python"]
+      # Run the linter.
+      - id: ruff-check
+      # Run the formatter.
+      - id: ruff-format
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.11.11

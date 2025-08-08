@@ -433,7 +433,7 @@ _SIZE = {
     _float8_e8m0: 1,
     _float4_e2m1_x2: 1,
 }
-if Version(torch.__version__) > Version("2.0.0"):
+if Version(torch.__version__) >= Version("2.3.0"):
     _SIZE.update(
         {
             torch.uint64: 8,
@@ -456,7 +456,7 @@ _TYPES = {
     "F8_E4M3": _float8_e4m3fn,
     "F8_E5M2": _float8_e5m2,
 }
-if Version(torch.__version__) > Version("2.0.0"):
+if Version(torch.__version__) >= Version("2.3.0"):
     _TYPES.update(
         {
             "U64": torch.uint64,
