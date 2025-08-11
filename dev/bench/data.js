@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754656553705,
+  "lastUpdate": 1754905612755,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -26254,6 +26254,96 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.003736553132526402",
             "extra": "mean: 268.0108030000156 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "huggingface",
+            "username": "huggingface"
+          },
+          "committer": {
+            "name": "huggingface",
+            "username": "huggingface"
+          },
+          "id": "06a2167633de2cb13e2e7716199af7cc1f4bc7b4",
+          "message": "Revert \"Early bailing when keys mismatch (faster). (#602)\"",
+          "timestamp": "2025-08-11T08:34:30Z",
+          "url": "https://github.com/huggingface/safetensors/pull/647/commits/06a2167633de2cb13e2e7716199af7cc1f4bc7b4"
+        },
+        "date": 1754905611953,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 4.369927634356832,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010876545181668648",
+            "extra": "mean: 228.83674139999357 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.623380672593785,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019497193260551493",
+            "extra": "mean: 216.2919453999848 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 7.792466369084652,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018063217496603443",
+            "extra": "mean: 128.3290748571387 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 5.971424149816163,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007945542874592808",
+            "extra": "mean: 167.46423883334197 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 10.20489409558219,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0021307510455100924",
+            "extra": "mean: 97.99219772725625 msec\nrounds: 11"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 277.8904147911037,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005328454094136166",
+            "extra": "mean: 3.5985408159965573 msec\nrounds: 250"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.230477811244812,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00048612384014659024",
+            "extra": "mean: 89.04340641666408 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 54.571295710762875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002534660458907356",
+            "extra": "mean: 18.324651943398404 msec\nrounds: 53"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 2.9492420890806823,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014426193065910321",
+            "extra": "mean: 339.0701644000046 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.7335490086117664,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004547172501966141",
+            "extra": "mean: 267.84166959999993 msec\nrounds: 5"
           }
         ]
       }
