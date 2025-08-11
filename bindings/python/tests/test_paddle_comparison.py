@@ -1,5 +1,4 @@
 import unittest
-
 import numpy as np
 
 from safetensors import safe_open
@@ -7,7 +6,7 @@ from safetensors import safe_open
 
 try:
     import paddle
-    from safetensors.paddle import load_file, save_file
+    from safetensors.paddle import load_file, save_file, save, load
 
     HAS_PADDLE = True
 except ImportError:
@@ -59,7 +58,9 @@ class WithOpenCase(unittest.TestCase):
         save_file(tensors, "./tensor_paddle.safetensors")
 
         # Now loading cpu
-        with safe_open("./tensor_paddle.safetensors", framework="paddle", device="cpu") as f:
+        with safe_open(
+            "./tensor_paddle.safetensors", framework="paddle", device="cpu"
+        ) as f:
             tensor = f.get_tensor("a")
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
@@ -72,7 +73,9 @@ class WithOpenCase(unittest.TestCase):
         }
         save_file(tensors, "./tensor_paddle.safetensors")
         # Now loading gpu
-        with safe_open("./tensor_paddle.safetensors", framework="paddle", device="cuda") as f:
+        with safe_open(
+            "./tensor_paddle.safetensors", framework="paddle", device="cuda"
+        ) as f:
             tensor = f.get_tensor("a")
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
@@ -86,7 +89,9 @@ class WithOpenCase(unittest.TestCase):
         save_file(tensors, "./slice_paddle.safetensors")
 
         # Now loading
-        with safe_open("./slice_paddle.safetensors", framework="paddle", device="cpu") as f:
+        with safe_open(
+            "./slice_paddle.safetensors", framework="paddle", device="cpu"
+        ) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
@@ -141,7 +146,9 @@ class WithOpenCase(unittest.TestCase):
         save_file(tensors, "./slice_paddle.safetensors")
 
         # Now loading
-        with safe_open("./slice_paddle.safetensors", framework="paddle", device="cuda") as f:
+        with safe_open(
+            "./slice_paddle.safetensors", framework="paddle", device="cuda"
+        ) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
@@ -187,3 +194,44 @@ class WithOpenCase(unittest.TestCase):
             self.assertEqual(list(tensor.shape), [0, 5])
             assert paddle.allclose(tensor, A[list()]).item()
             assert tensor.place.is_gpu_place()
+
+
+@unittest.skipIf(not HAS_PADDLE, "Paddle is not available")
+class SaveLoadCase(unittest.TestCase):
+    def test_in_memory(self):
+        data = {
+            "test": paddle.zeros((2, 2), dtype=paddle.float32),
+        }
+        binary = save(data)
+        self.assertEqual(
+            binary,
+            # Spaces are for forcing the alignment.
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]}}   '
+            b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+        reloaded = load(binary)
+        out = paddle.equal(data["test"], reloaded["test"])
+        self.assertTrue(paddle.all(out))
+
+    def test_save_load_cpu(self):
+        data = {
+            "test": paddle.randn((2, 2), dtype=paddle.float32),
+        }
+        self.sf_filename = "./tests/data/paddle_save_load_cpu.safetensors"
+        save_file(data, self.sf_filename)
+        reloaded = load(open(self.sf_filename, "rb").read())
+        reloaded_file = load_file(self.sf_filename)
+        assert paddle.allclose(reloaded["test"], reloaded_file["test"]).item()
+
+    def test_odd_dtype(self):
+        data = {
+            "test1": paddle.randn((2, 2), dtype=paddle.bfloat16),
+            "test2": paddle.randn((2, 2), dtype=paddle.float32),
+        }
+        self.sf_filename = "./tests/data/paddle_save_load_type.safetensors"
+        save_file(data, self.sf_filename)
+        reloaded = load_file(self.sf_filename)
+        self.assertTrue(paddle.all(paddle.equal(data["test1"], reloaded["test1"])))
+        self.assertEqual(reloaded["test1"].dtype, paddle.bfloat16)
+        self.assertTrue(paddle.all(paddle.equal(data["test2"], reloaded["test2"])))
+        self.assertEqual(reloaded["test2"].dtype, paddle.float32)
