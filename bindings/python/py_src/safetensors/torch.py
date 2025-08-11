@@ -221,68 +221,23 @@ def load_model(
     to_removes = _remove_duplicate_names(
         model_state_dict, preferred_names=state_dict.keys()
     )
-
-    reverse_to_remove = {}
-    for key, to_remove_group in to_removes.items():
-        for to_remove in to_remove_group:
-            reverse_to_remove[to_remove] = key
-
-    # We iterate on the model, so we'll add keys we find missing
-    # here
-    missing = set()
-    # We start with all keys on disk declared as unexpected, we'll
-    # slowly remove them when we find them
-    unexpected = set(state_dict.keys())
-    # Some keys can be invalid too.
-    invalid = set()
-
-    for k, mv in model_state_dict.items():
-        actual_k = reverse_to_remove.get(k, None)
-        if actual_k is not None:
-            look_k = actual_k
-        else:
-            look_k = k
-        v = state_dict.get(look_k, None)
-        if v is None:
-            missing.add(k)
-        else:
-            # We can actually check for the shapes while we're at it.
-            # For the device, it's trickier given torch's internals
-            # There might be some Meta device for faster initiation
-            if v.dtype != mv.dtype or v.shape != mv.shape:
-                invalid.add(k)
-            if actual_k is None:
-                unexpected.remove(k)
-
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
     missing = set(missing)
-    unexpected = set(unexpected)
-    if strict and (missing or unexpected or invalid):
+    for to_remove_group in to_removes.values():
+        for to_remove in to_remove_group:
+            if to_remove not in missing:
+                unexpected.append(to_remove)
+            else:
+                missing.remove(to_remove)
+    if strict and (missing or unexpected):
         missing_keys = ", ".join([f'"{k}"' for k in sorted(missing)])
         unexpected_keys = ", ".join([f'"{k}"' for k in sorted(unexpected)])
-        invalid_keys = ", ".join([f'"{k}"' for k in sorted(invalid)])
         error = f"Error(s) in loading state_dict for {model.__class__.__name__}:"
         if missing:
             error += f"\n    Missing key(s) in state_dict: {missing_keys}"
         if unexpected:
             error += f"\n    Unexpected key(s) in state_dict: {unexpected_keys}"
-        if invalid:
-            error += f"\n    Invalid key(s) in state_dict: {invalid_keys}, mismatched dtypes or shape."
-        del state_dict
         raise RuntimeError(error)
-
-    torch_missing, torch_unexpected = model.load_state_dict(state_dict, strict=False)
-    # Sanity check that the work we've done matches
-    # Pytorch internal loading.
-    torch_missing = set(torch_missing)
-    torch_unexpected = set(torch_unexpected)
-    for to_remove_group in to_removes.values():
-        for to_remove in to_remove_group:
-            if to_remove not in torch_missing:
-                torch_unexpected.add(to_remove)
-            else:
-                torch_missing.remove(to_remove)
-    assert torch_missing == missing, f"{torch_missing} != {missing}"
-    assert torch_unexpected == unexpected, f"{torch_unexpected} != {unexpected}"
     return missing, unexpected
 
 
