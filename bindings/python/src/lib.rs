@@ -276,7 +276,6 @@ impl<'source> FromPyObject<'source> for Framework {
             "mlx" => Ok(Framework::Mlx),
 
             "paddle" => Ok(Framework::Paddle),
-            "pp" => Ok(Framework::Paddle),
             name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
             ))),
