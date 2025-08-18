@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 import paddle
 
-from safetensors import deserialize, safe_open, serialize, serialize_file
+from safetensors import numpy, deserialize, safe_open, serialize, serialize_file
 
 
 def save(
@@ -97,8 +97,12 @@ def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
     loaded = load(data)
     ```
     """
-    flat = deserialize(data)
-    return _view2paddle(flat, device)
+    if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.2.0":
+        flat = deserialize(data)
+        return _view2paddle(flat, device)
+    else:
+        flat = numpy.load(data)
+        return _np2paddle(flat, device)
 
 
 def load_file(
@@ -127,9 +131,13 @@ def load_file(
     ```
     """
     result = {}
-    with safe_open(filename, framework="pp", device=device) as f:
-        for k in f.offset_keys():
-            result[k] = f.get_tensor(k)
+    if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.1.1":
+        with safe_open(filename, framework="pp", device=device) as f:
+            for k in f.offset_keys():
+                result[k] = f.get_tensor(k)
+    else:
+        flat = numpy.load_file(filename)
+        result = _np2paddle(flat, device)
     return result
 
 
@@ -214,11 +222,9 @@ def _view2paddle(safeview, device) -> Dict[str, paddle.Tensor]:
             assert any(x == 0 for x in v["shape"])
             arr = paddle.empty(v["shape"], dtype=dtype)
         else:
-            arr = paddle.to_tensor(
-                np.frombuffer(v["data"], dtype=NPDTYPES[dtype]),
-                dtype=dtype,
-                place=device,
-            ).reshape(v["shape"])
+            arr = paddle.base.core.frombuffer(v["data"], dtype).reshape(v["shape"])
+            if device != "cpu":
+                arr = arr.to(device)
         if sys.byteorder == "big":
             arr = paddle.to_tensor(arr.numpy().byteswap(inplace=False), place=device)
         result[k] = arr

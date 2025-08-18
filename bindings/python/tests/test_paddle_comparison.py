@@ -12,6 +12,8 @@ try:
 except ImportError:
     HAS_PADDLE = False
 
+print(paddle.__version__)
+
 
 @unittest.skipIf(not HAS_PADDLE, "Paddle is not available")
 class SafeTestCase(unittest.TestCase):
@@ -214,24 +216,33 @@ class SaveLoadCase(unittest.TestCase):
         self.assertTrue(paddle.all(out))
 
     def test_save_load_cpu(self):
+        if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.2.0":
+            self.dtype = paddle.bfloat16
+        else:
+            self.dtype = paddle.float32
         data = {
-            "test": paddle.randn((2, 2), dtype=paddle.float32),
+            "test": paddle.randn((2, 2), dtype=self.dtype),
         }
         self.sf_filename = "./tests/data/paddle_save_load_cpu.safetensors"
         save_file(data, self.sf_filename)
         reloaded = load(open(self.sf_filename, "rb").read())
-        reloaded_file = load_file(self.sf_filename)
-        assert paddle.allclose(reloaded["test"], reloaded_file["test"]).item()
+        out = paddle.equal(data["test"], reloaded["test"])
+        self.assertTrue(paddle.all(out))
 
     def test_odd_dtype(self):
-        data = {
-            "test1": paddle.randn((2, 2), dtype=paddle.bfloat16),
-            "test2": paddle.randn((2, 2), dtype=paddle.float32),
-        }
-        self.sf_filename = "./tests/data/paddle_save_load_type.safetensors"
-        save_file(data, self.sf_filename)
-        reloaded = load_file(self.sf_filename)
-        self.assertTrue(paddle.all(paddle.equal(data["test1"], reloaded["test1"])))
-        self.assertEqual(reloaded["test1"].dtype, paddle.bfloat16)
-        self.assertTrue(paddle.all(paddle.equal(data["test2"], reloaded["test2"])))
-        self.assertEqual(reloaded["test2"].dtype, paddle.float32)
+        if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.1.1":
+            data = {
+                "test1": paddle.randn((2, 2), dtype=paddle.bfloat16),
+                "test2": paddle.randn((2, 2), dtype=paddle.float32),
+            }
+            self.sf_filename = "./tests/data/paddle_save_load_type.safetensors"
+            save_file(data, self.sf_filename)
+            reloaded = load_file(self.sf_filename)
+            self.assertTrue(paddle.all(paddle.equal(data["test1"], reloaded["test1"])))
+            self.assertEqual(reloaded["test1"].dtype, paddle.bfloat16)
+            self.assertTrue(paddle.all(paddle.equal(data["test2"], reloaded["test2"])))
+            self.assertEqual(reloaded["test2"].dtype, paddle.float32)
+
+
+if __name__ == "__main__":
+    unittest.main()
