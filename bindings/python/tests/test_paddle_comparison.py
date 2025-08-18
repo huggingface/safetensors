@@ -59,7 +59,9 @@ class WithOpenCase(unittest.TestCase):
         save_file(tensors, "./tensor_paddle.safetensors")
 
         # Now loading cpu
-        with safe_open("./tensor_paddle.safetensors", framework="paddle", device="cpu") as f:
+        with safe_open(
+            "./tensor_paddle.safetensors", framework="paddle", device="cpu"
+        ) as f:
             tensor = f.get_tensor("a")
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
@@ -72,7 +74,9 @@ class WithOpenCase(unittest.TestCase):
         }
         save_file(tensors, "./tensor_paddle.safetensors")
         # Now loading gpu
-        with safe_open("./tensor_paddle.safetensors", framework="paddle", device="cuda") as f:
+        with safe_open(
+            "./tensor_paddle.safetensors", framework="paddle", device="cuda"
+        ) as f:
             tensor = f.get_tensor("a")
             self.assertEqual(list(tensor.shape), [10, 5])
             assert paddle.allclose(tensor, A).item()
@@ -86,7 +90,9 @@ class WithOpenCase(unittest.TestCase):
         save_file(tensors, "./slice_paddle.safetensors")
 
         # Now loading
-        with safe_open("./slice_paddle.safetensors", framework="paddle", device="cpu") as f:
+        with safe_open(
+            "./slice_paddle.safetensors", framework="paddle", device="cpu"
+        ) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
@@ -141,7 +147,9 @@ class WithOpenCase(unittest.TestCase):
         save_file(tensors, "./slice_paddle.safetensors")
 
         # Now loading
-        with safe_open("./slice_paddle.safetensors", framework="paddle", device="cuda") as f:
+        with safe_open(
+            "./slice_paddle.safetensors", framework="paddle", device="cuda"
+        ) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])

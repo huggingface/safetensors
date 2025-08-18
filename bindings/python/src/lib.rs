@@ -382,12 +382,12 @@ enum Storage {
     /// This allows us to not manage it
     /// so Pytorch can handle the whole lifecycle.
     /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
-    TorchStorage(OnceLock<PyObject>),
+    Torch(OnceLock<PyObject>),
     // Paddle specific mmap
     // This allows us to not manage the lifecycle of the storage,
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
-    PaddleStorage(OnceLock<PyObject>),
+    Paddle(OnceLock<PyObject>),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -517,7 +517,7 @@ impl Open {
                         .into();
                     let gil_storage = OnceLock::new();
                     gil_storage.get_or_init_py_attached(py, || storage);
-                    Ok(Storage::PaddleStorage(gil_storage))
+                    Ok(Storage::Paddle(gil_storage))
                 } else {
                     let module = PyModule::import(py, intern!(py, "numpy"))?;
                     NUMPY_MODULE.get_or_init_py_attached(py, || module.into());
@@ -568,7 +568,7 @@ impl Open {
                     let gil_storage = OnceLock::new();
                     gil_storage.get_or_init_py_attached(py, || storage);
 
-                    Ok(Storage::TorchStorage(gil_storage))
+                    Ok(Storage::Torch(gil_storage))
                 } else {
                     Ok(Storage::Mmap(buffer))
                 }
@@ -658,7 +658,7 @@ impl Open {
                     &self.device,
                 )
             }
-            Storage::PaddleStorage(storage) => {
+            Storage::Paddle(storage) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
                     let paddle = get_module(py, &PADDLE_MODULE)?;
                     let cur_type = if info.dtype == Dtype::U16 {
@@ -744,7 +744,7 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
-            Storage::TorchStorage(storage) => {
+            Storage::Torch(storage) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
                     let torch = get_module(py, &TORCH_MODULE)?;
                     let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
@@ -1128,7 +1128,7 @@ impl PySafeSlice {
                     )
                 })
             }
-            Storage::TorchStorage(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
+            Storage::Torch(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
                 let torch = get_module(py, &TORCH_MODULE)?;
                 let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
                 let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
@@ -1207,7 +1207,7 @@ impl PySafeSlice {
                 }
                 Ok(tensor.into())
             }),
-            Storage::PaddleStorage(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
+            Storage::Paddle(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
                 let paddle = get_module(py, &PADDLE_MODULE)?;
                 let cur_type = if self.info.dtype == Dtype::U16 {
                     Dtype::BF16
