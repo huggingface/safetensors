@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755515236304,
+  "lastUpdate": 1755528716817,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -26712,6 +26712,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.013704959050941542",
             "extra": "mean: 277.75208880000264 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "patry.nicolas@protonmail.com",
+            "name": "Nicolas Patry",
+            "username": "Narsil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54b35101e4fead20d5104468e1093250f267ead1",
+          "message": "Fix clippy lint. (#648)\n\n* Fix clippy lint.\n\n* Format.",
+          "timestamp": "2025-08-18T16:49:55+02:00",
+          "tree_id": "65709d0cf654080c8d68fada294af399b268be16",
+          "url": "https://github.com/huggingface/safetensors/commit/54b35101e4fead20d5104468e1093250f267ead1"
+        },
+        "date": 1755528716014,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 4.299331899902259,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002932978215619105",
+            "extra": "mean: 232.59427819999985 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.030394816242942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0042402369102031625",
+            "extra": "mean: 248.1146501999973 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 7.606324628503202,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0022225197504037613",
+            "extra": "mean: 131.46954000000173 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.371538123223041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000888253777116652",
+            "extra": "mean: 228.75243720000356 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 7.778880052643973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005509526884061861",
+            "extra": "mean: 128.55320987500107 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 276.5083242051899,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00007816356540049546",
+            "extra": "mean: 3.6165276502052968 msec\nrounds: 243"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.260560720390624,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003549849804832099",
+            "extra": "mean: 88.80552441666605 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 55.872871760023784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002908682818297086",
+            "extra": "mean: 17.897773436365323 msec\nrounds: 55"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.361006360698408,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022811634476657145",
+            "extra": "mean: 297.52993380000703 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.559799907833412,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014655796608728035",
+            "extra": "mean: 280.9146654000074 msec\nrounds: 5"
           }
         ]
       }
