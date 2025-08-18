@@ -12,8 +12,6 @@ try:
 except ImportError:
     HAS_PADDLE = False
 
-print(paddle.__version__)
-
 
 @unittest.skipIf(not HAS_PADDLE, "Paddle is not available")
 class SafeTestCase(unittest.TestCase):
