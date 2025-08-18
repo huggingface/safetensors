@@ -34,7 +34,7 @@ struct PyView<'a> {
 }
 
 impl View for &PyView<'_> {
-    fn data(&self) -> std::borrow::Cow<[u8]> {
+    fn data(&self) -> std::borrow::Cow<'_, [u8]> {
         Cow::Borrowed(self.data.as_bytes())
     }
     fn shape(&self) -> &[usize] {
@@ -276,7 +276,6 @@ impl<'source> FromPyObject<'source> for Framework {
             "mlx" => Ok(Framework::Mlx),
 
             "paddle" => Ok(Framework::Paddle),
-            "pp" => Ok(Framework::Paddle),
             name => Err(SafetensorError::new_err(format!(
                 "framework {name} is invalid"
             ))),
@@ -1407,7 +1406,11 @@ fn create_tensor<'a>(
                     Ok(PADDLE_MODULE.get_or_init_py_attached(py, || module.into()))
                 })?
                 .bind(py);
-                let device: PyObject = device.clone().into_pyobject(py)?.into();
+                let device: PyObject = if let Device::Cuda(index) = device {
+                    format!("gpu:{index}").into_pyobject(py)?.into()
+                } else {
+                    device.clone().into_pyobject(py)?.into()
+                };
                 let kwargs = [(intern!(py, "place"), device)].into_py_dict(py)?;
                 let tensor = module
                     .getattr(intern!(py, "to_tensor"))?

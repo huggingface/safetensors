@@ -242,7 +242,3 @@ class SaveLoadCase(unittest.TestCase):
             self.assertEqual(reloaded["test1"].dtype, paddle.bfloat16)
             self.assertTrue(paddle.all(paddle.equal(data["test2"], reloaded["test2"])))
             self.assertEqual(reloaded["test2"].dtype, paddle.float32)
-
-
-if __name__ == "__main__":
-    unittest.main()

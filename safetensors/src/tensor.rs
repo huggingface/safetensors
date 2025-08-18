@@ -142,7 +142,7 @@ struct PreparedData {
 ///    fn shape(&self) -> &[usize]{
 ///         &self.shape
 ///    }
-///    fn data(&self) -> Cow<[u8]>{
+///    fn data(&self) -> Cow<'_, [u8]>{
 ///        (&self.data).into()
 ///    }
 ///    fn data_len(&self) -> usize{
@@ -166,7 +166,7 @@ struct PreparedData {
 ///    fn shape(&self) -> &[usize]{
 ///         &self.shape
 ///    }
-///    fn data(&self) -> Cow<[u8]>{
+///    fn data(&self) -> Cow<'_, [u8]>{
 ///        self.data.into()
 ///    }
 ///    fn data_len(&self) -> usize{
@@ -193,7 +193,7 @@ struct PreparedData {
 ///    fn shape(&self) -> &[usize]{
 ///         &self.shape
 ///    }
-///    fn data(&self) -> Cow<[u8]>{
+///    fn data(&self) -> Cow<'_, [u8]>{
 ///        // This copies data from GPU to CPU.
 ///        let data: Vec<u8> = self.data.to_vec();
 ///        data.into()
@@ -211,7 +211,7 @@ pub trait View {
     /// The shape of the tensor
     fn shape(&self) -> &[usize];
     /// The data of the tensor
-    fn data(&self) -> Cow<[u8]>;
+    fn data(&self) -> Cow<'_, [u8]>;
     /// The length of the data, in bytes.
     /// This is necessary as this might be faster to get than `data().len()`
     /// for instance for tensors residing in GPU.
@@ -678,7 +678,7 @@ impl View for &TensorView<'_> {
         &self.shape
     }
 
-    fn data(&self) -> Cow<[u8]> {
+    fn data(&self) -> Cow<'_, [u8]> {
         self.data.into()
     }
 
@@ -696,7 +696,7 @@ impl View for TensorView<'_> {
         &self.shape
     }
 
-    fn data(&self) -> Cow<[u8]> {
+    fn data(&self) -> Cow<'_, [u8]> {
         self.data.into()
     }
 
