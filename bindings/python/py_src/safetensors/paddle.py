@@ -132,7 +132,7 @@ def load_file(
     """
     result = {}
     if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.1.1":
-        with safe_open(filename, framework="pp", device=device) as f:
+        with safe_open(filename, framework="paddle", device=device) as f:
             for k in f.offset_keys():
                 result[k] = f.get_tensor(k)
     else:
