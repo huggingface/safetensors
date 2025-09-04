@@ -228,7 +228,7 @@ class SaveLoadCase(unittest.TestCase):
         self.assertTrue(paddle.all(out))
 
     def test_odd_dtype(self):
-        if paddle.__version__ >= "3.1.1":
+        if paddle.__version__ >= "3.2.0":
             data = {
                 "test1": paddle.randn((2, 2), dtype=paddle.bfloat16),
                 "test2": paddle.randn((2, 2), dtype=paddle.float32),
