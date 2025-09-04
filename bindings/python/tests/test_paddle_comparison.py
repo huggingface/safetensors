@@ -214,7 +214,7 @@ class SaveLoadCase(unittest.TestCase):
         self.assertTrue(paddle.all(out))
 
     def test_save_load_cpu(self):
-        if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.2.0":
+        if paddle.__version__ >= "3.2.0":
             self.dtype = paddle.bfloat16
         else:
             self.dtype = paddle.float32
@@ -228,7 +228,7 @@ class SaveLoadCase(unittest.TestCase):
         self.assertTrue(paddle.all(out))
 
     def test_odd_dtype(self):
-        if paddle.__version__ == "0.0.0" or paddle.__version__ >= "3.1.1":
+        if paddle.__version__ >= "3.1.1":
             data = {
                 "test1": paddle.randn((2, 2), dtype=paddle.bfloat16),
                 "test2": paddle.randn((2, 2), dtype=paddle.float32),
