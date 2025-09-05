@@ -16,15 +16,18 @@ The format is 8 bytes which is an unsized int, being the size of a JSON header,
 the JSON header refers the `dtype` the `shape` and `data_offsets` which are the offsets
 for the values in the rest of the file.
 """
-exclude = [ "rust-toolchain", "target/*", "Cargo.lock"]
+exclude = ["rust-toolchain", "target/*", "Cargo.lock"]
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hashbrown = { version = "0.15.4", features = ["serde"], optional = true }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0", default-features = false }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "alloc",
+] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+hashbrown = { version = "0.15.4", features = ["serde"] }
 
 [dev-dependencies]
 criterion = "0.6"
@@ -34,7 +37,8 @@ proptest = "1.7"
 [features]
 default = ["std"]
 std = ["serde/default", "serde_json/default"]
-alloc = ["serde/alloc", "serde_json/alloc", "hashbrown"]
+# Kept for backward compatibility - no-op since alloc is always available
+alloc = []
 
 [[bench]]
 name = "benchmark"
