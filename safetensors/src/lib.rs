@@ -8,14 +8,9 @@ pub mod tensor;
 pub use tensor::serialize_to_file;
 pub use tensor::{serialize, Dtype, SafeTensorError, SafeTensors, View};
 
-#[cfg(feature = "alloc")]
+#[cfg(not(feature = "std"))]
 #[macro_use]
 extern crate alloc;
-
-#[cfg(all(feature = "std", feature = "alloc"))]
-compile_error!("must choose either the `std` or `alloc` feature, but not both.");
-#[cfg(all(not(feature = "std"), not(feature = "alloc")))]
-compile_error!("must choose either the `std` or `alloc` feature");
 
 /// A facade around all the types we need from the `std`, `core`, and `alloc`
 /// crates. This avoids elaborate import wrangling having to happen in every
