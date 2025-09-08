@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757060140333,
+  "lastUpdate": 1757319983262,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -26900,6 +26900,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010355091074286886",
             "extra": "mean: 309.5926686000098 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "939125+antimora@users.noreply.github.com",
+            "name": "Dilshod Tadjibaev",
+            "username": "antimora"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0816a1ae1d6b731cefd67f061d80d1cadd0dd7bb",
+          "message": "Fix no-std feature configuration to auto-fallback from std to alloc (#651)\n\n* Refactor feature flags for alloc and std support\n\nUpdated Cargo.toml to always enable alloc support and removed the alloc feature from dependencies. The alloc feature is now a no-op for backward compatibility. Adjusted lib.rs to use alloc when std is not enabled and removed compile-time errors enforcing feature exclusivity.\n\n* Update no-std test command in CI workflow\n\nRemoves the explicit 'alloc' feature from the no-std test command in the GitHub Actions workflow, running tests with only --no-default-features. This may be to ensure tests run in a stricter no-std environment or to match updated feature requirements.",
+          "timestamp": "2025-09-08T10:24:14+02:00",
+          "tree_id": "7630b8a635dff9a8dc7bde7700bf92df8926f8de",
+          "url": "https://github.com/huggingface/safetensors/commit/0816a1ae1d6b731cefd67f061d80d1cadd0dd7bb"
+        },
+        "date": 1757319982423,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 4.452000633188447,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00039981938194188235",
+            "extra": "mean: 224.6181172000007 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.592868948715331,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0034986815117233274",
+            "extra": "mean: 217.7288337999954 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 8.258638365395818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014828014922861619",
+            "extra": "mean: 121.08533583333288 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.579939839504102,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005933374792540977",
+            "extra": "mean: 218.3434793999993 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 9.268003009860195,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011969674567362656",
+            "extra": "mean: 107.89810911111095 msec\nrounds: 9"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 262.5945377070599,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005287759106426206",
+            "extra": "mean: 3.8081523276602223 msec\nrounds: 235"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.404197909769385,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014944641338184537",
+            "extra": "mean: 87.68700858333507 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 52.06412488354706,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00009080257049963567",
+            "extra": "mean: 19.207083615382405 msec\nrounds: 52"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.3448812213311077,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022109748159618206",
+            "extra": "mean: 298.96427820000326 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.688214209404076,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009295309067304709",
+            "extra": "mean: 271.1339264000003 msec\nrounds: 5"
           }
         ]
       }
