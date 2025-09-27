@@ -848,7 +848,7 @@ impl Open {
     ///
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
-        if let Some(&info) = self.metadata.tensors().get(name) {
+        if let Some(info) = self.metadata.info(name) {
             Ok(PySafeSlice {
                 info: info.clone(),
                 framework: self.framework.clone(),
