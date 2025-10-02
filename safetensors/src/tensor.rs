@@ -1,11 +1,19 @@
 //! Module Containing the most important structures
-use crate::lib::{Cow, HashMap, String, ToString, Vec};
 use crate::slice::{InvalidSlice, SliceIterator, TensorIndexer};
+use alloc::borrow::Cow;
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::fmt::Display;
 use core::str::Utf8Error;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
 use std::io::Write;
+
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 const N_LEN: usize = size_of::<u64>();
@@ -220,7 +228,7 @@ pub trait View {
 
 fn prepare<S, V, I>(
     data: I,
-    data_info: Option<HashMap<String, String>>,
+    data_info: Option<BTreeMap<String, String>>,
 ) -> Result<(PreparedData, Vec<V>), SafeTensorError>
 where
     S: AsRef<str> + Ord + Display,
@@ -274,7 +282,7 @@ pub fn serialize<
     I: IntoIterator<Item = (S, V)>,
 >(
     data: I,
-    data_info: Option<HashMap<String, String>>,
+    data_info: Option<BTreeMap<String, String>>,
 ) -> Result<Vec<u8>, SafeTensorError> {
     let (
         PreparedData {
@@ -303,7 +311,7 @@ pub fn serialize<
 #[cfg(feature = "std")]
 pub fn serialize_to_file<S, V, I>(
     data: I,
-    data_info: Option<HashMap<String, String>>,
+    data_info: Option<BTreeMap<String, String>>,
     filename: &std::path::Path,
 ) -> Result<(), SafeTensorError>
 where
@@ -484,13 +492,18 @@ impl<'data> SafeTensors<'data> {
     pub fn is_empty(&self) -> bool {
         self.metadata.tensors.is_empty()
     }
+
+    /// Return the metadata
+    pub fn metadata(&self) -> &Option<BTreeMap<String, String>> {
+        self.metadata.metadata()
+    }
 }
 
 /// The stuct representing the header of safetensor files which allow
 /// indexing into the raw byte-buffer array and how to interpret it.
 #[derive(Debug, Clone)]
 pub struct Metadata {
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
     tensors: Vec<TensorInfo>,
     index_map: HashMap<String, usize>,
 }
@@ -500,7 +513,7 @@ pub struct Metadata {
 struct HashMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "__metadata__")]
-    metadata: Option<HashMap<String, String>>,
+    metadata: Option<BTreeMap<String, String>>,
     #[serde(flatten)]
     tensors: HashMap<String, TensorInfo>,
 }
@@ -541,7 +554,7 @@ impl Serialize for Metadata {
             names[index] = name;
         }
 
-        let length = self.metadata.as_ref().map_or(0, HashMap::len);
+        let length = self.metadata.as_ref().map_or(0, BTreeMap::len);
         let mut map = serializer.serialize_map(Some(self.tensors.len() + length))?;
 
         if let Some(metadata) = &self.metadata {
@@ -561,7 +574,7 @@ impl Metadata {
     /// May fail if there is incorrect data in the Tensor Info.
     /// Notably the tensors need to be ordered by increasing data_offsets.
     pub fn new(
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<BTreeMap<String, String>>,
         tensors: Vec<(String, TensorInfo)>,
     ) -> Result<Self, SafeTensorError> {
         let mut index_map = HashMap::with_capacity(tensors.len());
@@ -654,7 +667,7 @@ impl Metadata {
     }
 
     /// Gives back the tensor metadata
-    pub fn metadata(&self) -> &Option<HashMap<String, String>> {
+    pub fn metadata(&self) -> &Option<BTreeMap<String, String>> {
         &self.metadata
     }
 }
@@ -1085,7 +1098,7 @@ mod tests {
         );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
 
-        let metadata: Option<HashMap<String, String>> = Some(
+        let metadata: Option<BTreeMap<String, String>> = Some(
             [("framework".to_string(), "pt".to_string())]
                 .into_iter()
                 .collect(),
@@ -1488,5 +1501,82 @@ mod tests {
             }
             _ => panic!("This should not be able to be deserialized"),
         }
+    }
+
+    #[test]
+    fn test_metadata_with_btreemap() {
+        use std::collections::BTreeMap;
+
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+
+        // Test with BTreeMap - the standard type for metadata
+        let metadata: Option<BTreeMap<String, String>> = Some(
+            [("framework".to_string(), "pytorch".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let out = serialize(&tensors, metadata).unwrap();
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+        assert_eq!(
+            parsed
+                .metadata()
+                .as_ref()
+                .unwrap()
+                .get("framework")
+                .unwrap(),
+            "pytorch"
+        );
+
+        // Test with HashMap -> BTreeMap conversion (simulating burn-store use case)
+        let hashmap_metadata: HashMap<String, String> =
+            [("framework".to_string(), "burn".to_string())]
+                .into_iter()
+                .collect();
+        let btreemap_metadata: BTreeMap<String, String> = hashmap_metadata.into_iter().collect();
+        let out2 = serialize(&tensors, Some(btreemap_metadata)).unwrap();
+        let parsed2 = SafeTensors::deserialize(&out2).unwrap();
+        assert_eq!(
+            parsed2
+                .metadata()
+                .as_ref()
+                .unwrap()
+                .get("framework")
+                .unwrap(),
+            "burn"
+        );
+
+        // Test with multiple metadata entries
+        let metadata_multi: BTreeMap<String, String> = [("framework", "jax"), ("version", "1.0")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let out_multi = serialize(&tensors, Some(metadata_multi)).unwrap();
+        let parsed_multi = SafeTensors::deserialize(&out_multi).unwrap();
+        assert_eq!(
+            parsed_multi
+                .metadata()
+                .as_ref()
+                .unwrap()
+                .get("framework")
+                .unwrap(),
+            "jax"
+        );
+        assert_eq!(
+            parsed_multi
+                .metadata()
+                .as_ref()
+                .unwrap()
+                .get("version")
+                .unwrap(),
+            "1.0"
+        );
+    }
+
+    #[test]
+    fn test_serialize_none_without_annotation() {
+        // Critical backward compatibility test - None works without type annotation
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+        let result = serialize(&tensors, None);
+        assert!(result.is_ok());
     }
 }
