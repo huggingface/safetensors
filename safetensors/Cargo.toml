@@ -27,7 +27,7 @@ serde = { version = "1.0", default-features = false, features = [
     "alloc",
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
-hashbrown = { version = "0.15.4", features = ["serde"] }
+hashbrown = { version = "0.16", features = ["serde"] }
 
 [dev-dependencies]
 criterion = "0.6"
