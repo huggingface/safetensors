@@ -92,6 +92,7 @@ pub fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMa
             "float8_e5m2" => Dtype::F8_E5M2,
             "float8_e8m0fnu" => Dtype::E8M0,
             "float4_e2m1fn_x2" => Dtype::F4,
+            "complex64" => Dtype::Complex64,
             dtype_str => {
                 return Err(SafetensorError::new_err(format!(
                     "dtype {dtype_str} is not covered",
