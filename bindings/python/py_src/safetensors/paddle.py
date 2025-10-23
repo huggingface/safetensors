@@ -168,6 +168,7 @@ _SIZE = {
     paddle.float64: 8,
     paddle.float8_e4m3fn: 1,
     paddle.float8_e5m2: 1,
+    paddle.complex64: 8,
     # XXX: These are not supported yet in paddle
     # paddle.uint64: 8,
     # paddle.uint32: 4,

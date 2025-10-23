@@ -78,6 +78,29 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
         self.assertTrue(torch.equal(data["test4"], reloaded["test4"]))
 
+    def test_complex(self):
+        # Test complex separately. Each value consists of two numbers
+        # and we want to validate that the representation is the same
+        # across platforms.
+        data = torch.zeros((2, 2), dtype=torch.complex64)
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'H\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"Complex64","shape":[2,2],"data_offsets":[0,32]}}      '
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+
+        data[1][1].real = -1
+        data[1][1].imag = 1
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'H\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"Complex64","shape":[2,2],"data_offsets":[0,32]}}      '
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\xbf\x00\x00\x80?",
+        )
+
     def test_odd_dtype_fp8(self):
         if torch.__version__ < "2.1":
             return  # torch.float8 requires 2.1

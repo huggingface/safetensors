@@ -20,6 +20,7 @@ class SafeTestCase(unittest.TestCase):
             "test": paddle.zeros((1024, 1024), dtype=paddle.float32),
             "test2": paddle.zeros((1024, 1024), dtype=paddle.float32),
             "test3": paddle.zeros((1024, 1024), dtype=paddle.float32),
+            "test4": paddle.zeros((1024, 1024), dtype=paddle.complex64),
         }
         self.paddle_filename = "./tests/data/paddle_load.pdparams"
         self.sf_filename = "./tests/data/paddle_load.safetensors"
