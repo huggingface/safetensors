@@ -35,6 +35,7 @@ numpy = ["numpy>=1.21.6"]
 torch = [
     "safetensors[numpy]",
     "torch>=1.10",
+    "packaging",
 ]
 tensorflow = [
     "safetensors[numpy]",
