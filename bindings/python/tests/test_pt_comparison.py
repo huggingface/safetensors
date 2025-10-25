@@ -91,8 +91,9 @@ class TorchTestCase(unittest.TestCase):
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
         )
 
-        data[1][1].real = -1
-        data[1][1].imag = 1
+        real = torch.tensor([-1.0])
+        imag = torch.tensor([1.0])
+        data[1][1] = torch.complex(real, imag)
         out = save({"test": data})
 
         self.assertEqual(
