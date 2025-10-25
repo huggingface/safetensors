@@ -495,6 +495,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
             # XXX: This is ok because both have the same width and byteswap is a no-op anyway
             _float8_e4m3fn: np.uint8,
             _float8_e5m2: np.uint8,
+            torch.complex64: np.complex64,
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
