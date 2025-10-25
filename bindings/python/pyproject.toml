@@ -33,6 +33,7 @@ Source = 'https://github.com/huggingface/safetensors'
 [project.optional-dependencies]
 numpy = ["numpy>=1.21.6"]
 torch = [
+    "packaging",
     "safetensors[numpy]",
     "torch>=1.10",
 ]
