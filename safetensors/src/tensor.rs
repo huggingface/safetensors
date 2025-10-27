@@ -874,7 +874,7 @@ impl Display for Dtype {
             Dtype::BF16 => "BF16",
             Dtype::F32 => "F32",
             Dtype::F64 => "F64",
-            Dtype::Complex64 => "Complex64",
+            Dtype::Complex64 => "C64",
         })
     }
 }
