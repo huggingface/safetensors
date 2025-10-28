@@ -87,7 +87,7 @@ class TorchTestCase(unittest.TestCase):
 
         self.assertEqual(
             out,
-            b'H\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"Complex64","shape":[2,2],"data_offsets":[0,32]}}      '
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"C64","shape":[2,2],"data_offsets":[0,32]}}    '
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
         )
 
@@ -98,7 +98,7 @@ class TorchTestCase(unittest.TestCase):
 
         self.assertEqual(
             out,
-            b'H\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"Complex64","shape":[2,2],"data_offsets":[0,32]}}      '
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"C64","shape":[2,2],"data_offsets":[0,32]}}    '
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\xbf\x00\x00\x80?",
         )
 
