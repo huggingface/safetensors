@@ -33,6 +33,7 @@ class SafeTestCase(unittest.TestCase):
             "test": tf.zeros((1024, 1024), dtype=tf.float32),
             "test2": tf.zeros((1024, 1024), dtype=tf.float32),
             "test3": tf.zeros((1024, 1024), dtype=tf.float32),
+            "test4": tf.zeros((1024, 1024), dtype=tf.complex64),
         }
         self.tf_filename = "./tests/data/tf_load.h5"
         self.sf_filename = "./tests/data/tf_load.safetensors"

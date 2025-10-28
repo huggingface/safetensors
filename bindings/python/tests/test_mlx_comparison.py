@@ -26,6 +26,9 @@ class LoadTestCase(unittest.TestCase):
             "test": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32),
             "test2": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32),
             "test3": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32),
+            "test4": mx.random.uniform(shape=(1024, 1024), dtype=mx.float32).astype(
+                mx.complex64
+            ),
             # This doesn't work because bfloat16 is not implemented
             # with similar workarounds as jax/tensorflow.
             # https://github.com/ml-explore/mlx/issues/1296

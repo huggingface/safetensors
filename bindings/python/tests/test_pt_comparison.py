@@ -64,6 +64,7 @@ class TorchTestCase(unittest.TestCase):
             "test": torch.randn((2, 2), dtype=torch.bfloat16),
             "test2": torch.randn((2, 2), dtype=torch.float16),
             "test3": torch.zeros((2, 2), dtype=torch.bool),
+            "test4": torch.zeros((2, 2), dtype=torch.complex64),
         }
 
         # Modify bool to have both values.
@@ -75,6 +76,31 @@ class TorchTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(data["test"], reloaded["test"]))
         self.assertTrue(torch.equal(data["test2"], reloaded["test2"]))
         self.assertTrue(torch.equal(data["test3"], reloaded["test3"]))
+        self.assertTrue(torch.equal(data["test4"], reloaded["test4"]))
+
+    def test_complex(self):
+        # Test complex separately. Each value consists of two numbers
+        # and we want to validate that the representation is the same
+        # across platforms.
+        data = torch.zeros((2, 2), dtype=torch.complex64)
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"C64","shape":[2,2],"data_offsets":[0,32]}}    '
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+
+        real = torch.tensor([-1.0])
+        imag = torch.tensor([1.0])
+        data[1][1] = torch.complex(real, imag)
+        out = save({"test": data})
+
+        self.assertEqual(
+            out,
+            b'@\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"C64","shape":[2,2],"data_offsets":[0,32]}}    '
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\xbf\x00\x00\x80?",
+        )
 
     def test_odd_dtype_fp8(self):
         if torch.__version__ < "2.1":

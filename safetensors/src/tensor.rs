@@ -806,6 +806,8 @@ pub enum Dtype {
     U32,
     /// Floating point (32-bit)
     F32,
+    /// Complex (32-bit parts)
+    C64,
     /// Floating point (64-bit)
     F64,
     /// Signed integer (64-bit)
@@ -837,6 +839,7 @@ impl Dtype {
             Dtype::BF16 => 16,
             Dtype::F32 => 32,
             Dtype::F64 => 64,
+            Dtype::C64 => 64,
         }
     }
     /// Gives out the size (in bytes) of 1 element of this dtype.
@@ -871,6 +874,7 @@ impl Display for Dtype {
             Dtype::BF16 => "BF16",
             Dtype::F32 => "F32",
             Dtype::F64 => "F64",
+            Dtype::C64 => "C64",
         })
     }
 }
@@ -908,6 +912,7 @@ mod tests {
             Just(Dtype::BF16),
             Just(Dtype::F32),
             Just(Dtype::F64),
+            Just(Dtype::C64),
         ]
     }
 

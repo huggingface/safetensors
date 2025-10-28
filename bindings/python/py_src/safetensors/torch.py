@@ -383,6 +383,7 @@ _SIZE = {
     torch.int8: 1,
     torch.bool: 1,
     torch.float64: 8,
+    torch.complex64: 8,
     _float8_e4m3fn: 1,
     _float8_e5m2: 1,
     _float8_e8m0: 1,
@@ -410,6 +411,7 @@ _TYPES = {
     "BOOL": torch.bool,
     "F8_E4M3": _float8_e4m3fn,
     "F8_E5M2": _float8_e5m2,
+    "C64": torch.complex64,
 }
 if Version(torch.__version__) >= Version("2.3.0"):
     _TYPES.update(
@@ -493,6 +495,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
             # XXX: This is ok because both have the same width and byteswap is a no-op anyway
             _float8_e4m3fn: np.uint8,
             _float8_e5m2: np.uint8,
+            torch.complex64: np.complex64,
         }
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
