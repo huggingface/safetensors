@@ -154,7 +154,7 @@ _TYPES = {
     "I8": np.int8,
     "U8": np.uint8,
     "BOOL": bool,
-    "Complex64": np.complex64,
+    "C64": np.complex64,
 }
 
 

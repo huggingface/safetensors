@@ -411,7 +411,7 @@ _TYPES = {
     "BOOL": torch.bool,
     "F8_E4M3": _float8_e4m3fn,
     "F8_E5M2": _float8_e5m2,
-    "Complex64": torch.complex64,
+    "C64": torch.complex64,
 }
 if Version(torch.__version__) >= Version("2.3.0"):
     _TYPES.update(
