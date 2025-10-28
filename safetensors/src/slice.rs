@@ -1,6 +1,6 @@
 //! Module handling lazy loading via iterating on slices on the original buffer.
-use crate::lib::Vec;
 use crate::tensor::TensorView;
+use alloc::vec::Vec;
 use core::fmt::Display;
 use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
