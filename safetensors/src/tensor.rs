@@ -1505,18 +1505,17 @@ mod tests {
 
     #[test]
     fn test_invalid_header_size_serialization() {
+        let mut data_info = HashMap::<String, String>::new();
         let tensors: HashMap<String, TensorView> = HashMap::new();
 
-        let mut out = serialize(&tensors, None).unwrap();
-        // Corrupt the header size to be larger than the actual size.
-        out[0] = 255;
-        out[1] = 255;
-        out[2] = 255;
-        out[3] = 255;
-
-        match SafeTensors::deserialize(&out) {
-            Err(SafeTensorError::HeaderTooLarge) => {}
-            _ => panic!("This should not be able to be deserialized"),
+        // a char is 1 byte in utf-8, so we can just repeat 'a' to get large metadata
+        let very_large_metadata = "a".repeat(MAX_HEADER_SIZE);
+        data_info.insert("very_large_metadata".to_owned(), very_large_metadata);
+        match serialize(&tensors, Some(data_info)) {
+            Err(SafeTensorError::HeaderTooLarge) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be serialized"),
         }
     }
 }
