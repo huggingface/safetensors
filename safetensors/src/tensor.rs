@@ -1502,4 +1502,21 @@ mod tests {
             _ => panic!("This should not be able to be deserialized"),
         }
     }
+
+    #[test]
+    fn test_invalid_header_size_serialization() {
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+
+        let mut out = serialize(&tensors, None).unwrap();
+        // Corrupt the header size to be larger than the actual size.
+        out[0] = 255;
+        out[1] = 255;
+        out[2] = 255;
+        out[3] = 255;
+
+        match SafeTensors::deserialize(&out) {
+            Err(SafeTensorError::HeaderTooLarge) => {}
+            _ => panic!("This should not be able to be deserialized"),
+        }
+    }
 }
