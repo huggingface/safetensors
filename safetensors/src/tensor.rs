@@ -285,6 +285,10 @@ pub fn serialize<
         tensors,
     ) = prepare(data, data_info)?;
 
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
     let expected_size = N_LEN + header_bytes.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
     buffer.extend(n.to_le_bytes());
@@ -317,6 +321,10 @@ where
         },
         tensors,
     ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
 
     let mut f = std::io::BufWriter::new(std::fs::File::create(filename)?);
     f.write_all(n.to_le_bytes().as_ref())?;
