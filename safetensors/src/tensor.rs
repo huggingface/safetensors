@@ -1510,7 +1510,7 @@ mod tests {
 
         // a char is 1 byte in utf-8, so we can just repeat 'a' to get large metadata
         let very_large_metadata = "a".repeat(MAX_HEADER_SIZE);
-        data_info.insert("very_large_metadata".to_owned(), very_large_metadata);
+        data_info.insert("very_large_metadata".to_string(), very_large_metadata);
         match serialize(&tensors, Some(data_info)) {
             Err(SafeTensorError::HeaderTooLarge) => {
                 // Yes we have the correct error
