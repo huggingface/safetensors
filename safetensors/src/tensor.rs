@@ -285,6 +285,10 @@ pub fn serialize<
         tensors,
     ) = prepare(data, data_info)?;
 
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
     let expected_size = N_LEN + header_bytes.len() + offset;
     let mut buffer: Vec<u8> = Vec::with_capacity(expected_size);
     buffer.extend(n.to_le_bytes());
@@ -317,6 +321,10 @@ where
         },
         tensors,
     ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
 
     let mut f = std::io::BufWriter::new(std::fs::File::create(filename)?);
     f.write_all(n.to_le_bytes().as_ref())?;
@@ -1492,6 +1500,22 @@ mod tests {
                 // Yes we have the correct error
             }
             _ => panic!("This should not be able to be deserialized"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_header_size_serialization() {
+        let mut data_info = HashMap::<String, String>::new();
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+
+        // a char is 1 byte in utf-8, so we can just repeat 'a' to get large metadata
+        let very_large_metadata = "a".repeat(MAX_HEADER_SIZE);
+        data_info.insert("very_large_metadata".to_string(), very_large_metadata);
+        match serialize(&tensors, Some(data_info)) {
+            Err(SafeTensorError::HeaderTooLarge) => {
+                // Yes we have the correct error
+            }
+            _ => panic!("This should not be able to be serialized"),
         }
     }
 }
