@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761741594538,
+  "lastUpdate": 1761743278340,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -29178,6 +29178,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004177372145452679",
             "extra": "mean: 266.8537414000184 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "McPatate@users.noreply.github.com",
+            "name": "Luc Georges",
+            "username": "McPatate"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "280141d61f8a7f5a32403e9c23a82db5eed2cdcb",
+          "message": "feat: add header size check at serialization (#669)",
+          "timestamp": "2025-10-29T14:05:49+01:00",
+          "tree_id": "9146225534b3aa824df9071c80b8ece8172834f3",
+          "url": "https://github.com/huggingface/safetensors/commit/280141d61f8a7f5a32403e9c23a82db5eed2cdcb"
+        },
+        "date": 1761743276792,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 4.2364480910192786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0024376256110953272",
+            "extra": "mean: 236.04679640000086 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.2278922505865495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009437928472466994",
+            "extra": "mean: 236.52447619999464 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 5.643470596038602,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008648340266197478",
+            "extra": "mean: 177.19592633333528 msec\nrounds: 6"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.2802096462778865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0028349800601275552",
+            "extra": "mean: 233.63341579999712 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 8.056201609216343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007664641295941329",
+            "extra": "mean: 124.12797600000403 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 260.50241442260733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00015940000146905066",
+            "extra": "mean: 3.838736014084392 msec\nrounds: 213"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.479519921349912,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008788793762218658",
+            "extra": "mean: 87.11165683332922 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 50.55416808437238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002783424131374378",
+            "extra": "mean: 19.780762653062553 msec\nrounds: 49"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.148662525553288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029951071173126616",
+            "extra": "mean: 317.5951667999982 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.563047647104141,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0042182567635224155",
+            "extra": "mean: 280.6586099999947 msec\nrounds: 5"
           }
         ]
       }
