@@ -292,6 +292,7 @@ enum Device {
     Xpu(usize),
     Xla(usize),
     Mlu(usize),
+    Musa(usize),
     Hpu(usize),
     /// User didn't specify accelerator, torch
     /// is responsible for choosing.
@@ -304,6 +305,7 @@ impl fmt::Display for Device {
             Device::Cpu => write!(f, "cpu"),
             Device::Mps => write!(f, "mps"),
             Device::Cuda(index) => write!(f, "cuda:{index}"),
+            Device::Musa(index) => write!(f, "musa:{index}"),
             Device::Npu(index) => write!(f, "npu:{index}"),
             Device::Xpu(index) => write!(f, "xpu:{index}"),
             Device::Xla(index) => write!(f, "xla:{index}"),
@@ -332,6 +334,7 @@ impl<'source> FromPyObject<'source> for Device {
             match name.as_str() {
                 "cpu" => Ok(Device::Cpu),
                 "cuda" => Ok(Device::Cuda(0)),
+                "musa" => Ok(Device::Musa(0)),
                 "mps" => Ok(Device::Mps),
                 "npu" => Ok(Device::Npu(0)),
                 "xpu" => Ok(Device::Xpu(0)),
@@ -339,6 +342,7 @@ impl<'source> FromPyObject<'source> for Device {
                 "mlu" => Ok(Device::Mlu(0)),
                 "hpu" => Ok(Device::Hpu(0)),
                 name if name.starts_with("cuda:") => parse_device(name).map(Device::Cuda),
+                name if name.starts_with("musa:") => parse_device(name).map(Device::Musa),
                 name if name.starts_with("npu:") => parse_device(name).map(Device::Npu),
                 name if name.starts_with("xpu:") => parse_device(name).map(Device::Xpu),
                 name if name.starts_with("xla:") => parse_device(name).map(Device::Xla),
@@ -365,6 +369,7 @@ impl<'py> IntoPyObject<'py> for Device {
         match self {
             Device::Cpu => "cpu".into_pyobject(py).map(|x| x.into_any()),
             Device::Cuda(n) => format!("cuda:{n}").into_pyobject(py).map(|x| x.into_any()),
+            Device::Musa(n) => format!("musa:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Mps => "mps".into_pyobject(py).map(|x| x.into_any()),
             Device::Npu(n) => format!("npu:{n}").into_pyobject(py).map(|x| x.into_any()),
             Device::Xpu(n) => format!("xpu:{n}").into_pyobject(py).map(|x| x.into_any()),
