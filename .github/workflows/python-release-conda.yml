@@ -61,12 +61,7 @@ jobs:
 
   build_and_package_linux:
     runs-on: ubuntu-latest
-    container:
-      image: quay.io/pypa/manylinux2014_x86_64
-      # See below.
-      volumes:
-        - /node20217:/node20217:rw,rshared
-        - /node20217:/__e/node20:ro,rshared
+    container: quay.io/pypa/manylinux_2_28_x86_64
 
     strategy:
       fail-fast: false
@@ -85,17 +80,6 @@ jobs:
             checksum: 6022714da22986097bbefa13dab3d957257fef04e1c37d1ebd3645b5b99bc9d4
 
     steps:
-      # Node 20 as provided by GitHub runners requires a newer glibc version than what
-      # is provided by manylinux2014. As a consequence, the checkout action fails. So
-      # we download a build for older glibc versions. This build is unofficial in the
-      # sense that it's not a standard supported OS, however, it is provided by the
-      # project.
-      - name: Override node.js version
-        run: |
-          wget https://unofficial-builds.nodejs.org/download/release/v20.19.5/node-v20.19.5-linux-x64-glibc-217.tar.gz
-          echo "cb7a61858c38bf6c1c740ed5c62a38b221f06ef5363cde9420e4bdbe230386d7  node-v20.19.5-linux-x64-glibc-217.tar.gz" | sha256sum --check --status
-          tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
-
       - name: Checkout repository
         uses: actions/checkout@v2
 
