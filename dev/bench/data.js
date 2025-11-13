@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762876696972,
+  "lastUpdate": 1763064186891,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -29726,6 +29726,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004941142574026548",
             "extra": "mean: 287.3695859999998 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "me@danieldk.eu",
+            "name": "Daniël de Kok",
+            "username": "danieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3979c8fed5654bfcf666a9df6eab986fd82628f0",
+          "message": "Fix release CI issues (#673)\n\n* Fix release CI issues\n\n- Switch to manylinux_2_28.\n- Drop Python 3.8, add 3.12 and 3.13.\n- Fix miniconda failures.\n\nThe motivation to switch to manylinux_2_28 is because manylinux2014 is\nstarting to break. E.g. the container cannot run GitHub actions like\n`checkout` anymore because the NodeJS version was updated and Miniconda\ncannot be installed in the container because it does not support the old\nglibc version anymore.\n\nmanylinux_2_28 uses glibc 2.28. This version is supported by Red Hat\nEnterprise Linux 8 (2019) and Ubuntu 20.04.\n\nAlso see:\n\nhttps://github.com/actions/checkout/issues/1809\nhttps://www.anaconda.com/docs/getting-started/miniconda/system-requirements\n\n* CI: macos-13 runner is deprecated",
+          "timestamp": "2025-11-13T21:01:01+01:00",
+          "tree_id": "5735a79f0c14fb2d94d4cf7488abb1c9ea49c841",
+          "url": "https://github.com/huggingface/safetensors/commit/3979c8fed5654bfcf666a9df6eab986fd82628f0"
+        },
+        "date": 1763064185257,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 2.3129774326585624,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0025848163020408058",
+            "extra": "mean: 432.3431719999917 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.582521029163147,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00851443732137793",
+            "extra": "mean: 218.22049340003105 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 3.6989145300071993,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017042942149753354",
+            "extra": "mean: 270.3495827999177 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.014693427865281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009557328329282812",
+            "extra": "mean: 249.08502179996503 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 6.618688124236332,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008662170153827854",
+            "extra": "mean: 151.08734257143755 msec\nrounds: 7"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 303.36740572134534,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00009851664044220832",
+            "extra": "mean: 3.296333030973468 msec\nrounds: 226"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 14.066292311652086,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004348539032166372",
+            "extra": "mean: 71.09193935715601 msec\nrounds: 14"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 54.682514500599574,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00009863865365588398",
+            "extra": "mean: 18.28738142590417 msec\nrounds: 54"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.6865903329138643,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00296277036224205",
+            "extra": "mean: 271.25335599998834 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.4076891631241932,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002039197418070421",
+            "extra": "mean: 293.45399539997743 msec\nrounds: 5"
           }
         ]
       }
