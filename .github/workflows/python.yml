@@ -28,7 +28,7 @@ jobs:
               python: "3.13"
               numpy: numpy
               arch: "x64-freethreaded"
-          - os: macos-13
+          - os: macos-15-intel
             version:
               torch: torch==1.10
               numpy: "numpy==1.26"
