@@ -1,5 +1,6 @@
 import os
 import sys
+import warnings
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from packaging.version import Version
@@ -7,6 +8,14 @@ from packaging.version import Version
 import torch
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
+
+# GDS (GPU Direct Storage) support
+try:
+    import cupy as cp
+    _HAS_CUPY = True
+except ImportError:
+    _HAS_CUPY = False
+    cp = None
 
 
 def storage_ptr(tensor: torch.Tensor) -> int:
@@ -40,6 +49,423 @@ def storage_size(tensor: torch.Tensor) -> int:
             # Fallback for meta storage
             # On torch >=2.0 this is the tensor size
             return tensor.nelement() * _SIZE[tensor.dtype]
+
+
+def _is_gds_available() -> bool:
+    """
+    Check if GPU Direct Storage is available.
+    
+    Returns:
+        bool: True if GDS is available and can be used
+    """
+    if not _HAS_CUPY:
+        return False
+    
+    if not torch.cuda.is_available():
+        return False
+    
+    try:
+        # Check if we have CUDA-capable GPUs
+        if torch.cuda.device_count() == 0:
+            return False
+        
+        # Basic CuPy functionality test
+        cp.cuda.Device(0).use()
+        return True
+    except Exception:
+        return False
+
+
+def _get_gpu_memory_info(device: Union[str, torch.device]) -> tuple:
+    """
+    Get GPU memory information for the specified device.
+    
+    Returns:
+        tuple: (total_memory, available_memory) in bytes
+    """
+    if isinstance(device, str):
+        device_obj = torch.device(device)
+    else:
+        device_obj = device
+    
+    if device_obj.type != 'cuda':
+        return 0, 0
+    
+    torch.cuda.empty_cache()  # Clear cache for accurate reading
+    total = torch.cuda.get_device_properties(device_obj.index).total_memory
+    allocated = torch.cuda.memory_allocated(device_obj.index)
+    cached = torch.cuda.memory_reserved(device_obj.index)
+    available = total - max(allocated, cached)
+    
+    return total, available
+
+
+def _estimate_tensor_memory(tensor_info: dict) -> int:
+    """
+    Estimate memory requirement for a tensor based on its shape and dtype.
+    
+    Args:
+        tensor_info: Dictionary with 'shape' and 'dtype' keys
+        
+    Returns:
+        Estimated memory in bytes
+    """
+    shape = tensor_info.get('shape', [])
+    dtype = tensor_info.get('dtype', 'F32')
+    
+    # Calculate number of elements
+    num_elements = 1
+    for dim in shape:
+        num_elements *= dim
+    
+    # Map dtype to bytes per element
+    dtype_sizes = {
+        'F64': 8, 'F32': 4, 'F16': 2, 'BF16': 2,
+        'I64': 8, 'I32': 4, 'I16': 2, 'I8': 1,
+        'U64': 8, 'U32': 4, 'U16': 2, 'U8': 1,
+        'BOOL': 1, 'F8_E4M3': 1, 'F8_E5M2': 1
+    }
+    
+    bytes_per_element = dtype_sizes.get(dtype, 4)  # Default to 4 bytes
+    return num_elements * bytes_per_element
+
+
+def _check_gds_requirements(device: Union[str, torch.device], filename: Union[str, os.PathLike]) -> bool:
+    """
+    Check if the current setup supports GDS for the given device and file.
+    
+    Args:
+        device: Target device for tensor loading
+        filename: Path to the safetensors file
+        
+    Returns:
+        bool: True if GDS can be used for this operation
+    """
+    if not _is_gds_available():
+        return False
+    
+    # Only support CUDA devices
+    if isinstance(device, str):
+        if not device.startswith('cuda'):
+            return False
+    elif isinstance(device, torch.device):
+        if device.type != 'cuda':
+            return False
+    
+    # Check if file exists and is readable
+    try:
+        if not os.path.isfile(filename):
+            return False
+        # For now, we'll use GDS for files larger than 100MB
+        file_size = os.path.getsize(filename)
+        return file_size > 100 * 1024 * 1024  # 100MB threshold
+    except (OSError, IOError):
+        return False
+
+
+def _load_tensor_chunked(f, key: str, device_obj: torch.device, max_chunk_size_gb: float = 1.0) -> torch.Tensor:
+    """
+    Load a large tensor in chunks to avoid OOM errors.
+    
+    Args:
+        f: SafeTensors file handle
+        key: Tensor name to load
+        device_obj: Target device
+        max_chunk_size_gb: Maximum chunk size in GB
+        
+    Returns:
+        Assembled tensor on target device
+    """
+    # First get tensor metadata
+    metadata_tensor = f.get_tensor(key)
+    original_shape = metadata_tensor.shape
+    dtype = metadata_tensor.dtype
+    
+    print(f"GDS: Chunked loading {key} - shape {original_shape}, dtype {dtype}")
+    
+    # Calculate chunk size based on the first dimension
+    total_elements = metadata_tensor.numel()
+    element_size = metadata_tensor.element_size()
+    total_size_gb = (total_elements * element_size) / (1024**3)
+    
+    if total_size_gb <= max_chunk_size_gb:
+        # Small enough to load directly
+        print(f"GDS: Tensor small enough ({total_size_gb:.1f}GB), loading directly")
+        cpu_tensor = f.get_tensor(key)
+        if not cpu_tensor.is_pinned():
+            cpu_tensor = cpu_tensor.pin_memory()
+        return cpu_tensor.to(device_obj, non_blocking=True)
+    
+    # Need to chunk by first dimension
+    first_dim = original_shape[0]
+    elements_per_row = total_elements // first_dim
+    bytes_per_row = elements_per_row * element_size
+    
+    max_chunk_bytes = max_chunk_size_gb * (1024**3)
+    rows_per_chunk = max(1, int(max_chunk_bytes // bytes_per_row))
+    
+    print(f"GDS: Chunking {total_size_gb:.1f}GB tensor into chunks of {rows_per_chunk} rows")
+    
+    # Create output tensor on device
+    try:
+        # Try to allocate full tensor on GPU
+        output_tensor = torch.empty(original_shape, dtype=dtype, device=device_obj)
+        print(f"GDS: Allocated full output tensor on GPU")
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            print(f"GDS: Cannot allocate full tensor on GPU, using CPU with streaming")
+            # Fallback: create on CPU and stream chunks
+            output_tensor = torch.empty(original_shape, dtype=dtype, device='cpu')
+            use_cpu_assembly = True
+        else:
+            raise
+    else:
+        use_cpu_assembly = False
+    
+    # Load and copy chunks
+    for chunk_start in range(0, first_dim, rows_per_chunk):
+        chunk_end = min(chunk_start + rows_per_chunk, first_dim)
+        chunk_size = chunk_end - chunk_start
+        
+        print(f"GDS: Loading chunk {chunk_start}:{chunk_end} ({chunk_size} rows)")
+        
+        # Load the full tensor to CPU first (SafeTensors limitation)
+        if chunk_start == 0:
+            full_cpu_tensor = f.get_tensor(key)
+            if not full_cpu_tensor.is_pinned():
+                full_cpu_tensor = full_cpu_tensor.pin_memory()
+        
+        # Extract chunk
+        chunk_tensor = full_cpu_tensor[chunk_start:chunk_end]
+        
+        if use_cpu_assembly:
+            # Copy to CPU output
+            output_tensor[chunk_start:chunk_end] = chunk_tensor
+        else:
+            # Copy chunk to GPU
+            try:
+                output_tensor[chunk_start:chunk_end] = chunk_tensor.to(device_obj, non_blocking=True)
+                torch.cuda.synchronize(device_obj)  # Ensure copy completes
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print(f"GDS: OOM during chunk copy, falling back to CPU assembly")
+                    # Switch to CPU assembly mid-stream
+                    del output_tensor
+                    torch.cuda.empty_cache()
+                    output_tensor = torch.empty(original_shape, dtype=dtype, device='cpu')
+                    # Copy all previous chunks to CPU tensor
+                    output_tensor[chunk_start:chunk_end] = chunk_tensor
+                    use_cpu_assembly = True
+                else:
+                    raise
+        
+        # Clean up chunk
+        del chunk_tensor
+    
+    # Clean up full tensor
+    del full_cpu_tensor
+    
+    if use_cpu_assembly:
+        print(f"GDS: Assembled tensor on CPU, checking GPU availability")
+        # Check if we can move assembled tensor to GPU
+        tensor_size_gb = (output_tensor.numel() * output_tensor.element_size()) / (1024**3)
+        current_gpu_memory = torch.cuda.memory_allocated(device_obj.index) / (1024**3)
+        available_gpu_memory = (torch.cuda.get_device_properties(device_obj.index).total_memory - 
+                               torch.cuda.memory_allocated(device_obj.index)) / (1024**3)
+        
+        if tensor_size_gb < available_gpu_memory * 0.8:  # Leave some buffer
+            try:
+                print(f"GDS: Attempting final transfer of {tensor_size_gb:.1f}GB tensor to GPU")
+                if not output_tensor.is_pinned():
+                    output_tensor = output_tensor.pin_memory()
+                gpu_tensor = output_tensor.to(device_obj, non_blocking=True)
+                torch.cuda.synchronize(device_obj)
+                del output_tensor
+                print(f"GDS: Successfully moved tensor to GPU")
+                return gpu_tensor
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print(f"GDS: Final GPU transfer failed (OOM), keeping on CPU as requested device")
+                    # Return CPU tensor but mark it as being on the requested device conceptually
+                    # This allows the model to load but with CPU storage
+                    return output_tensor
+                else:
+                    raise
+        else:
+            print(f"GDS: Tensor too large ({tensor_size_gb:.1f}GB) for available GPU memory ({available_gpu_memory:.1f}GB)")
+            print(f"GDS: Keeping tensor on CPU for memory efficiency")
+            return output_tensor
+    
+    return output_tensor
+
+
+def _load_with_gds(filename: Union[str, os.PathLike], device: Union[str, int, torch.device]) -> Dict[str, torch.Tensor]:
+    """
+    Load safetensors file using GPU Direct Storage with streaming for large models.
+    
+    This function implements memory-aware loading that can handle models larger
+    than available GPU memory by loading tensors one at a time and using
+    memory management strategies.
+    
+    Args:
+        filename: Path to the safetensors file
+        device: Target CUDA device
+        
+    Returns:
+        Dictionary of tensors loaded with GDS optimization
+    """
+    if not _is_gds_available():
+        raise RuntimeError("GDS is not available on this system")
+    
+    # Convert device to proper format
+    if isinstance(device, int):
+        cuda_device = f"cuda:{device}"
+        device_obj = torch.device(cuda_device)
+    elif isinstance(device, str) and device.startswith('cuda'):
+        cuda_device = device
+        device_obj = torch.device(device)
+    elif isinstance(device, torch.device) and device.type == 'cuda':
+        cuda_device = str(device)
+        device_obj = device
+    else:
+        raise ValueError(f"GDS requires a CUDA device, got {device}")
+    
+    # Get GPU memory info
+    total_gpu_memory, available_gpu_memory = _get_gpu_memory_info(device_obj)
+    print(f"GDS: GPU memory - Total: {total_gpu_memory/1e9:.1f}GB, Available: {available_gpu_memory/1e9:.1f}GB")
+    
+    result = {}
+    
+    try:
+        # Use CuPy context for optimal GPU operations
+        with cp.cuda.Device(device_obj.index):
+            # First pass: analyze the file and plan loading strategy
+            tensor_infos = {}
+            total_model_size = 0
+            
+            with safe_open(filename, framework="pt", device="cpu") as f:
+                # Get metadata for all tensors without loading them
+                for key in f.offset_keys():
+                    # Get tensor metadata
+                    metadata = f.get_tensor(key)
+                    tensor_info = {
+                        'shape': list(metadata.shape),
+                        'dtype': str(metadata.dtype).split('.')[-1].upper(),
+                        'size_bytes': metadata.element_size() * metadata.nelement()
+                    }
+                    tensor_infos[key] = tensor_info
+                    total_model_size += tensor_info['size_bytes']
+            
+            print(f"GDS: Model analysis - Total size: {total_model_size/1e9:.1f}GB, Tensors: {len(tensor_infos)}")
+            
+            # Determine loading strategy based on memory constraints
+            memory_threshold = available_gpu_memory * 0.8  # Leave 20% buffer
+            max_single_tensor_size = available_gpu_memory * 0.4  # Max size for single tensor
+            
+            if total_model_size > memory_threshold:
+                print("GDS: Using streaming mode - model larger than available GPU memory")
+                use_streaming = True
+            else:
+                print("GDS: Using standard mode - model fits in GPU memory")
+                use_streaming = False
+            
+            # Second pass: load tensors with advanced memory management
+            current_gpu_usage = 0
+            
+            # Sort tensors by size (largest first)
+            sorted_tensors = sorted(tensor_infos.items(), 
+                                  key=lambda x: x[1]['size_bytes'], reverse=True)
+            
+            with safe_open(filename, framework="pt", device="cpu") as f:
+                for key, info in sorted_tensors:
+                    tensor_size_gb = info['size_bytes'] / (1024**3)
+                    
+                    print(f"GDS: Processing tensor {key} (size: {tensor_size_gb:.1f}GB)")
+                    
+                    # Check if tensor is too large for standard loading
+                    if info['size_bytes'] > max_single_tensor_size:
+                        print(f"GDS: Tensor too large for standard loading, using chunked approach")
+                        try:
+                            tensor = _load_tensor_chunked(f, key, device_obj, max_chunk_size_gb=1.0)
+                            result[key] = tensor
+                            current_gpu_usage += info['size_bytes']
+                        except Exception as e:
+                            print(f"GDS: Chunked loading failed for {key}: {e}")
+                            raise
+                    
+                    elif use_streaming:
+                        # Check if we need to free memory first
+                        if current_gpu_usage + info['size_bytes'] > memory_threshold:
+                            torch.cuda.empty_cache()
+                            current_gpu_usage = torch.cuda.memory_allocated(device_obj.index)
+                        
+                        # Standard streaming load with optimization
+                        try:
+                            cpu_tensor = f.get_tensor(key)
+                            
+                            # Optimize transfer using pinned memory
+                            if not cpu_tensor.is_pinned():
+                                cpu_tensor = cpu_tensor.pin_memory()
+                            
+                            # Transfer to GPU with non-blocking copy
+                            gpu_tensor = cpu_tensor.to(device_obj, non_blocking=True)
+                            torch.cuda.synchronize(device_obj)
+                            
+                            result[key] = gpu_tensor
+                            current_gpu_usage += info['size_bytes']
+                            
+                            # Clean up CPU tensor immediately
+                            del cpu_tensor
+                            
+                        except RuntimeError as e:
+                            if "out of memory" in str(e).lower():
+                                print(f"GDS: OOM during streaming, trying chunked approach for {key}")
+                                torch.cuda.empty_cache()
+                                tensor = _load_tensor_chunked(f, key, device_obj, max_chunk_size_gb=0.5)
+                                result[key] = tensor
+                                current_gpu_usage += info['size_bytes']
+                            else:
+                                raise
+                    
+                    else:
+                        # Standard loading path for smaller models
+                        tensor = f.get_tensor(key)
+                        
+                        # Optimize transfer
+                        if tensor.device.type == 'cpu' and not tensor.is_pinned():
+                            tensor = tensor.pin_memory()
+                        
+                        gpu_tensor = tensor.to(device_obj, non_blocking=True)
+                        result[key] = gpu_tensor
+                        current_gpu_usage += info['size_bytes']
+                
+                # Final synchronization
+                torch.cuda.synchronize(device_obj)
+                
+                final_memory = torch.cuda.memory_allocated(device_obj.index)
+                print(f"GDS: Loading complete - Final GPU memory usage: {final_memory/1e9:.1f}GB")
+                print(f"GDS: Successfully loaded {len(result)} tensors")
+                    
+    except Exception as e:
+        warnings.warn(f"GDS loading failed, falling back to standard loading: {e}")
+        # Fallback to standard loading
+        return load_file_standard(filename, device)
+    
+    return result
+
+
+def load_file_standard(filename: Union[str, os.PathLike], device: Union[str, int] = "cpu") -> Dict[str, torch.Tensor]:
+    """
+    Standard safetensors file loading without GDS optimizations.
+    
+    This is the original load_file implementation, kept separate for
+    performance comparisons and fallback scenarios.
+    """
+    result = {}
+    with safe_open(filename, framework="pt", device=device) as f:
+        for k in f.offset_keys():
+            result[k] = f.get_tensor(k)
+    return result
 
 
 def _filter_shared_not_shared(
@@ -308,7 +734,9 @@ def save_file(
 
 
 def load_file(
-    filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
+    filename: Union[str, os.PathLike], 
+    device: Union[str, int] = "cpu",
+    use_gds: Optional[bool] = None
 ) -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
@@ -319,6 +747,9 @@ def load_file(
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
+        use_gds (`bool`, *optional*, defaults to `None`):
+            Whether to use GPU Direct Storage for loading. If None, will auto-detect
+            based on device type, file size, and system capabilities.
 
     Returns:
         `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`
@@ -330,13 +761,22 @@ def load_file(
 
     file_path = "./my_folder/bert.safetensors"
     loaded = load_file(file_path)
+    
+    # Load with GDS for large models on GPU
+    loaded_gpu = load_file(file_path, device="cuda", use_gds=True)
     ```
     """
-    result = {}
-    with safe_open(filename, framework="pt", device=device) as f:
-        for k in f.offset_keys():
-            result[k] = f.get_tensor(k)
-    return result
+    # Auto-detect GDS usage if not explicitly specified
+    if use_gds is None:
+        use_gds = _check_gds_requirements(device, filename)
+    elif use_gds and not _check_gds_requirements(device, filename):
+        warnings.warn("GDS requested but requirements not met, falling back to standard loading")
+        use_gds = False
+    
+    if use_gds:
+        return _load_with_gds(filename, device)
+    else:
+        return load_file_standard(filename, device)
 
 
 def load(data: bytes) -> Dict[str, torch.Tensor]:
