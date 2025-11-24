@@ -88,14 +88,14 @@ jobs:
       #     pip install -U pip
 
       - name: Install (torch)
-        if: matrix.version.arch != 'x64-freethreaded'
+        if: matrix.version.arch != 'x64-freethreaded' && martx.os != "windows-11-arm"
         run: |
           pip install ${{ matrix.version.numpy }}
           pip install ${{ matrix.version.torch }}
         shell: bash
 
       - name: Install (torch freethreaded)
-        if: matrix.version.arch == 'x64-freethreaded'
+        if: matrix.version.arch == 'x64-freethreaded' || martx.os == "windows-11-arm"
         run: |
           pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cu126
         shell: bash
@@ -107,7 +107,7 @@ jobs:
           sudo apt-get install libhdf5-dev
 
       - name: Install (tensorflow)
-        if: matrix.version.arch != 'x64-freethreaded'
+        if: matrix.version.arch != 'x64-freethreaded' && martx.os != "windows-11-arm"
         run: |
           pip install .[tensorflow]
           # Force reinstall of numpy, tensorflow uses numpy 2 even on 3.9
@@ -132,10 +132,18 @@ jobs:
           ruff format --check .
 
       - name: Run tests
-        if: matrix.version.arch != 'x64-freethreaded'
+        if: matrix.version.arch != 'x64-freethreaded' && martx.os != "windows-11-arm"
         run: |
           cargo test
           pip install ".[testing]"
+          pytest -sv tests/
+
+      - name: Run tests
+        if: martx.os == "windows-11-arm"
+        run: |
+          cargo test
+          pip install ".[testing]"
+          pip install pytest numpy
           pytest -sv tests/
 
       - name: Run tests (freethreaded)
