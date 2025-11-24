@@ -2,6 +2,7 @@ name: Python
 
 on:
   pull_request:
+  push:
 
 jobs:
   build_and_test:
@@ -35,6 +36,12 @@ jobs:
               python: "3.9"
               arch: "x64"
           - os: macos-latest
+            version:
+              torch: torch
+              python: "3.12"
+              numpy: numpy
+              arch: "arm64"
+          - os: windows-11-arm
             version:
               torch: torch
               python: "3.12"
