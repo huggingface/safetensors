@@ -95,9 +95,15 @@ jobs:
         shell: bash
 
       - name: Install (torch freethreaded)
-        if: matrix.version.arch == 'x64-freethreaded' || matrix.os == 'windows-11-arm'
+        if: matrix.version.arch == 'x64-freethreaded'
         run: |
           pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cu126
+        shell: bash
+
+      - name: Install (torch windows arm64)
+        if: matrix.os == 'windows-11-arm'
+        run: |
+          pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cpu
         shell: bash
 
       - name: Install (hdf5 non windows)
