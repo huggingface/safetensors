@@ -144,7 +144,7 @@ jobs:
           pip install ".[testing]"
           pytest -sv tests/
 
-      - name: Run tests
+      - name: Run tests (Windows arm64)
         if: matrix.os == 'windows-11-arm'
         run: |
           cargo test
