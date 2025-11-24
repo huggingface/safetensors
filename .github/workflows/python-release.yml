@@ -105,7 +105,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.platform.target == 'arm64' && 'aarch64-pc-windows-msvc' || matrix.platform.target }}
           args: --release --out dist --manifest-path bindings/python/Cargo.toml
           sccache: 'true'
       - name: Upload wheels
