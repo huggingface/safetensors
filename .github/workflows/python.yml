@@ -2,7 +2,6 @@ name: Python
 
 on:
   pull_request:
-  push:
 
 jobs:
   build_and_test:
