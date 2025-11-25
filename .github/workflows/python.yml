@@ -150,6 +150,8 @@ jobs:
           cargo test
           pip install ".[testing]"
           pip install pytest numpy
+          pytest -sv tests/test_handle.py
+          pytest -sv tests/test_paddle_comparison.py
           pytest -sv tests/test_pt*
           pytest -sv tests/test_simple.py
 
