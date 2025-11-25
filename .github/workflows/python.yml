@@ -103,6 +103,7 @@ jobs:
       - name: Install (torch windows arm64)
         if: matrix.os == 'windows-11-arm'
         run: |
+          pip install ${{ matrix.version.numpy }}
           pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cpu
         shell: bash
 
@@ -121,7 +122,7 @@ jobs:
         shell: bash
 
       - name: Install (jax, flax)
-        if: matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm' && matrix.version.arch != 'x64-freethreaded'
+        if: runner.os != 'Windows' && matrix.version.arch != 'x64-freethreaded'
         run: 
           pip install .[jax]
         shell: bash
@@ -149,7 +150,6 @@ jobs:
         run: |
           cargo test
           pip install ".[testing]"
-          pip install pytest numpy
           pytest -sv tests --ignore=tests/test_tf_comparison.py
 
       - name: Run tests (freethreaded)
