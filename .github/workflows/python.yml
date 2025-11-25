@@ -150,10 +150,7 @@ jobs:
           cargo test
           pip install ".[testing]"
           pip install pytest numpy
-          pytest -sv tests/test_handle.py
-          pytest -sv tests/test_pt_comparison.py
-          pytest -sv tests/test_pt_model.py
-          pytest -sv tests/test_simple.py
+          pytest -sv tests --ignore=tests/test_tf_comparison.py
 
       - name: Run tests (freethreaded)
         if: matrix.version.arch == 'x64-freethreaded'
