@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
+use core::slice;
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
@@ -48,13 +49,124 @@ impl View for &PyView<'_> {
     }
 }
 
+struct NdarrayView {
+    shape: Vec<usize>,
+    dtype: Dtype,
+    data: Vec<u8>,
+    data_len: usize,
+    data_ptr: u64,
+    contained_data: bool,
+}
+impl View for &NdarrayView {
+    fn dtype(&self) -> Dtype {
+        self.dtype
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn data(&self) -> Cow<'_, [u8]> {
+        if self.contained_data {
+            Cow::Borrowed(&self.data)
+        } else {
+            let p = self.data_ptr as *const u8;
+            unsafe {
+                let slice = slice::from_raw_parts(p, self.data_len);
+                Cow::Borrowed(slice)
+            }
+        }
+    }
+
+    fn data_len(&self) -> usize {
+        self.data_len
+    }
+}
+
+fn prepare_shape(tensor_desc: &PyBound<PyDict>) -> PyResult<Vec<usize>> {
+    tensor_desc
+        .get_item("shape")?
+        .ok_or(SafetensorError::new_err(format!(
+            "Missing `shape` in {tensor_desc}"
+        )))?
+        .extract()
+}
+fn prepare_dtype(tensor_desc: &PyBound<PyDict>) -> PyResult<Dtype> {
+    let pydtype = tensor_desc
+        .get_item("dtype")?
+        .ok_or_else(|| SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}")))?;
+    let dtype: String = pydtype.extract()?;
+    let dtype = match dtype.as_ref() {
+        "bool" => Dtype::BOOL,
+        "int8" => Dtype::I8,
+        "uint8" => Dtype::U8,
+        "int16" => Dtype::I16,
+        "uint16" => Dtype::U16,
+        "int32" => Dtype::I32,
+        "uint32" => Dtype::U32,
+        "int64" => Dtype::I64,
+        "uint64" => Dtype::U64,
+        "float16" => Dtype::F16,
+        "float32" => Dtype::F32,
+        "float64" => Dtype::F64,
+        "bfloat16" => Dtype::BF16,
+        "float8_e4m3fn" => Dtype::F8_E4M3,
+        "float8_e5m2" => Dtype::F8_E5M2,
+        "float8_e8m0fnu" => Dtype::F8_E8M0,
+        "float4_e2m1fn_x2" => Dtype::F4,
+        "complex64" => Dtype::C64,
+        dtype_str => {
+            return Err(SafetensorError::new_err(format!(
+                "dtype {dtype_str} is not covered",
+            )));
+        }
+    };
+    Ok(dtype)
+}
+fn prepare_ndarray_view(
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    zero_copy: bool,
+) -> PyResult<HashMap<String, NdarrayView>> {
+    let mut tensors = HashMap::with_capacity(tensor_dict.len());
+    for (tensor_name, tensor_desc) in tensor_dict {
+        let data_ptr: u64 = tensor_desc
+            .get_item("data_ptr")?
+            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
+            .extract()?;
+        let data_len: usize = tensor_desc
+            .get_item("data_len")?
+            .ok_or_else(|| {
+                SafetensorError::new_err(format!("Missing `data_len` in {tensor_desc}"))
+            })?
+            .extract()?;
+        let dtype = prepare_dtype(&tensor_desc)?;
+        let mut shape = prepare_shape(&tensor_desc)?;
+        if dtype == Dtype::F4 {
+            let n = shape.len();
+            shape[n - 1] *= 2;
+        }
+        let data = if zero_copy {
+            vec![]
+        } else {
+            let p = data_ptr as *const u8;
+            unsafe { slice::from_raw_parts(p, data_len).to_vec() }
+        };
+        let tensor = NdarrayView {
+            shape,
+            dtype,
+            data,
+            data_len,
+            data_ptr,
+            contained_data: !zero_copy,
+        };
+        tensors.insert(tensor_name, tensor);
+    }
+    Ok(tensors)
+}
+
 fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in tensor_dict {
-        let mut shape: Vec<usize> = tensor_desc
-            .get_item("shape")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
-            .extract()?;
         let pydata: PyBound<PyAny> = tensor_desc
             .get_item("data")?
             .ok_or_else(|| SafetensorError::new_err(format!("Missing `data` in {tensor_desc}")))?;
@@ -62,36 +174,8 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
         let data: &[u8] = pydata.extract()?;
         let data_len = data.len();
         let data: PyBound<PyBytes> = pydata.extract()?;
-        let pydtype = tensor_desc
-            .get_item("dtype")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}")))?;
-        let dtype: String = pydtype.extract()?;
-        let dtype = match dtype.as_ref() {
-            "bool" => Dtype::BOOL,
-            "int8" => Dtype::I8,
-            "uint8" => Dtype::U8,
-            "int16" => Dtype::I16,
-            "uint16" => Dtype::U16,
-            "int32" => Dtype::I32,
-            "uint32" => Dtype::U32,
-            "int64" => Dtype::I64,
-            "uint64" => Dtype::U64,
-            "float16" => Dtype::F16,
-            "float32" => Dtype::F32,
-            "float64" => Dtype::F64,
-            "bfloat16" => Dtype::BF16,
-            "float8_e4m3fn" => Dtype::F8_E4M3,
-            "float8_e5m2" => Dtype::F8_E5M2,
-            "float8_e8m0fnu" => Dtype::F8_E8M0,
-            "float4_e2m1fn_x2" => Dtype::F4,
-            "complex64" => Dtype::C64,
-            dtype_str => {
-                return Err(SafetensorError::new_err(format!(
-                    "dtype {dtype_str} is not covered",
-                )));
-            }
-        };
-
+        let mut shape = prepare_shape(&tensor_desc)?;
+        let dtype = prepare_dtype(&tensor_desc)?;
         if dtype == Dtype::F4 {
             let n = shape.len();
             shape[n - 1] *= 2;
@@ -159,6 +243,23 @@ fn serialize_file(
 
     safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
+
+    Ok(())
+}
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None, zero_copy=true))]
+fn serialize_file_threadable(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+    zero_copy: bool,
+) -> PyResult<()> {
+    let tensors = prepare_ndarray_view(tensor_dict, zero_copy)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
 
     Ok(())
 }
@@ -1603,6 +1704,7 @@ impl _safe_open_handle {
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_file_threadable, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;
