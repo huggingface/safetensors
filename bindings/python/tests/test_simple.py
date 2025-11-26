@@ -12,6 +12,7 @@ from safetensors.numpy import load, load_file, save, save_file
 from safetensors.torch import _find_shared_tensors
 from safetensors.torch import load_file as load_file_pt
 from safetensors.torch import save_file as save_file_pt
+from safetensors.torch import save_file_threadable as save_file_threadable_pt
 from safetensors.torch import storage_ptr, storage_size
 
 
@@ -121,6 +122,8 @@ class TestCase(unittest.TestCase):
         filename = f"./out_{threading.get_ident()}.safetensors"
         save_file_pt(tensors, Path(filename))
         load_file_pt(Path(filename))
+        save_file_threadable_pt(tensors, Path(filename))
+        load_file_pt(Path(filename))
         os.remove(Path(filename))
 
     def test_pt_sf_save_model_overlapping_storage(self):
@@ -215,8 +218,8 @@ class ReadmeTestCase(unittest.TestCase):
 
     def test_torch_example(self):
         tensors = {
-            "a": torch.zeros((2, 2)),
-            "b": torch.zeros((2, 3), dtype=torch.uint8),
+            "a": torch.randn((2, 2)),
+            "b": torch.randint(0, 128, (2, 3), dtype=torch.uint8),
         }
         # Saving modifies the tensors to type numpy, so we must copy for the
         # test to be correct.
@@ -226,6 +229,10 @@ class ReadmeTestCase(unittest.TestCase):
         save_file_pt(tensors, filename)
 
         # Now loading
+        loaded = load_file_pt(filename)
+        self.assertTensorEqual(tensors2, loaded, torch.allclose)
+
+        save_file_threadable_pt(tensors, filename)
         loaded = load_file_pt(filename)
         self.assertTensorEqual(tensors2, loaded, torch.allclose)
 

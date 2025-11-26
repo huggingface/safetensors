@@ -6,7 +6,13 @@ from packaging.version import Version
 
 import torch
 
-from safetensors import deserialize, safe_open, serialize, serialize_file
+from safetensors import (
+    deserialize,
+    safe_open,
+    serialize,
+    serialize_file,
+    serialize_file_threadable,
+)
 
 
 def storage_ptr(tensor: torch.Tensor) -> int:
@@ -307,6 +313,22 @@ def save_file(
     serialize_file(_flatten(tensors), filename, metadata=metadata)
 
 
+def save_file_threadable(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+    zero_copy: bool = True,
+):
+    """
+    Perform similiar function as safe_file, but allow other threads to run simultaneously
+    with io operation ^_^
+    if zero_copy is True, ensure cpu tensors will not be modified(reshape_, set_...) during saving
+    """
+    serialize_file_threadable(
+        _flatten_as_ptr(tensors), filename, metadata=metadata, zero_copy=zero_copy
+    )
+
+
 def load_file(
     filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
 ) -> Dict[str, torch.Tensor]:
@@ -444,7 +466,7 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
     return result
 
 
-def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
+def _to_ndarray(tensor: torch.Tensor, name: str):
     if tensor.layout != torch.strided:
         raise ValueError(
             f"You are trying to save a sparse tensor: `{name}` which this library does not support."
@@ -476,7 +498,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
 
     ptr = tensor.data_ptr()
     if ptr == 0:
-        return b""
+        return np.empty(0)
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
@@ -500,10 +522,14 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
         data = data.view(npdtype).byteswap(inplace=False)
-    return data.tobytes()
+    return data
 
 
-def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+def _tobytes(tensor: torch.Tensor, name: str):
+    return _to_ndarray(tensor, name).tobytes()
+
+
+def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
     if not isinstance(tensors, dict):
         raise ValueError(
             f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}"
@@ -540,6 +566,9 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             """
         )
 
+
+def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    _evaluate_tensors_for_save(tensors)
     return {
         k: {
             "dtype": str(v.dtype).split(".")[-1],
@@ -548,3 +577,17 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
         }
         for k, v in tensors.items()
     }
+
+
+def _flatten_as_ptr(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+    _evaluate_tensors_for_save(tensors)
+    flattened = {}
+    for k, v in tensors.items():
+        arr = _to_ndarray(v, k)
+        flattened[k] = {
+            "dtype": str(v.dtype).split(".")[-1],
+            "shape": v.shape,
+            "data_ptr": arr.ctypes.data,
+            "data_len": arr.nbytes,
+        }
+    return flattened
