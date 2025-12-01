@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764581196847,
+  "lastUpdate": 1764593832419,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -29910,6 +29910,100 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.004384658076741621",
             "extra": "mean: 272.0215687999996 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "flan313@gmail.com",
+            "name": "Finn Womack",
+            "username": "finnagin"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b1196113c807d9d676a26dd58b2feb941e1460c",
+          "message": "Add arm64 windows support (#678)\n\n* add arm64 windows to python.yml\n\nAlso, added push event trigger to Python workflow to test on fork.\n\n* add arm64 windows handling in tests\n\n* Fix quotes\n\n* fix typo\n\n* Fix typo\n\n* use different url for arm64\n\n* Update condition for installing jax and flax\n\n* run arm64 on limited set of tests\n\n* Rename test step for Windows arm64\n\n* add arm64 build\n\n* Modify target condition for windows arm64\n\n* add additional tests\n\nAdd specific test files to the testing workflow.\n\n* update arm64 tests\n\n* run all but tf tests\n\n* change conditional, move install\n\n* change test command sytax\n\nto match previous syntax\n\n* remove push trigger\n\nRemove push trigger from Python workflow",
+          "timestamp": "2025-12-01T13:55:06+01:00",
+          "tree_id": "3c8679ddbda58eac65c4b8d9b59023e9d756ebd7",
+          "url": "https://github.com/huggingface/safetensors/commit/6b1196113c807d9d676a26dd58b2feb941e1460c"
+        },
+        "date": 1764593831417,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 1.9164741382177453,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007606670305666933",
+            "extra": "mean: 521.7915441999992 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 3.695765484154461,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06309164230475692",
+            "extra": "mean: 270.5799392000074 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 5.58366620666538,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010109419519990313",
+            "extra": "mean: 179.09380019999617 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 3.8981058488559213,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0021776291088194065",
+            "extra": "mean: 256.5348502000006 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 7.693980104649686,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005070653851893958",
+            "extra": "mean: 129.9717423750124 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 269.7569124917191,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00008482818771398949",
+            "extra": "mean: 3.707041242291419 msec\nrounds: 227"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.46043159211819,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010208648662405615",
+            "extra": "mean: 87.2567487499983 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 54.22544628311095,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00023081328613177405",
+            "extra": "mean: 18.441526415089367 msec\nrounds: 53"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.0471501268517973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021240316119911742",
+            "extra": "mean: 328.17549459998645 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.5263787081247577,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011321800230439426",
+            "extra": "mean: 283.5770298000057 msec\nrounds: 5"
           }
         ]
       }
