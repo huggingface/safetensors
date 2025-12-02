@@ -9,13 +9,13 @@ use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
-use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
+use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView, N_LEN};
 use safetensors::View;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::ops::Bound;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -382,6 +382,10 @@ impl<'py> IntoPyObject<'py> for Device {
     }
 }
 
+struct DirectIo {
+    file: File,
+}
+
 enum Storage {
     Mmap(Mmap),
     /// Torch specific mmap
@@ -394,6 +398,7 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
+    Direct(DirectIo),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -447,8 +452,15 @@ struct Open {
 }
 
 impl Open {
+    fn mmap_file(filename: impl AsRef<Path>) -> PyResult<Mmap> {
+        let mmap_file = File::open(filename).map_err(|e| {
+            SafetensorError::new_err(format!("Could not re-open file for mmap: {e}"))
+        })?;
+        Ok(unsafe { MmapOptions::new().map_copy_read_only(&mmap_file)? })
+    }
+
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(&filename).map_err(|_| {
+        let mut file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
                 filename.display()
@@ -464,15 +476,25 @@ impl Open {
             )));
         }
 
-        // SAFETY: Mmap is used to prevent allocating in Rust
-        // before making a copy within Python.
-        let buffer = unsafe { MmapOptions::new().map_copy_read_only(&file)? };
+        let len = file
+            .metadata()
+            .map_err(|e| {
+                SafetensorError::new_err(format!(
+                    "Could not retrieve metadata for file {}: {e}",
+                    filename.display()
+                ))
+            })?
+            .len() as usize;
 
-        let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
-            SafetensorError::new_err(format!("Error while deserializing header: {e}"))
-        })?;
+        let (n, metadata) =
+            SafeTensors::read_metadata_from_reader(&mut file, len).map_err(|e| {
+                SafetensorError::new_err(format!(
+                    "Error while deserializing header from file {}: {e}",
+                    filename.display()
+                ))
+            })?;
+        let offset = n + N_LEN;
 
-        let offset = n + 8;
         Python::with_gil(|py| -> PyResult<()> {
             match framework {
                 Framework::Pytorch => {
@@ -510,7 +532,7 @@ impl Open {
                         })?
                         .into_pyobject(py)?
                         .into();
-                    let size: PyObject = buffer.len().into_pyobject(py)?.into();
+                    let size: PyObject = len.into_pyobject(py)?.into();
                     let init_kargs = [
                         (intern!(py, "filename"), py_filename),
                         (intern!(py, "nbytes"), size),
@@ -527,7 +549,7 @@ impl Open {
                 } else {
                     let module = PyModule::import(py, intern!(py, "numpy"))?;
                     NUMPY_MODULE.get_or_init_py_attached(py, || module.into());
-                    Ok(Storage::Mmap(buffer))
+                    Ok(Storage::Mmap(Self::mmap_file(&filename)?))
                 }
             })?,
             Framework::Pytorch => Python::with_gil(|py| -> PyResult<Storage> {
@@ -550,7 +572,7 @@ impl Open {
                         })?
                         .into_pyobject(py)?
                         .into();
-                    let size: PyObject = buffer.len().into_pyobject(py)?.into();
+                    let size: PyObject = len.into_pyobject(py)?.into();
                     let shared: PyObject = PyBool::new(py, false).to_owned().into();
                     let (size_name, storage_name) = if version >= Version::new(2, 0, 0) {
                         (intern!(py, "nbytes"), intern!(py, "UntypedStorage"))
@@ -576,10 +598,10 @@ impl Open {
 
                     Ok(Storage::Torch(gil_storage))
                 } else {
-                    Ok(Storage::Mmap(buffer))
+                    Ok(Storage::Mmap(Self::mmap_file(&filename)?))
                 }
             })?,
-            _ => Storage::Mmap(buffer),
+            _ => Storage::Mmap(Self::mmap_file(&filename)?),
         };
 
         let storage = Arc::new(storage);
@@ -833,6 +855,9 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
+            Storage::Direct(_) => Err(SafetensorError::new_err(
+                "Direct IO storage is not implemented yet".to_string(),
+            )),
         }
     }
 
@@ -867,6 +892,10 @@ impl Open {
                 "File does not contain tensor {name}",
             )))
         }
+    }
+
+    pub fn copy_tensor_into(&self, name: &str, dst: &mut [u8]) -> PyResult<()> {
+        Ok(())
     }
 }
 
@@ -1289,6 +1318,9 @@ impl PySafeSlice {
                 }
                 Ok(tensor.into())
             }),
+            Storage::Direct(_) => Err(SafetensorError::new_err(
+                "Direct IO storage is not implemented yet".to_string(),
+            )),
         }
     }
 }
