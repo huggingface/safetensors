@@ -308,7 +308,7 @@ def save_file(
 
 
 def load_file(
-    filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
+    filename: Union[str, os.PathLike], direct: bool, device: Union[str, int] = "cpu"
 ) -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
@@ -316,6 +316,8 @@ def load_file(
     Args:
         filename (`str`, or `os.PathLike`):
             The name of the file which contains the tensors
+        direct(`bool`):
+            Direct memory access
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
@@ -333,7 +335,7 @@ def load_file(
     ```
     """
     result = {}
-    with safe_open(filename, framework="pt", device=device) as f:
+    with safe_open(filename, framework="pt", direct=direct, device=device) as f:
         for k in f.offset_keys():
             result[k] = f.get_tensor(k)
     return result
