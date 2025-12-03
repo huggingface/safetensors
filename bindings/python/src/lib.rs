@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
+use libc::{c_void, off_t, size_t};
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
@@ -18,6 +19,11 @@ use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::thread;
+use std::{
+    alloc::{alloc, handle_alloc_error, Layout},
+    os::fd::FromRawFd,
+};
 
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -383,7 +389,13 @@ impl<'py> IntoPyObject<'py> for Device {
 }
 
 struct DirectIo {
-    file: File,
+    bytes: Vec<u8>,
+}
+
+impl DirectIo {
+    fn from_vec(bytes: Vec<u8>) -> Self {
+        DirectIo { bytes }
+    }
 }
 
 enum Storage {
@@ -451,7 +463,152 @@ struct Open {
     storage: Arc<Storage>,
 }
 
+const ALIGN: usize = 4096; // TODO: use ioctl to determine correct alignment size
+const CHUNK_SIZE: usize = 1 << 20; // 1 mib
+
 impl Open {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn read_odirect(filename: impl AsRef<Path>) -> PyResult<DirectIo> {
+        let filename = filename.as_ref().to_str().ok_or_else(|| {
+            SafetensorError::new_err(format!(
+                "Path {} is not valid UTF-8",
+                filename.as_ref().display()
+            ))
+        })?;
+
+        unsafe {
+            let c_path = std::ffi::CString::new(filename)
+                .map_err(|_| SafetensorError::new_err("Failed converting file path to CString"))?;
+            let fd = libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_DIRECT);
+            if fd < 0 {
+                return Err(SafetensorError::new_err(format!(
+                    "Could not open file {filename} with O_DIRECT",
+                )));
+            }
+            let file = File::from_raw_fd(fd);
+            let meta = file.metadata().map_err(|_| {
+                SafetensorError::new_err(
+                    format!("Could not retrieve metadata for file {filename}",),
+                )
+            })?;
+            let file_len = meta.len() as usize;
+            std::mem::forget(file);
+            if file_len == 0 {
+                libc::close(fd);
+                return Ok(DirectIo::from_vec(vec![]));
+            }
+
+            let aligned_prefix_len = file_len / ALIGN * ALIGN;
+            let tail_len = file_len - aligned_prefix_len;
+
+            let aligned_capacity = file_len.checked_next_multiple_of(ALIGN).ok_or_else(|| {
+                SafetensorError::new_err("overflow while computing aligned file len")
+            })?;
+            let layout = Layout::from_size_align(aligned_capacity, ALIGN)
+                .map_err(|_| SafetensorError::new_err("invalid layout"))?;
+            let ptr = alloc(layout);
+            if ptr.is_null() {
+                handle_alloc_error(layout);
+            }
+            let mut vec: Vec<u8> = Vec::from_raw_parts(ptr, 0, aligned_capacity);
+
+            if aligned_prefix_len > 0 {
+                // Cap max thread count to 8, we don't need too many to saturate disk
+                let n_threads = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1)
+                    .min(8);
+
+                let block_size = ALIGN;
+                let total_blocks = aligned_prefix_len / block_size;
+                let blocks_per_thread = total_blocks.div_ceil(n_threads);
+                let region_bytes = blocks_per_thread * block_size;
+
+                thread::scope(|scope| -> PyResult<()> {
+                    println!("creating buffer slice of len {aligned_prefix_len}");
+                    let buffer: &mut [u8] =
+                        std::slice::from_raw_parts_mut(vec.as_mut_ptr(), aligned_prefix_len);
+
+                    let mut handles = Vec::new();
+
+                    for (tid, chunk) in buffer.chunks_mut(region_bytes).enumerate() {
+                        let file_offset_base = tid * region_bytes;
+                        let chunk_len = chunk.len();
+                        debug_assert_eq!(chunk_len % ALIGN, 0);
+                        if chunk_len == 0 {
+                            continue;
+                        }
+                        println!("reading chunk {tid} of len {chunk_len}");
+                        let handle = scope.spawn({
+                            move || -> PyResult<()> {
+                                let mut file_offset = file_offset_base;
+                                let mut buffer_offset = 0;
+
+                                while buffer_offset < chunk_len {
+                                    let remaining = chunk_len - buffer_offset;
+                                    let mut to_read = remaining.min(CHUNK_SIZE);
+                                    to_read = (to_read / ALIGN) * ALIGN;
+                                    if to_read == 0 {
+                                        break;
+                                    }
+                                    let dest = chunk.as_mut_ptr().add(buffer_offset) as *mut c_void;
+                                    let res = libc::pread(
+                                        fd,
+                                        dest,
+                                        to_read as size_t,
+                                        file_offset as off_t,
+                                    );
+                                    if res < 0 {
+                                        return Err(SafetensorError::new_err("pread failed"));
+                                    } else if res == 0 {
+                                        break;
+                                    } else {
+                                        let got = res as usize;
+                                        file_offset += got;
+                                        buffer_offset += got;
+                                    }
+                                }
+                                Ok(())
+                            }
+                        });
+                        handles.push(handle);
+                    }
+                    for handle in handles {
+                        handle
+                            .join()
+                            .map_err(|_| SafetensorError::new_err("thread panicked"))??;
+                    }
+                    Ok(())
+                })?;
+            }
+
+            libc::close(fd);
+
+            if tail_len > 0 {
+                use std::io::{Read, Seek, SeekFrom};
+
+                let mut tail_file = File::open(filename).map_err(|_| {
+                    SafetensorError::new_err(format!(
+                        "could not reopen file {filename} for tail read"
+                    ))
+                })?;
+                tail_file
+                    .seek(SeekFrom::Start(aligned_prefix_len as u64))
+                    .map_err(|_| SafetensorError::new_err("seek failed for tail read"))?;
+                tail_file
+                    .read_exact(std::slice::from_raw_parts_mut(
+                        vec.as_mut_ptr().add(aligned_prefix_len),
+                        tail_len,
+                    ))
+                    .map_err(|_| SafetensorError::new_err("tail read failed"))?;
+            }
+
+            vec.set_len(file_len);
+
+            Ok(DirectIo::from_vec(vec))
+        }
+    }
+
     fn mmap_file(filename: impl AsRef<Path>) -> PyResult<Mmap> {
         let mmap_file = File::open(filename).map_err(|e| {
             SafetensorError::new_err(format!("Could not re-open file for mmap: {e}"))
@@ -459,7 +616,12 @@ impl Open {
         Ok(unsafe { MmapOptions::new().map_copy_read_only(&mmap_file)? })
     }
 
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        device: Option<Device>,
+        direct: bool,
+    ) -> PyResult<Self> {
         let mut file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
@@ -514,8 +676,8 @@ impl Open {
             Ok(())
         })?;
 
-        let storage = match &framework {
-            Framework::Paddle => Python::with_gil(|py| -> PyResult<Storage> {
+        let storage = match (&framework, direct) {
+            (Framework::Paddle, false) => Python::with_gil(|py| -> PyResult<Storage> {
                 let paddle = get_module(py, &PADDLE_MODULE)?;
                 let version: String = paddle.getattr(intern!(py, "__version__"))?.extract()?;
                 let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
@@ -552,7 +714,7 @@ impl Open {
                     Ok(Storage::Mmap(Self::mmap_file(&filename)?))
                 }
             })?,
-            Framework::Pytorch => Python::with_gil(|py| -> PyResult<Storage> {
+            (Framework::Pytorch, false) => Python::with_gil(|py| -> PyResult<Storage> {
                 let module = get_module(py, &TORCH_MODULE)?;
 
                 let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
@@ -601,7 +763,8 @@ impl Open {
                     Ok(Storage::Mmap(Self::mmap_file(&filename)?))
                 }
             })?,
-            _ => Storage::Mmap(Self::mmap_file(&filename)?),
+            (_, false) => Storage::Mmap(Self::mmap_file(&filename)?),
+            (_, true) => Storage::Direct(Self::read_odirect(&filename)?),
         };
 
         let storage = Arc::new(storage);
@@ -678,6 +841,18 @@ impl Open {
                 let array: PyObject =
                     Python::with_gil(|py| PyByteArray::new(py, data).into_any().into());
 
+                create_tensor(
+                    &self.framework,
+                    info.dtype,
+                    &info.shape,
+                    array,
+                    &self.device,
+                )
+            }
+            Storage::Direct(direct) => {
+                let data = &direct.bytes
+                    [info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+                let array = Python::with_gil(|py| PyByteArray::new(py, data).into_any().into());
                 create_tensor(
                     &self.framework,
                     info.dtype,
@@ -855,9 +1030,6 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
-            Storage::Direct(_) => Err(SafetensorError::new_err(
-                "Direct IO storage is not implemented yet".to_string(),
-            )),
         }
     }
 
@@ -893,10 +1065,6 @@ impl Open {
             )))
         }
     }
-
-    pub fn copy_tensor_into(&self, name: &str, dst: &mut [u8]) -> PyResult<()> {
-        Ok(())
-    }
 }
 
 /// Opens a safetensors lazily and returns tensors as asked
@@ -930,9 +1098,14 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu)))]
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let inner = Some(Open::new(filename, framework, device)?);
+    #[pyo3(signature = (filename, framework, direct, device=Some(Device::Cpu)))]
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        direct: bool,
+        device: Option<Device>,
+    ) -> PyResult<Self> {
+        let inner = Some(Open::new(filename, framework, device, direct)?);
         Ok(Self { inner })
     }
 
@@ -1163,6 +1336,72 @@ impl PySafeSlice {
                     )
                 })
             }
+            Storage::Direct(direct) => {
+                let pyslices = slices;
+                let slices: Slice = pyslices.extract()?;
+                let is_list = pyslices.is_instance_of::<PyList>();
+                let slices: Vec<SliceIndex> = match slices {
+                    Slice::Slice(slice) => vec![slice],
+                    Slice::Slices(slices) => {
+                        if slices.is_empty() && is_list {
+                            vec![SliceIndex::Slice(PySlice::new(pyslices.py(), 0, 0, 0))]
+                        } else if is_list {
+                            return Err(SafetensorError::new_err(
+                                "Non empty lists are not implemented",
+                            ));
+                        } else {
+                            slices
+                        }
+                    }
+                };
+                let data = &direct.bytes[self.info.data_offsets.0 + self.offset
+                    ..self.info.data_offsets.1 + self.offset];
+
+                let shape = self.info.shape.clone();
+
+                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
+                    .map_err(|e| {
+                        SafetensorError::new_err(format!("Error preparing tensor view: {e}"))
+                    })?;
+                let slices: Vec<TensorIndexer> = slices
+                    .into_iter()
+                    .zip(shape)
+                    .enumerate()
+                    .map(slice_to_indexer)
+                    .collect::<Result<_, _>>()?;
+
+                let iterator = tensor.sliced_data(&slices).map_err(|e| {
+                    SafetensorError::new_err(format!(
+                        "Error during slicing {} with shape {:?}: {e}",
+                        Disp(slices),
+                        self.info.shape,
+                    ))
+                })?;
+                let newshape = iterator.newshape();
+
+                let mut offset = 0;
+                let length = iterator.remaining_byte_len();
+                Python::with_gil(|py| {
+                    let array: PyObject =
+                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                            for slice in iterator {
+                                let len = slice.len();
+                                bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                                offset += len;
+                            }
+                            Ok(())
+                        })?
+                        .into_any()
+                        .into();
+                    create_tensor(
+                        &self.framework,
+                        self.info.dtype,
+                        &newshape,
+                        array,
+                        &self.device,
+                    )
+                })
+            }
             Storage::Torch(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
                 let torch = get_module(py, &TORCH_MODULE)?;
                 let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
@@ -1318,9 +1557,6 @@ impl PySafeSlice {
                 }
                 Ok(tensor.into())
             }),
-            Storage::Direct(_) => Err(SafetensorError::new_err(
-                "Direct IO storage is not implemented yet".to_string(),
-            )),
         }
     }
 }
@@ -1542,15 +1778,20 @@ impl _safe_open_handle {
 #[pymethods]
 impl _safe_open_handle {
     #[new]
-    #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
-    fn new(f: PyObject, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    #[pyo3(signature = (f, framework, direct, device=Some(Device::Cpu)))]
+    fn new(
+        f: PyObject,
+        framework: Framework,
+        direct: bool,
+        device: Option<Device>,
+    ) -> PyResult<Self> {
         let filename = Python::with_gil(|py| -> PyResult<PathBuf> {
             let _ = f.getattr(py, "fileno")?;
             let filename = f.getattr(py, "name")?;
             let filename: PathBuf = filename.extract(py)?;
             Ok(filename)
         })?;
-        let inner = Some(Open::new(filename, framework, device)?);
+        let inner = Some(Open::new(filename, framework, device, direct)?);
         Ok(Self { inner })
     }
 

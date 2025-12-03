@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import pytest
+from safetensors import safe_open
 import torch
 
 from safetensors.torch import load_file, save_file
@@ -56,7 +57,7 @@ def test_pt_sf_load_cpu(benchmark):
     weights = create_gpt2(12)
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
-        result = benchmark(load_file, f.name)
+        result = benchmark(load_file, f.name, direct=False)
     os.unlink(f.name)
 
     for k, v in weights.items():
@@ -80,7 +81,7 @@ def test_pt_sf_load_cpu_small(benchmark):
     weights = create_lora(500)
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
-        result = benchmark(load_file, f.name)
+        result = benchmark(load_file, f.name, direct=False)
     os.unlink(f.name)
 
     for k, v in weights.items():
@@ -109,7 +110,7 @@ def test_pt_sf_load_gpu(benchmark):
     weights = create_gpt2(12)
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
-        result = benchmark(load_file, f.name, device="cuda:0")
+        result = benchmark(load_file, f.name, device="cuda:0", direct=False)
     os.unlink(f.name)
 
     for k, v in weights.items():
@@ -145,10 +146,38 @@ def test_pt_sf_load_mps(benchmark):
     weights = create_gpt2(12)
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
-        result = benchmark(load_file, f.name, device="mps")
+        result = benchmark(load_file, f.name, device="mps", direct=False)
     os.unlink(f.name)
 
     for k, v in weights.items():
         v = v.to(device="mps")
         tv = result[k]
         assert torch.allclose(v, tv)
+
+
+def test_pt_sf_load_direct(benchmark):
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file, f.name, direct=True)
+    os.unlink(f.name)
+
+    for k, v in weights.items():
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
+def test_direct_open(benchmark):
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        benchmark(safe_open, f.name, framework="torch", direct=True)
+    os.unlink(f.name)
+
+
+def test_mmap_open(benchmark):
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        benchmark(safe_open, f.name, framework="torch", direct=False)
+    os.unlink(f.name)

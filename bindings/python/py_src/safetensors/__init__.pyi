@@ -65,10 +65,15 @@ class safe_open:
             The framework you want you tensors in. Supported values:
             `pt`, `tf`, `flax`, `numpy`.
 
+        direct (`bool`):
+            *EXPERIMENTAL*
+            Wether to open a file with direct memory access (DMA).
+            `O_DIRECT` on Linux and android, `F_NOCACHE` for macos
+
         device (`str`, defaults to `"cpu"`):
             The device on which you want the tensors.
     """
-    def __init__(self, filename, framework, device=...):
+    def __init__(self, filename, framework, direct, device=...):
         pass
 
     def __enter__(self):
