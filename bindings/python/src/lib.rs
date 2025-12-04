@@ -22,7 +22,8 @@ use std::sync::OnceLock;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod direct_cuda {
     use super::*;
-    use cudarc::driver::{CudaDevice, CudaSlice, CudaStream};
+    use cudarc::driver::{CudaSlice, CudaStream, DevicePtr};
+    use cudarc::CudaDevice;
     use pyo3::types::PyCapsule;
     use std::ffi::CString;
     use std::cell::UnsafeCell;
