@@ -23,15 +23,19 @@ use std::sync::OnceLock;
 mod direct_cuda {
     use super::*;
     use cudarc::driver::{CudaDevice, CudaSlice};
+    use pyo3::types::PyCapsule;
+    use std::ffi::CString;
     use std::cell::UnsafeCell;
     use std::ffi::c_void;
     use std::fs::{File, OpenOptions};
     use std::os::unix::fs::{FileExt, OpenOptionsExt};
     use std::path::Path;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
     const ALIGNMENT: usize = 4096;
     const DEFAULT_SLICE_KB: usize = 256;
+    const DEVICE_TYPE_CUDA: i32 = 2;
 
     fn align_to(value: usize, align: usize) -> usize {
         (value + align - 1) / align * align
@@ -99,9 +103,51 @@ mod direct_cuda {
         pub num_bytes: usize,
     }
 
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct DLDataType {
+        code: u8,
+        bits: u8,
+        lanes: u16,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct DLDevice {
+        device_type: i32,
+        device_id: i32,
+    }
+
+    #[repr(C)]
+    struct DLTensor {
+        data: *mut c_void,
+        device: DLDevice,
+        ndim: i32,
+        dtype: DLDataType,
+        shape: *mut i64,
+        strides: *mut i64,
+        byte_offset: u64,
+    }
+
+    type Deleter = Option<unsafe extern "C" fn(*mut DLManagedTensor)>;
+
+    #[repr(C)]
+    struct DLManagedTensor {
+        dl_tensor: DLTensor,
+        manager_ctx: *mut c_void,
+        deleter: Deleter,
+    }
+
+    struct ManagedCtx {
+        buffer: CudaSlice<u8>,
+        shape: Vec<i64>,
+        consumed: AtomicBool,
+    }
+
     pub struct DirectStorage {
         file: Arc<File>,
         device: CudaDevice,
+        device_index: i32,
         pinned: Arc<PinnedBuffer>,
         slice_bytes: usize,
         max_threads: usize,
@@ -133,6 +179,7 @@ mod direct_cuda {
             Ok(Self {
                 file: Arc::new(file),
                 device,
+                device_index: device_index as i32,
                 pinned,
                 slice_bytes: DEFAULT_SLICE_KB * 1024,
                 max_threads,
@@ -217,12 +264,118 @@ mod direct_cuda {
             framework: &Framework,
         ) -> PyResult<PyObject> {
             match framework {
-                Framework::Pytorch => Err(SafetensorError::new_err(
-                    "Direct CUDA tensors -> torch tensor is not wired yet",
-                )),
+                Framework::Pytorch => {
+                    let dtype = dtype_to_dl(tensor.dtype)?;
+                    let ndim: i32 = tensor
+                        .shape
+                        .len()
+                        .try_into()
+                        .map_err(|_| SafetensorError::new_err("Tensor rank too large"))?;
+                    let shape_i64: Vec<i64> = tensor
+                        .shape
+                        .iter()
+                        .map(|d| *d as i64)
+                        .collect();
+
+                    let mut ctx = Box::new(ManagedCtx {
+                        buffer: tensor.buffer,
+                        shape: shape_i64,
+                        consumed: AtomicBool::new(false),
+                    });
+
+                    let data_ptr = ctx.buffer.as_device_ptr().as_raw() as *mut c_void;
+                    let shape_ptr = ctx.shape.as_mut_ptr();
+
+                    let managed = Box::new(DLManagedTensor {
+                        dl_tensor: DLTensor {
+                            data: data_ptr,
+                            device: DLDevice {
+                                device_type: DEVICE_TYPE_CUDA,
+                                device_id: self.device_index,
+                            },
+                            ndim,
+                            dtype,
+                            shape: shape_ptr,
+                            strides: std::ptr::null_mut(),
+                            byte_offset: 0,
+                        },
+                        manager_ctx: Box::into_raw(ctx) as *mut c_void,
+                        deleter: Some(dlpack_deleter),
+                    });
+
+                    let managed_ptr = Box::into_raw(managed);
+
+                    let capsule_name = CString::new("dltensor").unwrap();
+                    Python::with_gil(|py| -> PyResult<PyObject> {
+                        let capsule = PyCapsule::new_with_destructor(
+                            py,
+                            managed_ptr,
+                            Some(capsule_name),
+                            capsule_destructor,
+                        )?;
+                        let torch = get_module(py, &TORCH_MODULE)?;
+                        let dlpack = torch.getattr(intern!(py, "utils"))?.getattr(intern!(py, "dlpack"))?;
+                        let tensor = dlpack.getattr(intern!(py, "from_dlpack"))?.call1((capsule,))?;
+                        Ok(tensor.into_pyobject(py)?.into())
+                    })
+                }
                 _ => Err(SafetensorError::new_err(
                     "Direct CUDA storage only supports torch for now",
                 )),
+            }
+        }
+    }
+
+    fn dtype_to_dl(dtype: Dtype) -> PyResult<DLDataType> {
+        let (code, bits) = match dtype {
+            Dtype::F64 => (2, 64),
+            Dtype::F32 => (2, 32),
+            Dtype::F16 => (2, 16),
+            Dtype::BF16 => (4, 16),
+            Dtype::I64 => (0, 64),
+            Dtype::I32 => (0, 32),
+            Dtype::I16 => (0, 16),
+            Dtype::I8 => (0, 8),
+            Dtype::U64 => (1, 64),
+            Dtype::U32 => (1, 32),
+            Dtype::U16 => (1, 16),
+            Dtype::U8 => (1, 8),
+            Dtype::BOOL => (1, 1),
+            dtype => {
+                return Err(SafetensorError::new_err(format!(
+                    "DLPack conversion not supported for dtype {dtype}"
+                )))
+            }
+        };
+        Ok(DLDataType {
+            code,
+            bits,
+            lanes: 1,
+        })
+    }
+
+    unsafe extern "C" fn dlpack_deleter(self_ptr: *mut DLManagedTensor) {
+        if self_ptr.is_null() {
+            return;
+        }
+        let ctx_ptr = (*self_ptr).manager_ctx as *mut ManagedCtx;
+        if !ctx_ptr.is_null() {
+            let ctx = &*ctx_ptr;
+            if ctx.consumed.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            drop(Box::from_raw(ctx_ptr));
+        }
+        drop(Box::from_raw(self_ptr));
+    }
+
+    fn capsule_destructor(ptr: *mut DLManagedTensor, _ctx: *mut c_void) {
+        unsafe {
+            if ptr.is_null() {
+                return;
+            }
+            if let Some(deleter) = (*ptr).deleter {
+                deleter(ptr);
             }
         }
     }
