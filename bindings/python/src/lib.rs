@@ -19,6 +19,215 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod direct_cuda {
+    use super::*;
+    use cudarc::driver::{CudaDevice, CudaSlice};
+    use std::cell::UnsafeCell;
+    use std::ffi::c_void;
+    use std::fs::{File, OpenOptions};
+    use std::os::unix::fs::{FileExt, OpenOptionsExt};
+    use std::path::Path;
+    use std::sync::Arc;
+
+    const ALIGNMENT: usize = 4096;
+    const DEFAULT_SLICE_KB: usize = 256;
+
+    fn align_to(value: usize, align: usize) -> usize {
+        (value + align - 1) / align * align
+    }
+
+    /// Pinned host buffer shared across worker threads.
+    pub struct PinnedBuffer {
+        data: UnsafeCell<Vec<u8>>,
+        stride: usize,
+        slots: usize,
+    }
+
+    unsafe impl Send for PinnedBuffer {}
+    unsafe impl Sync for PinnedBuffer {}
+
+    impl PinnedBuffer {
+        pub fn new(max_threads: usize, stride_kb: usize) -> PyResult<Self> {
+            let slots = max_threads.max(1);
+            let stride = align_to(stride_kb * 1024, ALIGNMENT);
+            let total = stride
+                .checked_mul(slots)
+                .ok_or_else(|| SafetensorError::new_err("Pinned buffer too large"))?;
+            let mut data = vec![0u8; total];
+            let ptr = data.as_mut_ptr() as *const c_void;
+            let res = unsafe { libc::mlock(ptr, data.len()) };
+            if res != 0 {
+                return Err(SafetensorError::new_err(
+                    "Unable to lock pinned host buffer with mlock",
+                ));
+            }
+            Ok(Self {
+                data: UnsafeCell::new(data),
+                stride,
+                slots,
+            })
+        }
+
+        pub unsafe fn slice(&self, thread_id: usize, len: usize) -> &mut [u8] {
+            let slot = thread_id % self.slots;
+            let start = slot * self.stride;
+            let actual = len.min(self.stride);
+            let data = &mut *self.data.get();
+            &mut data[start..start + actual]
+        }
+
+        pub unsafe fn head(&self, len: usize) -> &[u8] {
+            let data = &*self.data.get();
+            &data[..len]
+        }
+    }
+
+    impl Drop for PinnedBuffer {
+        fn drop(&mut self) {
+            unsafe {
+                let data = &*self.data.get();
+                let _ = libc::munlock(data.as_ptr() as *const c_void, data.len());
+            }
+        }
+    }
+
+    pub struct DirectTensor {
+        pub buffer: CudaSlice<u8>,
+        pub dtype: Dtype,
+        pub shape: Vec<usize>,
+        pub num_bytes: usize,
+    }
+
+    pub struct DirectStorage {
+        file: Arc<File>,
+        device: CudaDevice,
+        pinned: Arc<PinnedBuffer>,
+        slice_bytes: usize,
+        max_threads: usize,
+    }
+
+    impl DirectStorage {
+        pub fn new(path: &Path, device_index: usize) -> PyResult<Self> {
+            let file = OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECT)
+                .open(path)
+                .map_err(|e| {
+                    SafetensorError::new_err(format!(
+                        "Failed to open {path:?} with O_DIRECT: {e}"
+                    ))
+                })?;
+
+            let device = CudaDevice::new(device_index).map_err(|e| {
+                SafetensorError::new_err(format!(
+                    "Failed to init CUDA device {device_index}: {e}"
+                ))
+            })?;
+            let max_threads = std::thread::available_parallelism()
+                .map(|v| v.get())
+                .unwrap_or(1);
+
+            let pinned = Arc::new(PinnedBuffer::new(max_threads, DEFAULT_SLICE_KB)?);
+
+            Ok(Self {
+                file: Arc::new(file),
+                device,
+                pinned,
+                slice_bytes: DEFAULT_SLICE_KB * 1024,
+                max_threads,
+            })
+        }
+
+        pub fn load_tensor(&self, info: &TensorInfo, offset: usize) -> PyResult<DirectTensor> {
+            let start = info.data_offsets.0 + offset;
+            let len = info.data_offsets.1 - info.data_offsets.0;
+            self.read_into_pinned(start, len)?;
+            let mut buffer = self
+                .device
+                .alloc_zeros::<u8>(len)
+                .map_err(|e| SafetensorError::new_err(format!("Failed to alloc device buffer: {e}")))?;
+            unsafe {
+                self.device
+                    .htod_copy_into(self.pinned.head(len), &mut buffer)
+                    .map_err(|e| SafetensorError::new_err(format!("Memcpy HtoD failed: {e}")))?;
+            }
+            Ok(DirectTensor {
+                buffer,
+                dtype: info.dtype,
+                shape: info.shape.clone(),
+                num_bytes: len,
+            })
+        }
+
+        fn read_into_pinned(&self, start: usize, len: usize) -> PyResult<()> {
+            let chunk = align_to(self.slice_bytes, ALIGNMENT);
+            let threads = self.max_threads.max(1);
+            std::thread::scope(|scope| -> PyResult<()> {
+                let mut tasks = Vec::with_capacity(threads);
+                for tid in 0..threads {
+                    let file = self.file.clone();
+                    let pinned = self.pinned.clone();
+                    tasks.push(scope.spawn(move || -> PyResult<()> {
+                        let mut chunk_start = tid * chunk;
+                        while chunk_start < len {
+                            let remaining = len - chunk_start;
+                            let len_this = remaining.min(chunk);
+                            let slice =
+                                unsafe { pinned.slice(tid, align_to(len_this, ALIGNMENT)) };
+                            let mut read = 0usize;
+                            while read < len_this {
+                                let n = file
+                                    .read_at(
+                                        &mut slice[read..len_this],
+                                        (start + chunk_start + read) as u64,
+                                    )
+                                    .map_err(|e| {
+                                        SafetensorError::new_err(format!(
+                                            "pread failed at offset {}: {e}",
+                                            start + chunk_start + read
+                                        ))
+                                    })?;
+                                if n == 0 {
+                                    break;
+                                }
+                                read += n;
+                            }
+                            if read != len_this {
+                                return Err(SafetensorError::new_err(format!(
+                                    "Short read: expected {len_this} got {read}"
+                                )));
+                            }
+                            chunk_start += chunk * threads;
+                        }
+                        Ok(())
+                    }));
+                }
+                for task in tasks {
+                    task.join()
+                        .map_err(|_| SafetensorError::new_err("Thread panicked during pread"))??;
+                }
+                Ok(())
+            })
+        }
+
+        pub fn materialize(
+            &self,
+            tensor: DirectTensor,
+            framework: &Framework,
+        ) -> PyResult<PyObject> {
+            match framework {
+                Framework::Pytorch => Err(SafetensorError::new_err(
+                    "Direct CUDA tensors -> torch tensor is not wired yet",
+                )),
+                _ => Err(SafetensorError::new_err(
+                    "Direct CUDA storage only supports torch for now",
+                )),
+            }
+        }
+    }
+}
+
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -394,6 +603,8 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    Direct(direct_cuda::DirectStorage),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -492,7 +703,7 @@ impl Open {
             Ok(())
         })?;
 
-        let storage = match &framework {
+        let mut storage = match &framework {
             Framework::Paddle => Python::with_gil(|py| -> PyResult<Storage> {
                 let paddle = get_module(py, &PADDLE_MODULE)?;
                 let version: String = paddle.getattr(intern!(py, "__version__"))?.extract()?;
@@ -582,6 +793,16 @@ impl Open {
             _ => Storage::Mmap(buffer),
         };
 
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            if let (Device::Cuda(device_index), Framework::Pytorch) =
+                (device.clone(), framework.clone())
+            {
+                storage =
+                    Storage::Direct(direct_cuda::DirectStorage::new(filename.as_path(), device_index)?);
+            }
+        }
+
         let storage = Arc::new(storage);
 
         Ok(Self {
@@ -649,6 +870,16 @@ impl Open {
         // })?;
 
         match &self.storage.as_ref() {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            Storage::Direct(storage) => {
+                if !matches!(self.device, Device::Cuda(_)) {
+                    return Err(SafetensorError::new_err(
+                        "Direct storage only supports CUDA devices",
+                    ));
+                }
+                let tensor = storage.load_tensor(info, self.offset)?;
+                storage.materialize(tensor, &self.framework)
+            }
             Storage::Mmap(mmap) => {
                 let data =
                     &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
@@ -855,6 +1086,12 @@ impl Open {
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
         if let Some(info) = self.metadata.info(name) {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            if matches!(self.storage.as_ref(), Storage::Direct(_)) {
+                return Err(SafetensorError::new_err(
+                    "Direct CUDA storage does not yet support slicing",
+                ));
+            }
             Ok(PySafeSlice {
                 info: info.clone(),
                 framework: self.framework.clone(),
@@ -1068,6 +1305,10 @@ impl PySafeSlice {
 
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<PyObject> {
         match &self.storage.as_ref() {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            Storage::Direct(_) => Err(SafetensorError::new_err(
+                "Direct CUDA storage slicing is not implemented yet",
+            )),
             Storage::Mmap(mmap) => {
                 let pyslices = slices;
                 let slices: Slice = pyslices.extract()?;
