@@ -22,7 +22,7 @@ use std::sync::OnceLock;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod direct_cuda {
     use super::*;
-    use cudarc::driver::{CudaDevice, CudaSlice};
+    use cudarc::driver::{CudaDevice, CudaSlice, CudaStream};
     use pyo3::types::PyCapsule;
     use std::ffi::CString;
     use std::cell::UnsafeCell;
@@ -144,10 +144,15 @@ mod direct_cuda {
         consumed: AtomicBool,
     }
 
+    #[derive(Clone, Copy)]
+    struct DlpackPtr(*mut DLManagedTensor);
+    unsafe impl Send for DlpackPtr {}
+
     pub struct DirectStorage {
         file: Arc<File>,
         device: CudaDevice,
         device_index: i32,
+        stream: CudaStream,
         pinned: Arc<PinnedBuffer>,
         slice_bytes: usize,
         max_threads: usize,
@@ -170,6 +175,9 @@ mod direct_cuda {
                     "Failed to init CUDA device {device_index}: {e}"
                 ))
             })?;
+            let stream = device
+                .fork_default_stream()
+                .map_err(|e| SafetensorError::new_err(format!("Failed to create CUDA stream: {e}")))?;
             let max_threads = std::thread::available_parallelism()
                 .map(|v| v.get())
                 .unwrap_or(1);
@@ -180,6 +188,7 @@ mod direct_cuda {
                 file: Arc::new(file),
                 device,
                 device_index: device_index as i32,
+                stream,
                 pinned,
                 slice_bytes: DEFAULT_SLICE_KB * 1024,
                 max_threads,
@@ -196,9 +205,12 @@ mod direct_cuda {
                 .map_err(|e| SafetensorError::new_err(format!("Failed to alloc device buffer: {e}")))?;
             unsafe {
                 self.device
-                    .htod_copy_into(self.pinned.head(len), &mut buffer)
+                    .htod_async_copy_into(self.pinned.head(len), &mut buffer, &self.stream)
                     .map_err(|e| SafetensorError::new_err(format!("Memcpy HtoD failed: {e}")))?;
             }
+            self.stream
+                .synchronize()
+                .map_err(|e| SafetensorError::new_err(format!("Stream sync failed: {e}")))?;
             Ok(DirectTensor {
                 buffer,
                 dtype: info.dtype,
@@ -283,7 +295,7 @@ mod direct_cuda {
                         consumed: AtomicBool::new(false),
                     });
 
-                    let data_ptr = ctx.buffer.as_device_ptr().as_raw() as *mut c_void;
+                    let data_ptr = ctx.buffer.device_ptr(&self.stream).0 as *mut c_void;
                     let shape_ptr = ctx.shape.as_mut_ptr();
 
                     let managed = Box::new(DLManagedTensor {
@@ -303,7 +315,7 @@ mod direct_cuda {
                         deleter: Some(dlpack_deleter),
                     });
 
-                    let managed_ptr = Box::into_raw(managed);
+                    let managed_ptr = DlpackPtr(Box::into_raw(managed));
 
                     let capsule_name = CString::new("dltensor").unwrap();
                     Python::with_gil(|py| -> PyResult<PyObject> {
@@ -369,13 +381,13 @@ mod direct_cuda {
         drop(Box::from_raw(self_ptr));
     }
 
-    fn capsule_destructor(ptr: *mut DLManagedTensor, _ctx: *mut c_void) {
+    fn capsule_destructor(ptr: DlpackPtr, _ctx: *mut c_void) {
         unsafe {
-            if ptr.is_null() {
+            if ptr.0.is_null() {
                 return;
             }
-            if let Some(deleter) = (*ptr).deleter {
-                deleter(ptr);
+            if let Some(deleter) = (*ptr.0).deleter {
+                deleter(ptr.0);
             }
         }
     }
