@@ -22,8 +22,7 @@ use std::sync::OnceLock;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod direct_cuda {
     use super::*;
-    use cudarc::driver::{CudaSlice, CudaStream, DevicePtr};
-    use cudarc::CudaDevice;
+    use cudarc::driver::sys as cuda;
     use pyo3::types::PyCapsule;
     use std::ffi::CString;
     use std::cell::UnsafeCell;
@@ -37,6 +36,14 @@ mod direct_cuda {
     const ALIGNMENT: usize = 4096;
     const DEFAULT_SLICE_KB: usize = 256;
     const DEVICE_TYPE_CUDA: i32 = 2;
+
+    fn cuda_check(res: cuda::CUresult, msg: &str) -> PyResult<()> {
+        if res == cuda::CUDA_SUCCESS {
+            Ok(())
+        } else {
+            Err(SafetensorError::new_err(format!("{msg}: {res:?}")))
+        }
+    }
 
     fn align_to(value: usize, align: usize) -> usize {
         (value + align - 1) / align * align
@@ -98,7 +105,7 @@ mod direct_cuda {
     }
 
     pub struct DirectTensor {
-        pub buffer: CudaSlice<u8>,
+        pub buffer: DeviceBuffer,
         pub dtype: Dtype,
         pub shape: Vec<usize>,
         pub num_bytes: usize,
@@ -140,7 +147,7 @@ mod direct_cuda {
     }
 
     struct ManagedCtx {
-        buffer: CudaSlice<u8>,
+        buffer: DeviceBuffer,
         shape: Vec<i64>,
         consumed: AtomicBool,
     }
@@ -149,11 +156,115 @@ mod direct_cuda {
     struct DlpackPtr(*mut DLManagedTensor);
     unsafe impl Send for DlpackPtr {}
 
+    #[derive(Clone)]
+    struct CudaCtx {
+        ctx: cuda::CUcontext,
+        stream: cuda::CUstream,
+        device: cuda::CUdevice,
+        device_index: i32,
+    }
+
+    impl CudaCtx {
+        fn new(device_index: i32) -> PyResult<Self> {
+            unsafe {
+                cuda_check(cuda::cuInit(0), "cuInit failed")?;
+                let mut device: cuda::CUdevice = 0;
+                cuda_check(
+                    cuda::cuDeviceGet(&mut device as *mut _, device_index),
+                    "cuDeviceGet failed",
+                )?;
+                let mut ctx: cuda::CUcontext = std::ptr::null_mut();
+                cuda_check(
+                    cuda::cuCtxCreate_v2(&mut ctx as *mut _, 0, device),
+                    "cuCtxCreate failed",
+                )?;
+                cuda_check(cuda::cuCtxSetCurrent(ctx), "cuCtxSetCurrent failed")?;
+                let mut stream: cuda::CUstream = std::ptr::null_mut();
+                cuda_check(
+                    cuda::cuStreamCreate(&mut stream as *mut _, 0),
+                    "cuStreamCreate failed",
+                )?;
+                Ok(Self {
+                    ctx,
+                    stream,
+                    device,
+                    device_index,
+                })
+            }
+        }
+
+        fn set_current(&self) -> PyResult<()> {
+            unsafe { cuda_check(cuda::cuCtxSetCurrent(self.ctx), "cuCtxSetCurrent failed") }
+        }
+
+        fn alloc(&self, len: usize) -> PyResult<DeviceBuffer> {
+            self.set_current()?;
+            unsafe {
+                let mut ptr: cuda::CUdeviceptr = 0;
+                cuda_check(cuda::cuMemAlloc_v2(&mut ptr as *mut _, len), "cuMemAlloc failed")?;
+                Ok(DeviceBuffer {
+                    ptr,
+                    len,
+                    ctx: self.clone(),
+                })
+            }
+        }
+
+        fn memcpy_htod_async(&self, dst: cuda::CUdeviceptr, src: &[u8]) -> PyResult<()> {
+            self.set_current()?;
+            unsafe {
+                cuda_check(
+                    cuda::cuMemcpyHtoDAsync_v2(
+                        dst,
+                        src.as_ptr() as *const c_void,
+                        src.len(),
+                        self.stream,
+                    ),
+                    "cuMemcpyHtoDAsync failed",
+                )
+            }
+        }
+
+        fn synchronize(&self) -> PyResult<()> {
+            self.set_current()?;
+            unsafe { cuda_check(cuda::cuStreamSynchronize(self.stream), "cuStreamSynchronize failed") }
+        }
+    }
+
+    impl Drop for CudaCtx {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = cuda::cuStreamDestroy_v2(self.stream);
+                let _ = cuda::cuCtxDestroy_v2(self.ctx);
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct DeviceBuffer {
+        ptr: cuda::CUdeviceptr,
+        len: usize,
+        ctx: CudaCtx,
+    }
+
+    impl DeviceBuffer {
+        fn as_mut_ptr(&self) -> *mut c_void {
+            self.ptr as *mut c_void
+        }
+    }
+
+    impl Drop for DeviceBuffer {
+        fn drop(&mut self) {
+            let _ = self.ctx.set_current();
+            unsafe {
+                let _ = cuda::cuMemFree_v2(self.ptr);
+            }
+        }
+    }
+
     pub struct DirectStorage {
         file: Arc<File>,
-        device: CudaDevice,
-        device_index: i32,
-        stream: CudaStream,
+        ctx: CudaCtx,
         pinned: Arc<PinnedBuffer>,
         slice_bytes: usize,
         max_threads: usize,
@@ -171,14 +282,7 @@ mod direct_cuda {
                     ))
                 })?;
 
-            let device = CudaDevice::new(device_index).map_err(|e| {
-                SafetensorError::new_err(format!(
-                    "Failed to init CUDA device {device_index}: {e}"
-                ))
-            })?;
-            let stream = device
-                .fork_default_stream()
-                .map_err(|e| SafetensorError::new_err(format!("Failed to create CUDA stream: {e}")))?;
+            let ctx = CudaCtx::new(device_index as i32)?;
             let max_threads = std::thread::available_parallelism()
                 .map(|v| v.get())
                 .unwrap_or(1);
@@ -187,9 +291,7 @@ mod direct_cuda {
 
             Ok(Self {
                 file: Arc::new(file),
-                device,
-                device_index: device_index as i32,
-                stream,
+                ctx,
                 pinned,
                 slice_bytes: DEFAULT_SLICE_KB * 1024,
                 max_threads,
@@ -200,16 +302,14 @@ mod direct_cuda {
             let start = info.data_offsets.0 + offset;
             let len = info.data_offsets.1 - info.data_offsets.0;
             self.read_into_pinned(start, len)?;
-            let mut buffer = self
-                .device
-                .alloc_zeros::<u8>(len)
+            let buffer = self
+                .ctx
+                .alloc(len)
                 .map_err(|e| SafetensorError::new_err(format!("Failed to alloc device buffer: {e}")))?;
-            unsafe {
-                self.device
-                    .htod_async_copy_into(self.pinned.head(len), &mut buffer, &self.stream)
-                    .map_err(|e| SafetensorError::new_err(format!("Memcpy HtoD failed: {e}")))?;
-            }
-            self.stream
+            self.ctx
+                .memcpy_htod_async(buffer.ptr, self.pinned.head(len))
+                .map_err(|e| SafetensorError::new_err(format!("Memcpy HtoD failed: {e}")))?;
+            self.ctx
                 .synchronize()
                 .map_err(|e| SafetensorError::new_err(format!("Stream sync failed: {e}")))?;
             Ok(DirectTensor {
@@ -296,7 +396,7 @@ mod direct_cuda {
                         consumed: AtomicBool::new(false),
                     });
 
-                    let data_ptr = ctx.buffer.device_ptr(&self.stream).0 as *mut c_void;
+                    let data_ptr = ctx.buffer.as_mut_ptr();
                     let shape_ptr = ctx.shape.as_mut_ptr();
 
                     let managed = Box::new(DLManagedTensor {
