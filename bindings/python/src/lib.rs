@@ -1469,10 +1469,35 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
                     module.getattr(intern!(py, "bool"))?.into()
                 }
             }
-            Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
-            Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
-            Dtype::F8_E8M0 => module.getattr(intern!(py, "float8_e8m0fnu"))?.into(),
-            Dtype::F4 => module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into(),
+            Dtype::F8_E4M3 => {
+                if is_numpy {
+                    // numpy does not have float8 types, map to uint8 (same width)
+                    module.getattr(intern!(py, "uint8"))?.into()
+                } else {
+                    module.getattr(intern!(py, "float8_e4m3fn"))?.into()
+                }
+            }
+            Dtype::F8_E5M2 => {
+                if is_numpy {
+                    module.getattr(intern!(py, "uint8"))?.into()
+                } else {
+                    module.getattr(intern!(py, "float8_e5m2"))?.into()
+                }
+            }
+            Dtype::F8_E8M0 => {
+                if is_numpy {
+                    module.getattr(intern!(py, "uint8"))?.into()
+                } else {
+                    module.getattr(intern!(py, "float8_e8m0fnu"))?.into()
+                }
+            }
+            Dtype::F4 => {
+                if is_numpy {
+                    module.getattr(intern!(py, "uint8"))?.into()
+                } else {
+                    module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into()
+                }
+            }
             Dtype::C64 => module.getattr(intern!(py, "complex64"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(

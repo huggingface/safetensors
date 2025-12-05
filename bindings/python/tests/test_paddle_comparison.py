@@ -241,3 +241,27 @@ class SaveLoadCase(unittest.TestCase):
             self.assertEqual(reloaded["test1"].dtype, paddle.bfloat16)
             self.assertTrue(paddle.all(paddle.equal(data["test2"], reloaded["test2"])))
             self.assertEqual(reloaded["test2"].dtype, paddle.float32)
+
+    def test_float8_e5m2_loading(self):
+
+        # Skip if float8_e5m2 is not available
+        if not hasattr(paddle, "float8_e5m2"):
+            self.skipTest("float8_e5m2 dtype not available in this PaddlePaddle version")
+        
+        # Create tensor with float8_e5m2 dtype
+        t0 = paddle.randn((8, 16), dtype=paddle.float32).to(dtype=paddle.float8_e5m2)
+        
+        # Save and load
+        test_file = "./tests/data/paddle_float8_e5m2_test.safetensors"
+        save_file({"t0": t0}, test_file)
+        reloaded = load_file(test_file)
+        
+        # verify load 
+        self.assertEqual(list(reloaded["t0"].shape), [8, 16])
+        
+        # When using PaddlePaddle < 3.2.0, the numpy path maps float8 to uint8
+        if paddle.__version__ < "3.2.0":
+            self.assertEqual(reloaded["t0"].dtype, paddle.uint8)
+        else:
+            # with PaddlePaddle >= 3.2.0, it should preserve the float8_e5m2 dtype
+            self.assertEqual(reloaded["t0"].dtype, paddle.float8_e5m2)
