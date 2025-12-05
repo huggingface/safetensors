@@ -2,10 +2,34 @@ import os
 import tempfile
 
 import pytest
-from safetensors import safe_open
 import torch
 
 from safetensors.torch import load_file, save_file
+
+import subprocess
+
+
+def drop_linux_page_cache():
+    """
+    Properly drop Linux page cache using sudo and tee.
+    """
+
+    print("dropping os page cache")
+
+    subprocess.run(["sync"], check=True)
+
+    proc = subprocess.run(
+        ["sudo", "tee", "/proc/sys/vm/drop_caches"],
+        input="3\n",
+        text=True,
+        capture_output=True,
+    )
+
+    print(f"stdout: {proc.stdout}")
+    print(f"stderr: {proc.stderr}")
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"Failed to drop caches: {proc.stderr.strip()}")
 
 
 def create_gpt2(n_layers: int):
@@ -167,17 +191,47 @@ def test_pt_sf_load_direct(benchmark):
         assert torch.allclose(v, tv)
 
 
-def test_direct_open(benchmark):
+# TODO: cleanup file after benchmark
+def test_pt_mmap_no_warmup(benchmark):
+    def setup():
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            save_file(create_gpt2(12), f.name)
+            drop_linux_page_cache()
+        return (f.name,), {"direct": False}
+
+    benchmark.pedantic(load_file, setup=setup, rounds=1, warmup_rounds=0)
+
+
+def load_and_touch(path, direct):
+    tensors = load_file(path, direct)
+    acc = 0
+
+    for t in tensors.values():
+        acc += t.sum().item()
+
+    return path
+
+
+def test_pt_sf_load_and_touch_direct(benchmark):
     weights = create_gpt2(12)
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
-        benchmark(safe_open, f.name, framework="torch", direct=True)
+        result = benchmark(load_and_touch, f.name, direct=True)
+
     os.unlink(f.name)
 
+    for k, v in weights.items():
+        tv = result[k]
+        assert torch.allclose(v, tv)
 
-def test_mmap_open(benchmark):
-    weights = create_gpt2(12)
-    with tempfile.NamedTemporaryFile(delete=False) as f:
-        save_file(weights, f.name)
-        benchmark(safe_open, f.name, framework="torch", direct=False)
-    os.unlink(f.name)
+
+def test_pt_sf_load_and_touch_mmap(benchmark):
+    def setup():
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            save_file(create_gpt2(12), f.name)
+            drop_linux_page_cache()
+        return (f.name,), {"direct": False}
+
+    path = benchmark.pedantic(load_and_touch, setup=setup, rounds=1, warmup_rounds=0)
+
+    os.unlink(path)
