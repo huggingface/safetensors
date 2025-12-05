@@ -5,10 +5,11 @@ use core::fmt::Display;
 use core::str::Utf8Error;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
-use std::io::Write;
+use std::io::{Read, Write};
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
-const N_LEN: usize = size_of::<u64>();
+/// Number of bytes used to store the header length
+pub const N_LEN: usize = size_of::<u64>();
 
 /// Possible errors that could occur while reading
 /// A Safetensor file.
@@ -348,6 +349,27 @@ pub struct SafeTensors<'data> {
 }
 
 impl<'data> SafeTensors<'data> {
+    fn parse_metadata_from_header(
+        n: usize,
+        header_bytes: &[u8],
+        buffer_len: usize,
+    ) -> Result<Metadata, SafeTensorError> {
+        let string = core::str::from_utf8(header_bytes).map_err(SafeTensorError::InvalidHeader)?;
+        // Assert the string starts with {
+        if !string.starts_with('{') {
+            return Err(SafeTensorError::InvalidHeaderStart);
+        }
+        let metadata: HashMetadata =
+            serde_json::from_str(string).map_err(SafeTensorError::InvalidHeaderDeserialization)?;
+        let metadata: Metadata = metadata.try_into()?;
+        let buffer_end = metadata.validate()?;
+        if buffer_end + N_LEN + n != buffer_len {
+            return Err(SafeTensorError::MetadataIncompleteBuffer);
+        }
+
+        Ok(metadata)
+    }
+
     /// Given a byte-buffer representing the whole safetensor file
     /// parses the header, and returns the size of the header + the parsed data.
     pub fn read_metadata(buffer: &'data [u8]) -> Result<(usize, Metadata), SafeTensorError> {
@@ -375,19 +397,36 @@ impl<'data> SafeTensors<'data> {
         let Some(header_bytes) = buffer.get(N_LEN..stop) else {
             return Err(SafeTensorError::InvalidHeaderLength);
         };
-        let string = core::str::from_utf8(header_bytes).map_err(SafeTensorError::InvalidHeader)?;
-        // Assert the string starts with {
-        // NOTE: Add when we move to 0.4.0
-        // if !string.starts_with('{') {
-        //     return Err(SafeTensorError::InvalidHeaderStart);
-        // }
-        let metadata: HashMetadata =
-            serde_json::from_str(string).map_err(SafeTensorError::InvalidHeaderDeserialization)?;
-        let metadata: Metadata = metadata.try_into()?;
-        let buffer_end = metadata.validate()?;
-        if buffer_end + N_LEN + n != buffer_len {
-            return Err(SafeTensorError::MetadataIncompleteBuffer);
+        let metadata = Self::parse_metadata_from_header(n, header_bytes, buffer_len)?;
+
+        Ok((n, metadata))
+    }
+
+    /// Given a path to a safetensor file, reads the metadata from it
+    #[cfg(feature = "std")]
+    pub fn read_metadata_from_reader<R: Read>(
+        mut reader: R,
+        total_len: usize,
+    ) -> Result<(usize, Metadata), SafeTensorError> {
+        let mut size_buf = [0u8; N_LEN];
+        reader
+            .read_exact(&mut size_buf)
+            .map_err(|_| SafeTensorError::HeaderTooSmall)?;
+
+        let n: usize = u64::from_le_bytes(size_buf)
+            .try_into()
+            .map_err(|_| SafeTensorError::HeaderTooLarge)?;
+
+        if n > MAX_HEADER_SIZE {
+            return Err(SafeTensorError::HeaderTooLarge);
         }
+
+        let mut header_bytes = vec![0u8; n];
+        reader
+            .read_exact(&mut header_bytes)
+            .map_err(|_| SafeTensorError::InvalidHeaderLength)?;
+
+        let metadata = Self::parse_metadata_from_header(n, &header_bytes, total_len)?;
 
         Ok((n, metadata))
     }
