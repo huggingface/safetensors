@@ -19,6 +19,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+#[cfg(target_os = "linux")]
+mod gds;
+
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -389,6 +392,10 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
+    /// GPU Direct Storage for CUDA devices
+    /// Provides zero-copy loading directly from NVMe to GPU memory
+    #[cfg(target_os = "linux")]
+    CudaGds(gds::GdsStorage),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -442,7 +449,7 @@ struct Open {
 }
 
 impl Open {
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    fn new(filename: PathBuf, framework: Framework, device: Option<Device>, use_gds: bool) -> PyResult<Self> {
         let file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
@@ -450,6 +457,30 @@ impl Open {
             ))
         })?;
         let device = device.unwrap_or(Device::Cpu);
+        
+        // Validate GDS usage
+        if use_gds {
+            #[cfg(target_os = "linux")]
+            {
+                if !matches!(device, Device::Cuda(_)) {
+                    return Err(SafetensorError::new_err(
+                        "use_gds=True is only supported for CUDA devices (e.g., device='cuda:0')"
+                    ));
+                }
+                if framework != Framework::Pytorch {
+                    return Err(SafetensorError::new_err(
+                        "use_gds=True is currently only supported for PyTorch framework"
+                    ));
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                return Err(SafetensorError::new_err(
+                    "GPU Direct Storage is only available on Linux"
+                ));
+            }
+        }
+        
         if device != Device::Cpu
             && framework != Framework::Pytorch
             && framework != Framework::Paddle
@@ -525,6 +556,25 @@ impl Open {
                     Ok(Storage::Mmap(buffer))
                 }
             })?,
+            Framework::Pytorch if use_gds => {
+                // GPU Direct Storage path for CUDA devices
+                #[cfg(target_os = "linux")]
+                {
+                    gds::GdsStorage::new(filename.clone())
+                        .map(Storage::CudaGds)
+                        .map_err(|e| {
+                            SafetensorError::new_err(format!(
+                                "Failed to initialize GPU Direct Storage: {}. \
+                                 Make sure libcufile.so is available and you have a supported NVIDIA GPU.",
+                                e
+                            ))
+                        })?
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    return Err(SafetensorError::new_err("GDS not available on this platform"));
+                }
+            }
             Framework::Pytorch => Python::with_gil(|py| -> PyResult<Storage> {
                 let module = get_module(py, &TORCH_MODULE)?;
 
@@ -828,6 +878,54 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
+            #[cfg(target_os = "linux")]
+            Storage::CudaGds(gds) => {
+                // GPU Direct Storage: zero-copy loading directly to GPU
+                Python::with_gil(|py| -> PyResult<PyObject> {
+                    let torch = get_module(py, &TORCH_MODULE)?;
+                    
+                    // Calculate tensor size
+                    let size_bytes = info.data_offsets.1 - info.data_offsets.0;
+                    let file_offset = info.data_offsets.0 + self.offset;
+                    
+                    // Get dtype for tensor creation
+                    let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
+                    
+                    // Create empty tensor on GPU
+                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                    let shape_vec = info.shape.to_vec();
+                    let shape: PyObject = shape_vec.clone().into_pyobject(py)?.into();
+                    
+                    // Create tensor with correct dtype and device
+                    let dtype_clone = dtype.clone_ref(py);
+                    let kwargs = [
+                        (intern!(py, "dtype"), dtype_clone),
+                        (intern!(py, "device"), device),
+                    ].into_py_dict(py)?;
+                    
+                    let shape_for_call: PyObject = shape_vec.into_pyobject(py)?.into();
+                    let tensor = torch
+                        .getattr(intern!(py, "empty"))?
+                        .call((shape_for_call,), Some(&kwargs))?;
+                    
+                    // Get GPU pointer
+                    let data_ptr = tensor.getattr(intern!(py, "data_ptr"))?.call0()?;
+                    let gpu_ptr: usize = data_ptr.extract()?;
+                    
+                    // Direct GDS read to GPU memory
+                    unsafe {
+                        gds.read_to_device(
+                            gpu_ptr as *mut std::ffi::c_void,
+                            size_bytes,
+                            file_offset,
+                        ).map_err(|e| SafetensorError::new_err(format!("GDS read failed: {}", e)))?;
+                    }
+                    
+                    // Reshape if needed
+                    let tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+                    Ok(tensor.into())
+                })
+            }
         }
     }
 
@@ -896,9 +994,9 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu)))]
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let inner = Some(Open::new(filename, framework, device)?);
+    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu), use_gds=false))]
+    fn new(filename: PathBuf, framework: Framework, device: Option<Device>, use_gds: bool) -> PyResult<Self> {
+        let inner = Some(Open::new(filename, framework, device, use_gds)?);
         Ok(Self { inner })
     }
 
@@ -1284,6 +1382,19 @@ impl PySafeSlice {
                 }
                 Ok(tensor.into())
             }),
+            #[cfg(target_os = "linux")]
+            Storage::CudaGds(_storage) => {
+                // GDS (GPU Direct Storage) doesn't support tensor slicing
+                // because it requires direct reading into pre-allocated GPU memory.
+                // Slicing would require either:
+                // 1. Reading the full tensor to GPU then slicing (defeats the purpose)
+                // 2. Reading to CPU buffer first (defeats the zero-copy benefit)
+                // For now, return an error indicating this operation is not supported.
+                Err(SafetensorError::new_err(
+                    "Tensor slicing is not supported with GDS storage. \
+                     Please load the full tensor using get_tensor() instead.",
+                ))
+            }
         }
     }
 }
@@ -1505,15 +1616,15 @@ impl _safe_open_handle {
 #[pymethods]
 impl _safe_open_handle {
     #[new]
-    #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
-    fn new(f: PyObject, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    #[pyo3(signature = (f, framework, device=Some(Device::Cpu), use_gds=false))]
+    fn new(f: PyObject, framework: Framework, device: Option<Device>, use_gds: bool) -> PyResult<Self> {
         let filename = Python::with_gil(|py| -> PyResult<PathBuf> {
             let _ = f.getattr(py, "fileno")?;
             let filename = f.getattr(py, "name")?;
             let filename: PathBuf = filename.extract(py)?;
             Ok(filename)
         })?;
-        let inner = Some(Open::new(filename, framework, device)?);
+        let inner = Some(Open::new(filename, framework, device, use_gds)?);
         Ok(Self { inner })
     }
 
