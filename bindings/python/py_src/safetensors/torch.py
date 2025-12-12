@@ -5,13 +5,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from packaging.version import Version
 
 import torch
-
+import numpy as np
 from safetensors import (
     deserialize,
     safe_open,
     serialize,
     serialize_file,
 )
+from safetensors import numpy
 
 
 def storage_ptr(tensor: torch.Tensor) -> int:
@@ -285,7 +286,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     """
-    Saves a dictionary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into raw bytes in safetensors format. The caller **must** guarantee the tensors is not modified during saving process, which is, avoiding call inplace operation such as set_, reshape_, etc. on the tensors.
 
     Args:
         tensors (`Dict[str, torch.Tensor]`):
@@ -495,6 +496,9 @@ def _flatten_as_ptr(tensors: Dict[str, torch.Tensor], keep_alive_objs: List) -> 
         if v.device.type!='cpu':
             v = v.cpu()
             keep_alive_objs.append(v) # keep alive during serialization, avoiding gc
+        v_ndarray: np.ndarray = v.numpy()
+        if not numpy._is_little_endian(v_ndarray):
+            v_ndarray.byteswap(inplace=True)
         flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
