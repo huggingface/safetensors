@@ -11,7 +11,6 @@ from safetensors import (
     safe_open,
     serialize,
     serialize_file,
-    serialize_file_threadable,
 )
 
 
@@ -274,7 +273,7 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    serialized = serialize(_flatten(tensors), metadata=metadata)
+    serialized = serialize(_flatten_as_ptr(tensors), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -310,23 +309,7 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    serialize_file(_flatten(tensors), filename, metadata=metadata)
-
-
-def save_file_threadable(
-    tensors: Dict[str, torch.Tensor],
-    filename: Union[str, os.PathLike],
-    metadata: Optional[Dict[str, str]] = None,
-    zero_copy: bool = True,
-):
-    """
-    Perform similiar function as safe_file, but allow other threads to run simultaneously
-    with io operation ^_^
-    if zero_copy is True, ensure cpu tensors will not be modified(reshape_, set_...) during saving
-    """
-    serialize_file_threadable(
-        _flatten_as_ptr(tensors), filename, metadata=metadata, zero_copy=zero_copy
-    )
+    serialize_file(_flatten_as_ptr(tensors), filename, metadata=metadata)
 
 
 def load_file(
@@ -465,70 +448,6 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
 
     return result
 
-
-def _to_ndarray(tensor: torch.Tensor, name: str):
-    if tensor.layout != torch.strided:
-        raise ValueError(
-            f"You are trying to save a sparse tensor: `{name}` which this library does not support."
-            " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
-            " make a much larger file than needed."
-        )
-
-    if not tensor.is_contiguous():
-        raise ValueError(
-            f"You are trying to save a non contiguous tensor: `{name}` which is not allowed. It either means you"
-            " are trying to save tensors which are reference of each other in which case it's recommended to save"
-            " only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to"
-            " pack it before saving."
-        )
-    if tensor.device.type != "cpu":
-        # Moving tensor to cpu before saving
-        tensor = tensor.to("cpu")
-
-    import ctypes
-
-    import numpy as np
-
-    # When shape is empty (scalar), np.prod returns a float
-    # we need a int for the following calculations
-    length = int(np.prod(tensor.shape).item())
-    bytes_per_item = _SIZE[tensor.dtype]
-
-    total_bytes = length * bytes_per_item
-
-    ptr = tensor.data_ptr()
-    if ptr == 0:
-        return np.empty(0)
-    newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
-    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
-    if sys.byteorder == "big":
-        NPDTYPES = {
-            torch.int64: np.int64,
-            torch.float32: np.float32,
-            torch.int32: np.int32,
-            # XXX: This is ok because both have the same width
-            torch.bfloat16: np.float16,
-            torch.float16: np.float16,
-            torch.int16: np.int16,
-            torch.uint8: np.uint8,
-            torch.int8: np.int8,
-            torch.bool: bool,
-            torch.float64: np.float64,
-            # XXX: This is ok because both have the same width and byteswap is a no-op anyway
-            _float8_e4m3fn: np.uint8,
-            _float8_e5m2: np.uint8,
-            torch.complex64: np.complex64,
-        }
-        npdtype = NPDTYPES[tensor.dtype]
-        # Not in place as that would potentially modify a live running model
-        data = data.view(npdtype).byteswap(inplace=False)
-    return data
-
-
-def _tobytes(tensor: torch.Tensor, name: str):
-    return _to_ndarray(tensor, name).tobytes()
-
-
 def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
     if not isinstance(tensors, dict):
         raise ValueError(
@@ -567,27 +486,14 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
         )
 
 
-def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
-    _evaluate_tensors_for_save(tensors)
-    return {
-        k: {
-            "dtype": str(v.dtype).split(".")[-1],
-            "shape": v.shape,
-            "data": _tobytes(v, k),
-        }
-        for k, v in tensors.items()
-    }
-
-
 def _flatten_as_ptr(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
     _evaluate_tensors_for_save(tensors)
     flattened = {}
     for k, v in tensors.items():
-        arr = _to_ndarray(v, k)
         flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
-            "data_ptr": arr.ctypes.data,
-            "data_len": arr.nbytes,
+            "data_ptr": v.data_ptr(),
+            "data_len": v.nbytes,
         }
     return flattened
