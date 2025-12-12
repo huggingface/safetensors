@@ -9,10 +9,15 @@ rust-version = "1.74"
 name = "safetensors_rust"
 crate-type = ["cdylib"]
 
+[features]
+default = []
+cuda-gds = []
+
 [dependencies]
 pyo3 = { version = "0.25", features = ["abi3", "abi3-py38"] }
 memmap2 = "0.9"
 serde_json = "1.0"
+libc = "0.2"
 
 [dependencies.safetensors]
 path = "../../safetensors"
