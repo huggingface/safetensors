@@ -87,7 +87,7 @@ def test_pt_sf_load_cpu_small(benchmark):
         tv = result[k]
         assert torch.allclose(v, tv)
 
-def test_sf_threadable_save_cpu(benchmark):
+def test_pt_sf_threadable_save_cpu(benchmark):
     # benchmark save_file_threadable vs save_file
     weights = create_gpt2(12)
     
