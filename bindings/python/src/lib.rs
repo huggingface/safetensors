@@ -74,14 +74,15 @@ impl View for &NdarrayView {
     }
 
     fn data(&self) -> Cow<'_, [u8]> {
-        if self.contained_data {
-            Cow::Borrowed(&self.data)
-        } else {
-            let p = self.data_ptr as *const u8;
-            unsafe {
-                let slice = slice::from_raw_parts(p, self.data_len);
-                Cow::Borrowed(slice)
-            }
+        match &self.tensor_data {
+            TensorData::Owned(data) => Cow::borrowed(&data),
+            TensorData::Pointer(ptr) => {
+                let p = ptr.addr as *const u8;
+                unsafe {
+                    let slice = slice::from_raw_parts(p, ptr.len);
+                    Cow::borrowed(slice)
+                }
+            },
         }
     }
 
