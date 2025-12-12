@@ -49,13 +49,20 @@ impl View for &PyView<'_> {
     }
 }
 
+struct NumpyDataPointer {
+  addr: u64,
+  len: usize,
+}
+
+enum TensorData {
+  Owned(Vec<u8>),
+  Pointer(NumpyDataPointer),
+}
+
 struct NdarrayView {
     shape: Vec<usize>,
     dtype: Dtype,
-    data: Vec<u8>,
-    data_len: usize,
-    data_ptr: u64,
-    contained_data: bool,
+    tensor_data: TensorData,
 }
 impl View for &NdarrayView {
     fn dtype(&self) -> Dtype {
