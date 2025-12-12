@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 mod gds;
 
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -394,7 +394,7 @@ enum Storage {
     Paddle(OnceLock<PyObject>),
     /// GPU Direct Storage for CUDA devices
     /// Provides zero-copy loading directly from NVMe to GPU memory
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "cuda-gds"))]
     CudaGds(gds::GdsStorage),
 }
 
@@ -460,7 +460,7 @@ impl Open {
         
         // Validate GDS usage
         if use_gds {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "cuda-gds"))]
             {
                 if !matches!(device, Device::Cuda(_)) {
                     return Err(SafetensorError::new_err(
@@ -473,10 +473,11 @@ impl Open {
                     ));
                 }
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(all(target_os = "linux", feature = "cuda-gds")))]
             {
                 return Err(SafetensorError::new_err(
-                    "GPU Direct Storage is only available on Linux"
+                    "GPU Direct Storage is not available in this build. \
+                     To enable GDS support, rebuild with: maturin build --features cuda-gds"
                 ));
             }
         }
@@ -556,24 +557,18 @@ impl Open {
                     Ok(Storage::Mmap(buffer))
                 }
             })?,
+            #[cfg(all(target_os = "linux", feature = "cuda-gds"))]
             Framework::Pytorch if use_gds => {
                 // GPU Direct Storage path for CUDA devices
-                #[cfg(target_os = "linux")]
-                {
-                    gds::GdsStorage::new(filename.clone())
-                        .map(Storage::CudaGds)
-                        .map_err(|e| {
-                            SafetensorError::new_err(format!(
-                                "Failed to initialize GPU Direct Storage: {}. \
-                                 Make sure libcufile.so is available and you have a supported NVIDIA GPU.",
-                                e
-                            ))
-                        })?
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    return Err(SafetensorError::new_err("GDS not available on this platform"));
-                }
+                gds::GdsStorage::new(filename.clone())
+                    .map(Storage::CudaGds)
+                    .map_err(|e| {
+                        SafetensorError::new_err(format!(
+                            "Failed to initialize GPU Direct Storage: {}. \
+                             Make sure libcufile.so is available and you have a supported NVIDIA GPU.",
+                            e
+                        ))
+                    })?
             }
             Framework::Pytorch => Python::with_gil(|py| -> PyResult<Storage> {
                 let module = get_module(py, &TORCH_MODULE)?;
@@ -878,7 +873,7 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "cuda-gds"))]
             Storage::CudaGds(gds) => {
                 // GPU Direct Storage: zero-copy loading directly to GPU
                 Python::with_gil(|py| -> PyResult<PyObject> {
@@ -1382,7 +1377,7 @@ impl PySafeSlice {
                 }
                 Ok(tensor.into())
             }),
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "cuda-gds"))]
             Storage::CudaGds(_storage) => {
                 // GDS (GPU Direct Storage) doesn't support tensor slicing
                 // because it requires direct reading into pre-allocated GPU memory.

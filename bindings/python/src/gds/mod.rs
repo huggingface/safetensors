@@ -3,24 +3,24 @@
 //! This module provides zero-copy direct storage access between NVMe SSDs
 //! and GPU memory, bypassing the CPU for utilizing high-throughput storage.
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub mod bindings;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub mod driver;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub mod error;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub mod handle;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub mod storage;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub use driver::GdsDriver;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub use error::GdsError;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub use handle::GdsHandle;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "cuda-gds"))]
 pub use storage::GdsStorage;
 
 // Suppress unused warnings for conditional compilation

@@ -1,6 +1,6 @@
 fn main() {
     // Try linking necessary CUDA libraries on Linux for GDS
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "cuda-gds"))]
     {
         // Add CUDA library paths for linking
         println!("cargo:rustc-link-search=/usr/local/cuda/lib64");
