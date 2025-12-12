@@ -4,7 +4,7 @@ import tempfile
 import pytest
 import torch
 
-from safetensors.torch import load_file, save_file, save_file_threadable
+from safetensors.torch import load_file, save_file
 
 
 def create_gpt2(n_layers: int):
@@ -86,17 +86,6 @@ def test_pt_sf_load_cpu_small(benchmark):
     for k, v in weights.items():
         tv = result[k]
         assert torch.allclose(v, tv)
-
-def test_pt_sf_threadable_save_cpu(benchmark):
-    # benchmark save_file_threadable vs save_file
-    weights = create_gpt2(12)
-    
-    # Benchmark save_file_threadable
-    with tempfile.NamedTemporaryFile(delete=False) as f_threadable:
-        benchmark(save_file_threadable, weights, f_threadable.name)
-    
-    # Clean up files
-    os.unlink(f_threadable.name)
 
 def test_pt_sf_save_cpu(benchmark):
     weights = create_gpt2(12)
