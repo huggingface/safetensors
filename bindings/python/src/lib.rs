@@ -153,19 +153,17 @@ fn prepare_ndarray_view(
             let n = shape.len();
             shape[n - 1] *= 2;
         }
-        let data = if zero_copy {
-            vec![]
+        let tensor_data = if zero_copy {
+            TensorData::new_pointer(data_ptr, data_len)
         } else {
             let p = data_ptr as *const u8;
-            unsafe { slice::from_raw_parts(p, data_len).to_vec() }
+            let data = unsafe { slice::from_raw_parts(p, data_len).to_vec() };
+            TensorData::new_owned(data)
         };
         let tensor = NdarrayView {
             shape,
             dtype,
-            data,
-            data_len,
-            data_ptr,
-            contained_data: !zero_copy,
+            tensor_data,
         };
         tensors.insert(tensor_name, tensor);
     }
