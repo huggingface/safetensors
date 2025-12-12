@@ -131,7 +131,7 @@ fn prepare_ndarray_view(
     for (tensor_name, tensor_desc) in tensor_dict {
         let data_ptr: u64 = tensor_desc
             .get_item("data_ptr")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
+            .ok_or_else(|| SafetensorError::new_err(format!("Missing `data_ptr` in {tensor_desc}")))?
             .extract()?;
         let data_len: usize = tensor_desc
             .get_item("data_len")?
