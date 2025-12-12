@@ -273,7 +273,8 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    serialized = serialize(_flatten_as_ptr(tensors), metadata=metadata)
+    keep_alive_objs = [tensors]
+    serialized = serialize(_flatten_as_ptr(tensors, keep_alive_objs), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -309,7 +310,8 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    serialize_file(_flatten_as_ptr(tensors), filename, metadata=metadata)
+    keep_alive_objs = [tensors]
+    serialize_file(_flatten_as_ptr(tensors, keep_alive_objs), filename, metadata=metadata)
 
 
 def load_file(
@@ -486,10 +488,13 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
         )
 
 
-def _flatten_as_ptr(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+def _flatten_as_ptr(tensors: Dict[str, torch.Tensor], keep_alive_objs: List) -> Dict[str, Dict[str, Any]]:
     _evaluate_tensors_for_save(tensors)
     flattened = {}
     for k, v in tensors.items():
+        if v.device.type!='cpu':
+            v = v.cpu()
+            keep_alive_objs.append(v) # keep alive during serialization, avoiding gc
         flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
