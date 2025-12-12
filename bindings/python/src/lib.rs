@@ -27,44 +27,17 @@ static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 
-struct PyView<'a> {
+struct TensorDataPointer {
+    addr: u64,
+    len: usize,
+}
+
+struct TensorRawDataView {
     shape: Vec<usize>,
     dtype: Dtype,
-    data: PyBound<'a, PyBytes>,
-    data_len: usize,
+    tensor_data_ptr: TensorDataPointer,
 }
-
-impl View for &PyView<'_> {
-    fn data(&self) -> std::borrow::Cow<'_, [u8]> {
-        Cow::Borrowed(self.data.as_bytes())
-    }
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-    fn dtype(&self) -> Dtype {
-        self.dtype
-    }
-    fn data_len(&self) -> usize {
-        self.data_len
-    }
-}
-
-struct NumpyDataPointer {
-  addr: u64,
-  len: usize,
-}
-
-enum TensorData {
-  Owned(Vec<u8>),
-  Pointer(NumpyDataPointer),
-}
-
-struct NdarrayView {
-    shape: Vec<usize>,
-    dtype: Dtype,
-    tensor_data: TensorData,
-}
-impl View for &NdarrayView {
+impl View for &TensorRawDataView {
     fn dtype(&self) -> Dtype {
         self.dtype
     }
@@ -74,20 +47,15 @@ impl View for &NdarrayView {
     }
 
     fn data(&self) -> Cow<'_, [u8]> {
-        match &self.tensor_data {
-            TensorData::Owned(data) => Cow::borrowed(&data),
-            TensorData::Pointer(ptr) => {
-                let p = ptr.addr as *const u8;
-                unsafe {
-                    let slice = slice::from_raw_parts(p, ptr.len);
-                    Cow::borrowed(slice)
-                }
-            },
+        let p = self.tensor_data_ptr.addr as *const u8;
+        unsafe {
+            let slice = slice::from_raw_parts(p, self.tensor_data_ptr.len);
+            Cow::Borrowed(slice)
         }
     }
 
     fn data_len(&self) -> usize {
-        self.data_len
+        self.tensor_data_ptr.len
     }
 }
 
@@ -131,15 +99,16 @@ fn prepare_dtype(tensor_desc: &PyBound<PyDict>) -> PyResult<Dtype> {
     };
     Ok(dtype)
 }
-fn prepare_ndarray_view(
+fn prepare_tensor_raw_data_view(
     tensor_dict: HashMap<String, PyBound<PyDict>>,
-    zero_copy: bool,
-) -> PyResult<HashMap<String, NdarrayView>> {
+) -> PyResult<HashMap<String, TensorRawDataView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in tensor_dict {
         let data_ptr: u64 = tensor_desc
             .get_item("data_ptr")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `data_ptr` in {tensor_desc}")))?
+            .ok_or_else(|| {
+                SafetensorError::new_err(format!("Missing `data_ptr` in {tensor_desc}"))
+            })?
             .extract()?;
         let data_len: usize = tensor_desc
             .get_item("data_len")?
@@ -153,45 +122,14 @@ fn prepare_ndarray_view(
             let n = shape.len();
             shape[n - 1] *= 2;
         }
-        let tensor_data = if zero_copy {
-            TensorData::new_pointer(data_ptr, data_len)
-        } else {
-            let p = data_ptr as *const u8;
-            let data = unsafe { slice::from_raw_parts(p, data_len).to_vec() };
-            TensorData::new_owned(data)
+        let tensor_data_ptr = TensorDataPointer {
+            addr: data_ptr,
+            len: data_len,
         };
-        let tensor = NdarrayView {
+        let tensor = TensorRawDataView {
             shape,
             dtype,
-            tensor_data,
-        };
-        tensors.insert(tensor_name, tensor);
-    }
-    Ok(tensors)
-}
-
-fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
-    let mut tensors = HashMap::with_capacity(tensor_dict.len());
-    for (tensor_name, tensor_desc) in tensor_dict {
-        let pydata: PyBound<PyAny> = tensor_desc
-            .get_item("data")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `data` in {tensor_desc}")))?;
-        // Make sure it's extractable first.
-        let data: &[u8] = pydata.extract()?;
-        let data_len = data.len();
-        let data: PyBound<PyBytes> = pydata.extract()?;
-        let mut shape = prepare_shape(&tensor_desc)?;
-        let dtype = prepare_dtype(&tensor_desc)?;
-        if dtype == Dtype::F4 {
-            let n = shape.len();
-            shape[n - 1] *= 2;
-        }
-
-        let tensor = PyView {
-            shape,
-            dtype,
-            data,
-            data_len,
+            tensor_data_ptr,
         };
         tensors.insert(tensor_name, tensor);
     }
@@ -217,8 +155,9 @@ fn serialize<'b>(
     tensor_dict: HashMap<String, PyBound<PyDict>>,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<PyBound<'b, PyBytes>> {
-    let tensors = prepare(tensor_dict)?;
-    let out = safetensors::tensor::serialize(&tensors, metadata)
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    let out = py
+        .allow_threads(|| safetensors::tensor::serialize(&tensors, metadata))
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
@@ -241,27 +180,12 @@ fn serialize<'b>(
 #[pyfunction]
 #[pyo3(signature = (tensor_dict, filename, metadata=None))]
 fn serialize_file(
-    tensor_dict: HashMap<String, PyBound<PyDict>>,
-    filename: PathBuf,
-    metadata: Option<HashMap<String, String>>,
-) -> PyResult<()> {
-    let tensors = prepare(tensor_dict)?;
-
-    safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
-        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
-
-    Ok(())
-}
-#[pyfunction]
-#[pyo3(signature = (tensor_dict, filename, metadata=None, zero_copy=true))]
-fn serialize_file_threadable(
     py: Python<'_>,
     tensor_dict: HashMap<String, PyBound<PyDict>>,
     filename: PathBuf,
     metadata: Option<HashMap<String, String>>,
-    zero_copy: bool,
 ) -> PyResult<()> {
-    let tensors = prepare_ndarray_view(tensor_dict, zero_copy)?;
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
     py.allow_threads(|| {
         safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
             .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
@@ -1710,7 +1634,6 @@ impl _safe_open_handle {
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
-    m.add_function(wrap_pyfunction!(serialize_file_threadable, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;
