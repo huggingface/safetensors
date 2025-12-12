@@ -98,7 +98,7 @@ def test_pt_sf_threadable_save_cpu(benchmark):
     # Clean up files
     os.unlink(f_threadable.name)
 
-def test_sf_save_cpu(benchmark):
+def test_pt_sf_save_cpu(benchmark):
     weights = create_gpt2(12)
     
     # Benchmark save_file_threadable
