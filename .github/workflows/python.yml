@@ -204,3 +204,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max
           cache-to: type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max
+          push: ${{ github.event.pull_request.head.repo.fork == false }}
