@@ -79,12 +79,14 @@ class TestCase(unittest.TestCase):
             for file_name in file_names:
                 loaded = load_file(file_name)
                 np.testing.assert_array_equal(
-                    loaded["tensor_a"], tensor_a,
-                    err_msg=f"tensor_a mismatch in {file_name}"
+                    loaded["tensor_a"],
+                    tensor_a,
+                    err_msg=f"tensor_a mismatch in {file_name}",
                 )
                 np.testing.assert_array_equal(
-                    loaded["tensor_b"], tensor_b,
-                    err_msg=f"tensor_b mismatch in {file_name}"
+                    loaded["tensor_b"],
+                    tensor_b,
+                    err_msg=f"tensor_b mismatch in {file_name}",
                 )
         finally:
             # Clean up all temporary files
