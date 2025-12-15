@@ -5,14 +5,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from packaging.version import Version
 
 import torch
-import numpy as np
 from safetensors import (
     deserialize,
     safe_open,
     serialize,
     serialize_file,
 )
-from safetensors import numpy
 
 
 def storage_ptr(tensor: torch.Tensor) -> int:
@@ -274,8 +272,7 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    keep_alive_objs = [tensors]
-    serialized = serialize(_flatten_as_ptr(tensors, keep_alive_objs), metadata=metadata)
+    serialized = serialize(_flatten_as_ptr(tensors), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -286,7 +283,7 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     """
-    Saves a dictionary of tensors into raw bytes in safetensors format. The caller **must** guarantee the tensors is not modified during saving process, which is, avoiding call inplace operation such as set_, reshape_, etc. on the tensors.
+    Saves a dictionary of tensors into raw bytes in safetensors format. This function is **not** thread safe, please be wary when calling `save_file` and modifying tensors referenced in the `tensors` dict concurrently; it may lead to corrupted files.
 
     Args:
         tensors (`Dict[str, torch.Tensor]`):
@@ -311,8 +308,7 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    keep_alive_objs = [tensors]
-    serialize_file(_flatten_as_ptr(tensors, keep_alive_objs), filename, metadata=metadata)
+    serialize_file(_flatten_as_ptr(tensors), filename, metadata=metadata)
 
 
 def load_file(
@@ -451,13 +447,60 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
 
     return result
 
+
+def _to_ndarray(tensor: torch.Tensor):
+    if tensor.device.type != "cpu":
+        # Moving tensor to cpu before saving
+        tensor = tensor.to("cpu")
+
+    import ctypes
+
+    import numpy as np
+
+    # When shape is empty (scalar), np.prod returns a float
+    # we need a int for the following calculations
+    length = int(np.prod(tensor.shape).item())
+    bytes_per_item = _SIZE[tensor.dtype]
+
+    total_bytes = length * bytes_per_item
+
+    ptr = tensor.data_ptr()
+    if ptr == 0:
+        return np.empty(0)
+    newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
+    data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
+    if sys.byteorder == "big":
+        NPDTYPES = {
+            torch.int64: np.int64,
+            torch.float32: np.float32,
+            torch.int32: np.int32,
+            # XXX: This is ok because both have the same width
+            torch.bfloat16: np.float16,
+            torch.float16: np.float16,
+            torch.int16: np.int16,
+            torch.uint8: np.uint8,
+            torch.int8: np.int8,
+            torch.bool: bool,
+            torch.float64: np.float64,
+            # XXX: This is ok because both have the same width and byteswap is a no-op anyway
+            _float8_e4m3fn: np.uint8,
+            _float8_e5m2: np.uint8,
+            torch.complex64: np.complex64,
+        }
+        npdtype = NPDTYPES[tensor.dtype]
+        # Not in place as that would potentially modify a live running model
+        data = data.view(npdtype).byteswap(inplace=False)
+    return data
+
+
 def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
     if not isinstance(tensors, dict):
         raise ValueError(
             f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}"
         )
 
-    invalid_tensors = []
+    contiguous_tensors = []
+    sparse_tensors = []
     for k, v in tensors.items():
         if not isinstance(v, torch.Tensor):
             raise ValueError(
@@ -465,12 +508,24 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
             )
 
         if v.layout != torch.strided:
-            invalid_tensors.append(k)
-    if invalid_tensors:
+            sparse_tensors.append(k)
+
+        if not v.is_contiguous():
+            contiguous_tensors.append(k)
+
+    if sparse_tensors:
         raise ValueError(
-            f"You are trying to save a sparse tensors: `{invalid_tensors}` which this library does not support."
+            f"You are trying to save a sparse tensors: `{sparse_tensors}` which this library does not support."
             " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
             " make a much larger file than needed."
+        )
+
+    if contiguous_tensors:
+        raise ValueError(
+            f"You are trying to save non contiguous tensors: `{contiguous_tensors}` which is not allowed."
+            " It either means you are trying to save tensors which are reference of each other in which case"
+            " it's recommended to save only the full tensors, and reslice at load time, or simply call"
+            " `.contiguous()` on your tensor to pack it before saving."
         )
 
     shared_pointers = _find_shared_tensors(tensors)
@@ -489,20 +544,15 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
         )
 
 
-def _flatten_as_ptr(tensors: Dict[str, torch.Tensor], keep_alive_objs: List) -> Dict[str, Dict[str, Any]]:
+def _flatten_as_ptr(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
     _evaluate_tensors_for_save(tensors)
     flattened = {}
     for k, v in tensors.items():
-        if v.device.type!='cpu':
-            v = v.cpu()
-            keep_alive_objs.append(v) # keep alive during serialization, avoiding gc
-        v_ndarray: np.ndarray = v.numpy()
-        if not numpy._is_little_endian(v_ndarray):
-            v_ndarray.byteswap(inplace=True)
+        arr = _to_ndarray(v)
         flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
-            "data_ptr": v.data_ptr(),
-            "data_len": v.nbytes,
+            "data_ptr": arr.ctypes.data,
+            "data_len": arr.nbytes,
         }
     return flattened
