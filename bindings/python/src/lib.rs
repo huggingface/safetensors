@@ -771,6 +771,9 @@ impl Open {
                     }
 
                     let tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+                    // Paddle's MmapStorage.get_slice() doesn't keep the storage alive,
+                    // so we attach it to the tensor to prevent it from being garbage collected
+                    tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
@@ -1311,6 +1314,9 @@ impl PySafeSlice {
                     let kwargs = PyDict::new(py);
                     tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                 }
+                // Paddle's MmapStorage.get_slice() doesn't keep the storage alive,
+                // so we attach it to the tensor to prevent it from being garbage collected
+                tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
                 Ok(tensor.into())
             }),
         }
