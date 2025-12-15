@@ -170,9 +170,11 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Set short sha
-        id: vars
-        run: echo "GITHUB_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+      - name: Can push to GHCR?
+        id: canpush
+        shell: bash
+        run: |
+          echo "value=${{ github.event.pull_request.head.repo.fork == false }}" >> "$GITHUB_OUTPUT"
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -190,6 +192,7 @@ jobs:
             type=semver,pattern={{major}}
             type=sha
       - name: Login to Registry
+        if: steps.canpush.outputs.value == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -202,6 +205,6 @@ jobs:
           file: Dockerfile.s390x.test
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max
-          cache-to: type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max
-          push: ${{ github.event.pull_request.head.repo.fork == false }}
+          cache-from: ${{ steps.canpush.outputs.value == 'true' && 'type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max' || 'type=gha' }}
+          cache-to: ${{ steps.canpush.outputs.value == 'true' && 'type=registry,ref=ghcr.io/huggingface/safetensors/s390x:cache,mode=max' || 'type=gha' }}
+          push: ${{ steps.canpush.outputs.value == 'true' }}

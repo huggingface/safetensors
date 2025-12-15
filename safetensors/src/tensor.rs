@@ -370,7 +370,6 @@ where
 
         buffered_write_to_file(&temp_path, n, &header_bytes, &tensors)?;
 
-        // Rename temporary file to target (this works even if target is mmap'd)
         if let Err(e) = std::fs::rename(&temp_path, filename) {
             let _ = std::fs::remove_file(&temp_path);
             return Err(e.into());
