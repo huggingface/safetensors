@@ -251,11 +251,11 @@ fn slice_to_indexer(
         }
         SliceIndex::Index(idx) => {
             if idx < 0 {
-                let idx = dim
-                    .checked_add_signed(idx as isize)
-                    .ok_or(SafetensorError::new_err(format!(
+                let idx = dim.checked_add_signed(idx as isize).ok_or_else(|| {
+                    SafetensorError::new_err(format!(
                         "Invalid index {idx} for dimension {dim_idx} of size {dim}"
-                    )))?;
+                    ))
+                })?;
                 Ok(TensorIndexer::Select(idx))
             } else {
                 Ok(TensorIndexer::Select(idx as usize))
