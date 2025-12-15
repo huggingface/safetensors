@@ -5,7 +5,7 @@ use core::fmt::Display;
 use core::str::Utf8Error;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
-use std::io::Write;
+use std::{io::Write, path::Path};
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 const N_LEN: usize = size_of::<u64>();
@@ -301,9 +301,30 @@ pub fn serialize<
     Ok(buffer)
 }
 
+#[cfg(feature = "std")]
+fn buffered_write_to_file<V: View>(
+    path: impl AsRef<Path>,
+    n: u64,
+    header_bytes: &[u8],
+    tensors: &[V],
+) -> Result<(), SafeTensorError> {
+    let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    f.write_all(n.to_le_bytes().as_ref())?;
+    f.write_all(header_bytes)?;
+    for tensor in tensors {
+        f.write_all(tensor.data().as_ref())?;
+    }
+    f.flush()?;
+    Ok(())
+}
+
 /// Serialize to a regular file the dictionnary of tensors.
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
+///
+/// On Windows, this function writes to a temporary file first, then renames it
+/// to the target path. This avoids errors when the target file is memory-mapped
+/// (e.g., by another process reading the file via mmap).
 #[cfg(feature = "std")]
 pub fn serialize_to_file<S, V, I>(
     data: I,
@@ -326,17 +347,44 @@ where
         return Err(SafeTensorError::HeaderTooLarge);
     }
 
-    let mut f = std::io::BufWriter::new(std::fs::File::create(filename)?);
-    f.write_all(n.to_le_bytes().as_ref())?;
-    f.write_all(&header_bytes)?;
+    // XXX: On Windows, we write to a temporary file first and then rename it.
+    // This avoids "error 1224" (ERROR_USER_MAPPED_FILE) which occurs when
+    // trying to write to a file that has an active memory-mapped section.
+    #[cfg(windows)]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
 
-    for tensor in tensors {
-        f.write_all(tensor.data().as_ref())?;
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let process_id = std::process::id();
+        let temp_name = format!(".safetensors_tmp_{}_{}.tmp", process_id, timestamp);
+
+        let temp_path =
+            if let Some(parent) = filename.parent().filter(|p| !p.as_os_str().is_empty()) {
+                parent.join(&temp_name)
+            } else {
+                std::path::PathBuf::from(&temp_name)
+            };
+
+        buffered_write_to_file(&temp_path, n, &header_bytes, &tensors)?;
+
+        // Rename temporary file to target (this works even if target is mmap'd)
+        if let Err(e) = std::fs::rename(&temp_path, filename) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(e.into());
+        }
+
+        Ok(())
     }
 
-    f.flush()?;
+    #[cfg(not(windows))]
+    {
+        buffered_write_to_file(filename, n, &header_bytes, &tensors)?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// A structure owning some metadata to lookup tensors on a shared `data`
