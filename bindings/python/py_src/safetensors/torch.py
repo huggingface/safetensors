@@ -508,7 +508,6 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
             f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}"
         )
 
-    contiguous_tensors = []
     sparse_tensors = []
     for k, v in tensors.items():
         if not isinstance(v, torch.Tensor):
@@ -519,22 +518,11 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
         if v.layout != torch.strided:
             sparse_tensors.append(k)
 
-        if not v.is_contiguous():
-            contiguous_tensors.append(k)
-
     if sparse_tensors:
         raise ValueError(
             f"You are trying to save a sparse tensors: `{sparse_tensors}` which this library does not support."
             " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
             " make a much larger file than needed."
-        )
-
-    if contiguous_tensors:
-        raise ValueError(
-            f"You are trying to save non contiguous tensors: `{contiguous_tensors}` which is not allowed."
-            " It either means you are trying to save tensors which are reference of each other in which case"
-            " it's recommended to save only the full tensors, and reslice at load time, or simply call"
-            " `.contiguous()` on your tensor to pack it before saving."
         )
 
     shared_pointers = _find_shared_tensors(tensors)
@@ -559,6 +547,16 @@ def _flatten_as_ptr(
     _evaluate_tensors_for_save(tensors)
     flattened = {}
     for k, v in tensors.items():
+        # XXX: doing this check later on instead of in _evaluate_tensors_for_save
+        # since on old versions of torch, SparseTensorImpl do not implement is_contiguous
+        # and we do the sparsity check in _evaluate_tensors_for_save.
+        if not v.is_contiguous():
+            raise ValueError(
+                f"You are trying to save a non contiguous tensor: `{k}` which is not allowed. It either means you"
+                " are trying to save tensors which are reference of each other in which case it's recommended to save"
+                " only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to"
+                " pack it before saving."
+            )
         arr = _to_ndarray(v)
         keep_alive_buffer.append(arr)
         flattened[k] = {
