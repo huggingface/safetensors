@@ -51,8 +51,7 @@ jobs:
         working-directory: ./bindings/python
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-        
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -122,7 +121,7 @@ jobs:
 
       - name: Install (jax, flax)
         if: runner.os != 'Windows' && matrix.version.arch != 'x64-freethreaded'
-        run: 
+        run:
           pip install .[jax]
         shell: bash
 

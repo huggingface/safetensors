@@ -272,7 +272,10 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    serialized = serialize(_flatten_as_ptr(tensors), metadata=metadata)
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialized = serialize(
+        _flatten_as_ptr(tensors, keep_references_alive), metadata=metadata
+    )
     result = bytes(serialized)
     return result
 
@@ -308,7 +311,10 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    serialize_file(_flatten_as_ptr(tensors), filename, metadata=metadata)
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
 
 
 def load_file(
@@ -544,11 +550,14 @@ def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
         )
 
 
-def _flatten_as_ptr(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+def _flatten_as_ptr(
+    tensors: Dict[str, torch.Tensor], keep_alive_buffer: List
+) -> Dict[str, Dict[str, Any]]:
     _evaluate_tensors_for_save(tensors)
     flattened = {}
     for k, v in tensors.items():
         arr = _to_ndarray(v)
+        keep_alive_buffer.append(arr)
         flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,

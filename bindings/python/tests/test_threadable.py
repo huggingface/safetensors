@@ -2,7 +2,7 @@ import unittest
 from concurrent import futures
 import threading
 import torch
-from safetensors.torch import save_file, save_file_threadable, load_file
+from safetensors.torch import save_file, load_file
 import time
 import os
 import copy
@@ -46,7 +46,7 @@ class TestCase(unittest.TestCase):
         f1.result()
         cost1 = f2.result()
 
-        f1 = executor.submit(saving_thread, save_file_threadable)
+        f1 = executor.submit(saving_thread, save_file)
         f2 = executor.submit(counting_thread)
         f1.result()
         cost2 = f2.result()
@@ -62,7 +62,6 @@ class TestCase(unittest.TestCase):
         fn1 = "./out_rand_huge_tensor_for_consistancy_test1.safetensors"
         fn2 = "./out_rand_huge_tensor_for_consistancy_test2.safetensors"
         save_file(rand_huge_tensor, fn1)
-        save_file_threadable(rand_huge_tensor, fn2)
         with open(fn1, "rb") as f:
             hsh1 = hashlib.md5(f.read()).hexdigest()
         with open(fn2, "rb") as f:

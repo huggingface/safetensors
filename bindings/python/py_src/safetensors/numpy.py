@@ -5,12 +5,7 @@ from typing import Dict, Optional, Union
 import numpy as np
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
-
-
-def _tobytes(tensor: np.ndarray) -> bytes:
-    if not _is_little_endian(tensor):
-        tensor = tensor.byteswap(inplace=False)
-    return tensor.tobytes()
+from torch import t
 
 
 def save(
@@ -40,10 +35,19 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    flattened = {
-        k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)}
-        for k, v in tensor_dict.items()
-    }
+    flattened = {}
+    keep_alive_buffer = []
+    for k, v in tensor_dict.items():
+        tensor = v
+        if not _is_little_endian(tensor):
+            tensor = tensor.byteswap(inplace=False)
+            keep_alive_buffer.append(tensor)
+        flattened[k] = {
+            "dtype": tensor.dtype.name,
+            "shape": tensor.shape,
+            "data_ptr": tensor.ctypes.data,
+            "data_len": tensor.nbytes,
+        }
     serialized = serialize(flattened, metadata=metadata)
     result = bytes(serialized)
     return result
@@ -80,10 +84,19 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    flattened = {
-        k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)}
-        for k, v in tensor_dict.items()
-    }
+    flattened = {}
+    keep_alive_buffer = []  # to keep byteswapped tensors alive
+    for k, v in tensor_dict.items():
+        tensor = v
+        if not _is_little_endian(tensor):
+            tensor = tensor.byteswap(inplace=False)
+            keep_alive_buffer.append(tensor)
+        flattened[k] = {
+            "dtype": tensor.dtype.name,
+            "shape": tensor.shape,
+            "data_ptr": tensor.ctypes.data,
+            "data_len": tensor.nbytes,
+        }
     serialize_file(flattened, filename, metadata=metadata)
 
 
