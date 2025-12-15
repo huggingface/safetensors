@@ -62,9 +62,7 @@ impl View for &TensorRawDataView {
 fn prepare_shape(tensor_desc: &PyBound<PyDict>) -> PyResult<Vec<usize>> {
     tensor_desc
         .get_item("shape")?
-        .ok_or(SafetensorError::new_err(format!(
-            "Missing `shape` in {tensor_desc}"
-        )))?
+        .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
         .extract()
 }
 fn prepare_dtype(tensor_desc: &PyBound<PyDict>) -> PyResult<Dtype> {

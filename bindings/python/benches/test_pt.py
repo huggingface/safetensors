@@ -78,6 +78,7 @@ def test_pt_pt_load_cpu_small(benchmark):
 
 def test_pt_sf_load_cpu_small(benchmark):
     weights = create_lora(500)
+
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
@@ -87,15 +88,6 @@ def test_pt_sf_load_cpu_small(benchmark):
         tv = result[k]
         assert torch.allclose(v, tv)
 
-def test_pt_sf_save_cpu(benchmark):
-    weights = create_gpt2(12)
-    
-    # Benchmark save_file_threadable
-    with tempfile.NamedTemporaryFile(delete=False) as f_normal:
-        benchmark(save_file, weights, f_normal.name)
-    
-    # Clean up files
-    os.unlink(f_normal.name)
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda")
 def test_pt_pt_load_gpu(benchmark):
@@ -161,3 +153,22 @@ def test_pt_sf_load_mps(benchmark):
         v = v.to(device="mps")
         tv = result[k]
         assert torch.allclose(v, tv)
+
+
+def test_pt_sf_save_cpu(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp.safetensors"
+
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file, args=(weights, filename), setup=setup, iterations=1, rounds=5
+    )
+
+    # Clean up files
+    os.unlink(filename)
