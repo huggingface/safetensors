@@ -286,7 +286,10 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     """
-    Saves a dictionary of tensors into raw bytes in safetensors format. This function is **not** thread safe, please be wary when calling `save_file` and modifying tensors referenced in the `tensors` dict concurrently; it may lead to corrupted files.
+    Saves a dictionary of tensors into `filename` in safetensors format.
+    There is no mechanism in place to prevent the caller from modifying the data while a file save occurs,
+    please be wary when calling `save_file` and modifying tensors referenced in the `tensors` dict concurrently;
+    it may lead to corrupted files.
 
     Args:
         tensors (`Dict[str, torch.Tensor]`):

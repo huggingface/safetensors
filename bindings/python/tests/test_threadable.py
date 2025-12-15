@@ -1,75 +1,96 @@
 import unittest
 from concurrent import futures
 import threading
-import torch
-from safetensors.torch import save_file, load_file
+import numpy as np
+from safetensors import serialize_file
+from safetensors.numpy import load_file
 import time
 import os
-import copy
-import hashlib
 
 
 class TestCase(unittest.TestCase):
-    def test_threadable_available(self):
-        rand_huge_tensor = {
-            "tensor_a": torch.randn(2000, 20000),
-            "tensor_b": torch.randint(0, 128, (20000, 2000), dtype=torch.int8),
+    def test_serialize_file_releases_gil(self):
+        """Test that serialize_file releases the GIL and can run concurrently."""
+        # Create large numpy arrays to ensure serialization takes measurable time
+        # Keep them alive throughout the test since we pass raw pointers
+        tensor_a = np.random.randn(2000, 20000).astype(np.float32)
+        tensor_b = np.random.randint(0, 128, (20000, 2000), dtype=np.int8)
+
+        # Build the tensor dict with data pointers (as serialize_file expects)
+        tensor_data = {
+            "tensor_a": {
+                "dtype": tensor_a.dtype.name,
+                "shape": tensor_a.shape,
+                "data_ptr": tensor_a.ctypes.data,
+                "data_len": tensor_a.nbytes,
+            },
+            "tensor_b": {
+                "dtype": tensor_b.dtype.name,
+                "shape": tensor_b.shape,
+                "data_ptr": tensor_b.ctypes.data,
+                "data_len": tensor_b.nbytes,
+            },
         }
-        lock = threading.Lock()
-        executor = futures.ThreadPoolExecutor()
-        # create thread now
-        executor.submit(lambda: None)
-        executor.submit(lambda: None)
 
-        def counting_thread():
-            lock.acquire()  # ensure saving thread starting before counting thread
-            st = time.monotonic()
-            # emulating computing bound thread
-            time.sleep(0.5)
-            x = "0"
-            for i in range(20_000_000):
-                x += f"{i} counted..."
-            ed = time.monotonic()
-            return ed - st
+        num_threads = 4
+        results = {}
+        barrier = threading.Barrier(num_threads)
+        file_names = [f"tmp_thread_{i}.safetensors" for i in range(num_threads)]
 
-        def saving_thread(save_func):
-            lock.release()
-            file_name = "./out_rand_huge_tensor_for_threadable_test.safetensors"
-            # st = time.monotonic()
-            save_func(rand_huge_tensor, file_name)
-            # print(f"{save_func} save cost {time.monotonic() - st}")
-            os.remove(file_name)
+        def saving_thread(thread_id):
+            file_name = file_names[thread_id]
+            # Wait for all threads to be ready
+            barrier.wait()
+            start_time = time.monotonic()
+            serialize_file(tensor_data, file_name)
+            end_time = time.monotonic()
+            results[thread_id] = (start_time, end_time)
 
-        lock.acquire()
-        f1 = executor.submit(saving_thread, save_file)
-        f2 = executor.submit(counting_thread)
-        f1.result()
-        cost1 = f2.result()
+        try:
+            # Run multiple serialize_file calls concurrently
+            with futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futs = [executor.submit(saving_thread, i) for i in range(num_threads)]
+                for f in futs:
+                    f.result()  # Raise any exceptions
 
-        f1 = executor.submit(saving_thread, save_file)
-        f2 = executor.submit(counting_thread)
-        f1.result()
-        cost2 = f2.result()
-        # print(cost1, cost2)
-        self.assertLess(cost2, cost1)
+            # Verify all threads completed
+            self.assertEqual(len(results), num_threads)
 
-    def test_consistancy(self):
-        rand_huge_tensor = {
-            "tensor_a": torch.randn(1000, 20000),
-            "tensor_b": torch.randint(0, 128, (10000, 2000), dtype=torch.int8),
-        }
-        backup_tensor = copy.deepcopy(rand_huge_tensor)
-        fn1 = "./out_rand_huge_tensor_for_consistancy_test1.safetensors"
-        fn2 = "./out_rand_huge_tensor_for_consistancy_test2.safetensors"
-        save_file(rand_huge_tensor, fn1)
-        with open(fn1, "rb") as f:
-            hsh1 = hashlib.md5(f.read()).hexdigest()
-        with open(fn2, "rb") as f:
-            hsh2 = hashlib.md5(f.read()).hexdigest()
-        self.assertEqual(hsh1, hsh2)
-        saved_tensor = load_file(fn2)
-        for k in backup_tensor:
-            self.assertTrue(torch.equal(saved_tensor[k], backup_tensor[k]))
+            # Check that the threads actually ran concurrently by verifying
+            # their execution windows overlap. If the GIL was held, threads
+            # would run sequentially with no overlap.
+            all_starts = [r[0] for r in results.values()]
+            all_ends = [r[1] for r in results.values()]
+
+            # The latest start should be before the earliest end if threads overlapped
+            latest_start = max(all_starts)
+            earliest_end = min(all_ends)
+
+            # If GIL is released, threads run in parallel so latest_start < earliest_end
+            # If GIL is NOT released, threads run sequentially so latest_start >= earliest_end
+            self.assertLess(
+                latest_start,
+                earliest_end,
+                f"Threads did not run concurrently - GIL may not be released. "
+                f"Latest start: {latest_start}, Earliest end: {earliest_end}",
+            )
+
+            # Verify all output files are valid and contain correct data
+            for file_name in file_names:
+                loaded = load_file(file_name)
+                np.testing.assert_array_equal(
+                    loaded["tensor_a"], tensor_a,
+                    err_msg=f"tensor_a mismatch in {file_name}"
+                )
+                np.testing.assert_array_equal(
+                    loaded["tensor_b"], tensor_b,
+                    err_msg=f"tensor_b mismatch in {file_name}"
+                )
+        finally:
+            # Clean up all temporary files
+            for file_name in file_names:
+                if os.path.exists(file_name):
+                    os.remove(file_name)
 
 
 if __name__ == "__main__":
