@@ -56,7 +56,7 @@ jobs:
           output-file-path: ./bindings/python/output.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           # Push and deploy GitHub pages branch automatically
-          auto-push: true
+          auto-push: ${{ github.event.pull_request.head.repo.fork == false }}
           comment-on-alert: true
           # Mention @rhysd in the commit comment
-          alert-comment-cc-users: '@Narsil'
+          alert-comment-cc-users: '@danieldk,@McPatate'
