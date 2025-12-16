@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764852429370,
+  "lastUpdate": 1765903053024,
   "repoUrl": "https://github.com/huggingface/safetensors",
   "entries": {
     "Benchmark": [
@@ -30098,6 +30098,107 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010399156265937433",
             "extra": "mean: 275.6102284000008 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "46163583+TomQunChao@users.noreply.github.com",
+            "name": "TomQunChao",
+            "username": "TomQunChao"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c964e4061367980507a5ce6b59b768eee36a0302",
+          "message": "add gil free serialize_file(serialize_file_threadable) (#679)\n\n* add gil free serialize file(serialize_file_threadable)\n\n* add benchmarks for safetensors.torch.save_file vs save_file_threadable\n\n* Update bindings/python/src/lib.rs to repair error info\n\nCo-authored-by: Arthur <48595927+ArthurZucker@users.noreply.github.com>\n\n* using enum replace contained_data\n\nCo-authored-by: Luc Georges <McPatate@users.noreply.github.com>\n\n* using enum to replace contained_data, the using part\n\nCo-authored-by: Luc Georges <McPatate@users.noreply.github.com>\n\n* using enum to replace contained_data flag, the using part\n\nCo-authored-by: Luc Georges <McPatate@users.noreply.github.com>\n\n* rename benchmark function\n\nCo-authored-by: Luc Georges <McPatate@users.noreply.github.com>\n\n* rename benchmark function, 2\n\nCo-authored-by: Luc Georges <McPatate@users.noreply.github.com>\n\n* remove _flatten, to_bytes, redirect save_file, save_file to serialize_file(threadable)\n\n* add keep alive machanism to avoid python gc tensor\n\n* remove PyView, _flatten, _tobytes in lib.rs/safetensors.torch\n\n* repair imports and benchmark\n\n* add notice in the comment of save_file; add byte order converation in _flatten_as_ptr\n\n* fix: `ok_or` -> `ok_or_else`\n\n* refactor: reintroduce `_to_ndarray`\n\n* refactor: `ok_or` -> `ok_or_else`\n\n* feat: add `target/` to .gitignore\n\n* feat: keep numpy array refs alive during serialization\n\n* refactor(paddle): update paddle save_file to use `data_ptr`\n\n* fix(paddle): set ref to tensor storage in tensor to avoid losing ref\n\n* refactor: `test_threadable.py` to properly test gil release\n\n* feat(ci): bump all actions versions + remove archived refs\n\n* refactor(test): fmt\n\n* fix(ci): disable benchmarks `auto-push` when PR is from fork\n\n* fix: move `is_contiguous` check after tensor sparsity check\n\n* fix(windows): write to tmpfile and rename to avoid os error 1224\n\n* fix(ci): do not push s390x image when PR is from fork\n\n* fix(ci): avoid pushing cache to ghcr when PR is from fork\n\n* refactor: address PR comments\n\n---------\n\nCo-authored-by: Arthur <48595927+ArthurZucker@users.noreply.github.com>\nCo-authored-by: Luc Georges <McPatate@users.noreply.github.com>\nCo-authored-by: Luc Georges <luc.sydney.georges@gmail.com>",
+          "timestamp": "2025-12-16T17:35:19+01:00",
+          "tree_id": "6b1dfcaa796e4bd1cf928245dbd50e8275efc41d",
+          "url": "https://github.com/huggingface/safetensors/commit/c964e4061367980507a5ce6b59b768eee36a0302"
+        },
+        "date": 1765903051467,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "benches/test_flax.py::test_flax_flax_load",
+            "value": 3.0964913108878127,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029546591288108364",
+            "extra": "mean: 322.9461669999921 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_flax.py::test_flax_sf_load",
+            "value": 4.406135073925058,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011043123981261132",
+            "extra": "mean: 226.9562742000062 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_paddle_load",
+            "value": 7.685214889252,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0031348821199639007",
+            "extra": "mean: 130.11997900000551 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_paddle.py::test_paddle_sf_load",
+            "value": 4.145186190923997,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007641130027482032",
+            "extra": "mean: 241.24368700000218 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu",
+            "value": 7.546034816495453,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00798288909969352",
+            "extra": "mean: 132.5199292499981 msec\nrounds: 8"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu",
+            "value": 281.3131829809465,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00016663689853404175",
+            "extra": "mean: 3.5547569772715932 msec\nrounds: 220"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_pt_load_cpu_small",
+            "value": 11.889067333331184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00042088643893608223",
+            "extra": "mean: 84.11088708333618 msec\nrounds: 12"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_load_cpu_small",
+            "value": 55.86609645285953,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00011003354893497035",
+            "extra": "mean: 17.89994403571425 msec\nrounds: 56"
+          },
+          {
+            "name": "benches/test_pt.py::test_pt_sf_save_cpu",
+            "value": 2.868738493206633,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0029334307456002216",
+            "extra": "mean: 348.5852761999979 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_tf_load",
+            "value": 3.0496523573801384,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02151340662821946",
+            "extra": "mean: 327.9062276000104 msec\nrounds: 5"
+          },
+          {
+            "name": "benches/test_tf.py::test_tf_sf_load",
+            "value": 3.36672453646424,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006437696097622689",
+            "extra": "mean: 297.0245974000022 msec\nrounds: 5"
           }
         ]
       }
