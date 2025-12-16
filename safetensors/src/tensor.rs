@@ -321,10 +321,6 @@ fn buffered_write_to_file<V: View>(
 /// Serialize to a regular file the dictionnary of tensors.
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
-///
-/// On Windows, this function writes to a temporary file first, then renames it
-/// to the target path. This avoids errors when the target file is memory-mapped
-/// (e.g., by another process reading the file via mmap).
 #[cfg(feature = "std")]
 pub fn serialize_to_file<S, V, I>(
     data: I,
