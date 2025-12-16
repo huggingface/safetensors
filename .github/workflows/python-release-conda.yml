@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Install miniconda
         uses: conda-incubator/setup-miniconda@v3
@@ -33,9 +33,7 @@ jobs:
         run: conda info
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup conda env
         shell: bash -l {0}
@@ -82,7 +80,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Install miniconda
         run: |
@@ -104,9 +102,7 @@ jobs:
           conda info
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup conda env
         shell: bash -l {0}

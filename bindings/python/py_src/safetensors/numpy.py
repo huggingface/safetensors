@@ -1,16 +1,28 @@
 import os
 import sys
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 
 from safetensors import deserialize, safe_open, serialize, serialize_file
 
 
-def _tobytes(tensor: np.ndarray) -> bytes:
-    if not _is_little_endian(tensor):
-        tensor = tensor.byteswap(inplace=False)
-    return tensor.tobytes()
+def _flatten(
+    tensor_dict: Dict[str, np.ndarray], keep_alive_buffer: List
+) -> Dict[str, Dict]:
+    flattened = {}
+    for k, v in tensor_dict.items():
+        tensor = v
+        if not _is_little_endian(tensor):
+            tensor = tensor.byteswap(inplace=False)
+            keep_alive_buffer.append(tensor)
+        flattened[k] = {
+            "dtype": tensor.dtype.name,
+            "shape": tensor.shape,
+            "data_ptr": tensor.ctypes.data,
+            "data_len": tensor.nbytes,
+        }
+    return flattened
 
 
 def save(
@@ -40,11 +52,8 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    flattened = {
-        k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)}
-        for k, v in tensor_dict.items()
-    }
-    serialized = serialize(flattened, metadata=metadata)
+    keep_alive_buffer = []  # to keep byteswapped tensors alive
+    serialized = serialize(_flatten(tensor_dict, keep_alive_buffer), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -80,11 +89,10 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    flattened = {
-        k: {"dtype": v.dtype.name, "shape": v.shape, "data": _tobytes(v)}
-        for k, v in tensor_dict.items()
-    }
-    serialize_file(flattened, filename, metadata=metadata)
+    keep_alive_buffer = []  # to keep byteswapped tensors alive
+    serialize_file(
+        _flatten(tensor_dict, keep_alive_buffer), filename, metadata=metadata
+    )
 
 
 def load(data: bytes) -> Dict[str, np.ndarray]:

@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
+use core::slice;
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
@@ -26,82 +27,110 @@ static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 
-struct PyView<'a> {
-    shape: Vec<usize>,
-    dtype: Dtype,
-    data: PyBound<'a, PyBytes>,
-    data_len: usize,
+struct TensorDataPointer {
+    addr: u64,
+    len: usize,
 }
 
-impl View for &PyView<'_> {
-    fn data(&self) -> std::borrow::Cow<'_, [u8]> {
-        Cow::Borrowed(self.data.as_bytes())
-    }
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
+struct TensorRawDataView {
+    shape: Vec<usize>,
+    dtype: Dtype,
+    tensor_data_ptr: TensorDataPointer,
+}
+
+impl View for &TensorRawDataView {
     fn dtype(&self) -> Dtype {
         self.dtype
     }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn data(&self) -> Cow<'_, [u8]> {
+        let p = self.tensor_data_ptr.addr as *const u8;
+        unsafe {
+            let slice = slice::from_raw_parts(p, self.tensor_data_ptr.len);
+            Cow::Borrowed(slice)
+        }
+    }
+
     fn data_len(&self) -> usize {
-        self.data_len
+        self.tensor_data_ptr.len
     }
 }
 
-fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<String, PyView>> {
+fn prepare_shape(tensor_desc: &PyBound<PyDict>) -> PyResult<Vec<usize>> {
+    tensor_desc
+        .get_item("shape")?
+        .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
+        .extract()
+}
+
+fn prepare_dtype(tensor_desc: &PyBound<PyDict>) -> PyResult<Dtype> {
+    let pydtype = tensor_desc
+        .get_item("dtype")?
+        .ok_or_else(|| SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}")))?;
+    let dtype: String = pydtype.extract()?;
+    let dtype = match dtype.as_ref() {
+        "bool" => Dtype::BOOL,
+        "int8" => Dtype::I8,
+        "uint8" => Dtype::U8,
+        "int16" => Dtype::I16,
+        "uint16" => Dtype::U16,
+        "int32" => Dtype::I32,
+        "uint32" => Dtype::U32,
+        "int64" => Dtype::I64,
+        "uint64" => Dtype::U64,
+        "float16" => Dtype::F16,
+        "float32" => Dtype::F32,
+        "float64" => Dtype::F64,
+        "bfloat16" => Dtype::BF16,
+        "float8_e4m3fn" => Dtype::F8_E4M3,
+        "float8_e5m2" => Dtype::F8_E5M2,
+        "float8_e8m0fnu" => Dtype::F8_E8M0,
+        "float4_e2m1fn_x2" => Dtype::F4,
+        "complex64" => Dtype::C64,
+        dtype_str => {
+            return Err(SafetensorError::new_err(format!(
+                "dtype {dtype_str} is not covered",
+            )));
+        }
+    };
+    Ok(dtype)
+}
+
+fn prepare_tensor_raw_data_view(
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+) -> PyResult<HashMap<String, TensorRawDataView>> {
     let mut tensors = HashMap::with_capacity(tensor_dict.len());
     for (tensor_name, tensor_desc) in tensor_dict {
-        let mut shape: Vec<usize> = tensor_desc
-            .get_item("shape")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
+        let data_ptr: u64 = tensor_desc
+            .get_item("data_ptr")?
+            .ok_or_else(|| {
+                SafetensorError::new_err(format!("Missing `data_ptr` in {tensor_desc}"))
+            })?
             .extract()?;
-        let pydata: PyBound<PyAny> = tensor_desc
-            .get_item("data")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `data` in {tensor_desc}")))?;
-        // Make sure it's extractable first.
-        let data: &[u8] = pydata.extract()?;
-        let data_len = data.len();
-        let data: PyBound<PyBytes> = pydata.extract()?;
-        let pydtype = tensor_desc
-            .get_item("dtype")?
-            .ok_or_else(|| SafetensorError::new_err(format!("Missing `dtype` in {tensor_desc}")))?;
-        let dtype: String = pydtype.extract()?;
-        let dtype = match dtype.as_ref() {
-            "bool" => Dtype::BOOL,
-            "int8" => Dtype::I8,
-            "uint8" => Dtype::U8,
-            "int16" => Dtype::I16,
-            "uint16" => Dtype::U16,
-            "int32" => Dtype::I32,
-            "uint32" => Dtype::U32,
-            "int64" => Dtype::I64,
-            "uint64" => Dtype::U64,
-            "float16" => Dtype::F16,
-            "float32" => Dtype::F32,
-            "float64" => Dtype::F64,
-            "bfloat16" => Dtype::BF16,
-            "float8_e4m3fn" => Dtype::F8_E4M3,
-            "float8_e5m2" => Dtype::F8_E5M2,
-            "float8_e8m0fnu" => Dtype::F8_E8M0,
-            "float4_e2m1fn_x2" => Dtype::F4,
-            "complex64" => Dtype::C64,
-            dtype_str => {
-                return Err(SafetensorError::new_err(format!(
-                    "dtype {dtype_str} is not covered",
-                )));
-            }
-        };
-
+        let data_len: usize = tensor_desc
+            .get_item("data_len")?
+            .ok_or_else(|| {
+                SafetensorError::new_err(format!("Missing `data_len` in {tensor_desc}"))
+            })?
+            .extract()?;
+        let dtype = prepare_dtype(&tensor_desc)?;
+        let mut shape = prepare_shape(&tensor_desc)?;
         if dtype == Dtype::F4 {
             let n = shape.len();
             shape[n - 1] *= 2;
         }
-
-        let tensor = PyView {
+        let tensor_data_ptr = TensorDataPointer {
+            addr: data_ptr,
+            len: data_len,
+        };
+        let tensor = TensorRawDataView {
             shape,
             dtype,
-            data,
-            data_len,
+            tensor_data_ptr,
         };
         tensors.insert(tensor_name, tensor);
     }
@@ -110,10 +139,17 @@ fn prepare(tensor_dict: HashMap<String, PyBound<PyDict>>) -> PyResult<HashMap<St
 
 /// Serializes raw data.
 ///
+/// NOTE: the caller is required to ensure any pointer passed via `data_ptr` is valid and will live
+/// long enough for the duration of the serialization.
+/// We will remove the need for the caller to hold references themselves when we drop support for
+/// python versions prior to 3.11 where the `PyBuffer` API is available.
+/// Creating a `PyBuffer` will enable us to hold a reference to each passed in data array,
+/// increasing its ref count preventing the gc from collecting it while we serialize.
+///
 /// Args:
 ///     tensor_dict (`Dict[str, Dict[Any]]`):
 ///         The tensor dict is like:
-///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
+///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data_ptr": 1234, "data_len": 24}}
 ///     metadata (`Dict[str, str]`, *optional*):
 ///         The optional purely text annotations
 ///
@@ -127,8 +163,9 @@ fn serialize<'b>(
     tensor_dict: HashMap<String, PyBound<PyDict>>,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<PyBound<'b, PyBytes>> {
-    let tensors = prepare(tensor_dict)?;
-    let out = safetensors::tensor::serialize(&tensors, metadata)
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    let out = py
+        .allow_threads(|| safetensors::tensor::serialize(&tensors, metadata))
         .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
     let pybytes = PyBytes::new(py, &out);
     Ok(pybytes)
@@ -136,10 +173,17 @@ fn serialize<'b>(
 
 /// Serializes raw data into file.
 ///
+/// NOTE: the caller is required to ensure any pointer passed via `data_ptr` is valid and will live
+/// long enough for the duration of the serialization.
+/// We will remove the need for the caller to hold references themselves when we drop support for
+/// python versions prior to 3.11 where the `PyBuffer` API is available.
+/// Creating a `PyBuffer` will enable us to hold a reference to each passed in data array,
+/// increasing its ref count preventing the gc from collecting it while we serialize.
+///
 /// Args:
 ///     tensor_dict (`Dict[str, Dict[Any]]`):
 ///         The tensor dict is like:
-///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
+///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data_ptr": 1234, "data_len": 24}}
 ///     filename (`str`, or `os.PathLike`):
 ///         The name of the file to write into.
 ///     metadata (`Dict[str, str]`, *optional*):
@@ -151,14 +195,16 @@ fn serialize<'b>(
 #[pyfunction]
 #[pyo3(signature = (tensor_dict, filename, metadata=None))]
 fn serialize_file(
+    py: Python<'_>,
     tensor_dict: HashMap<String, PyBound<PyDict>>,
     filename: PathBuf,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<()> {
-    let tensors = prepare(tensor_dict)?;
-
-    safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
-        .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))?;
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
 
     Ok(())
 }
@@ -222,11 +268,11 @@ fn slice_to_indexer(
         }
         SliceIndex::Index(idx) => {
             if idx < 0 {
-                let idx = dim
-                    .checked_add_signed(idx as isize)
-                    .ok_or(SafetensorError::new_err(format!(
+                let idx = dim.checked_add_signed(idx as isize).ok_or_else(|| {
+                    SafetensorError::new_err(format!(
                         "Invalid index {idx} for dimension {dim_idx} of size {dim}"
-                    )))?;
+                    ))
+                })?;
                 Ok(TensorIndexer::Select(idx))
             } else {
                 Ok(TensorIndexer::Select(idx as usize))
@@ -747,6 +793,9 @@ impl Open {
                     }
 
                     let tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
+                    // Paddle's MmapStorage.get_slice() doesn't keep the storage alive,
+                    // so we attach it to the tensor to prevent it from being garbage collected
+                    tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
@@ -1287,6 +1336,9 @@ impl PySafeSlice {
                     let kwargs = PyDict::new(py);
                     tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
                 }
+                // Paddle's MmapStorage.get_slice() doesn't keep the storage alive,
+                // so we attach it to the tensor to prevent it from being garbage collected
+                tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
                 Ok(tensor.into())
             }),
         }

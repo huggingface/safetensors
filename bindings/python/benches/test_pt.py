@@ -78,6 +78,7 @@ def test_pt_pt_load_cpu_small(benchmark):
 
 def test_pt_sf_load_cpu_small(benchmark):
     weights = create_lora(500)
+
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
@@ -152,3 +153,25 @@ def test_pt_sf_load_mps(benchmark):
         v = v.to(device="mps")
         tv = result[k]
         assert torch.allclose(v, tv)
+
+
+def test_pt_sf_save_cpu(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file, args=(weights, filename), setup=setup, iterations=1, rounds=5
+    )
+
+    # Clean up files
+    os.unlink(filename)

@@ -1,4 +1,4 @@
-safetensors/target
+target/
 safetensors/**/Cargo.lock
 bindings/python/Cargo.lock
 *.bin

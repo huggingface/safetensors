@@ -5,8 +5,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from packaging.version import Version
 
 import torch
-
-from safetensors import deserialize, safe_open, serialize, serialize_file
+from safetensors import (
+    deserialize,
+    safe_open,
+    serialize,
+    serialize_file,
+)
 
 
 def storage_ptr(tensor: torch.Tensor) -> int:
@@ -268,7 +272,10 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    serialized = serialize(_flatten(tensors), metadata=metadata)
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialized = serialize(
+        _flatten_as_ptr(tensors, keep_references_alive), metadata=metadata
+    )
     result = bytes(serialized)
     return result
 
@@ -279,7 +286,10 @@ def save_file(
     metadata: Optional[Dict[str, str]] = None,
 ):
     """
-    Saves a dictionary of tensors into raw bytes in safetensors format.
+    Saves a dictionary of tensors into `filename` in safetensors format.
+    There is no mechanism in place to prevent the caller from modifying the data while a file save occurs,
+    please be wary when calling `save_file` and modifying tensors referenced in the `tensors` dict concurrently;
+    it may lead to corrupted files.
 
     Args:
         tensors (`Dict[str, torch.Tensor]`):
@@ -304,7 +314,10 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    serialize_file(_flatten(tensors), filename, metadata=metadata)
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
 
 
 def load_file(
@@ -444,21 +457,7 @@ def _view2torch(safeview) -> Dict[str, torch.Tensor]:
     return result
 
 
-def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
-    if tensor.layout != torch.strided:
-        raise ValueError(
-            f"You are trying to save a sparse tensor: `{name}` which this library does not support."
-            " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
-            " make a much larger file than needed."
-        )
-
-    if not tensor.is_contiguous():
-        raise ValueError(
-            f"You are trying to save a non contiguous tensor: `{name}` which is not allowed. It either means you"
-            " are trying to save tensors which are reference of each other in which case it's recommended to save"
-            " only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to"
-            " pack it before saving."
-        )
+def _to_ndarray(tensor: torch.Tensor):
     if tensor.device.type != "cpu":
         # Moving tensor to cpu before saving
         tensor = tensor.to("cpu")
@@ -476,7 +475,7 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
 
     ptr = tensor.data_ptr()
     if ptr == 0:
-        return b""
+        return np.empty(0)
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
@@ -500,16 +499,16 @@ def _tobytes(tensor: torch.Tensor, name: str) -> bytes:
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
         data = data.view(npdtype).byteswap(inplace=False)
-    return data.tobytes()
+    return data
 
 
-def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
+def _evaluate_tensors_for_save(tensors: Dict[str, torch.Tensor]) -> None:
     if not isinstance(tensors, dict):
         raise ValueError(
             f"Expected a dict of [str, torch.Tensor] but received {type(tensors)}"
         )
 
-    invalid_tensors = []
+    sparse_tensors = []
     for k, v in tensors.items():
         if not isinstance(v, torch.Tensor):
             raise ValueError(
@@ -517,10 +516,11 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             )
 
         if v.layout != torch.strided:
-            invalid_tensors.append(k)
-    if invalid_tensors:
+            sparse_tensors.append(k)
+
+    if sparse_tensors:
         raise ValueError(
-            f"You are trying to save a sparse tensors: `{invalid_tensors}` which this library does not support."
+            f"You are trying to save a sparse tensors: `{sparse_tensors}` which this library does not support."
             " You can make it a dense tensor before saving with `.to_dense()` but be aware this might"
             " make a much larger file than needed."
         )
@@ -540,11 +540,29 @@ def _flatten(tensors: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, Any]]:
             """
         )
 
-    return {
-        k: {
+
+def _flatten_as_ptr(
+    tensors: Dict[str, torch.Tensor], keep_alive_buffer: List
+) -> Dict[str, Dict[str, Any]]:
+    _evaluate_tensors_for_save(tensors)
+    flattened = {}
+    for k, v in tensors.items():
+        # XXX: doing this check later on instead of in _evaluate_tensors_for_save
+        # since on old versions of torch, SparseTensorImpl do not implement is_contiguous
+        # and we do the sparsity check in _evaluate_tensors_for_save.
+        if not v.is_contiguous():
+            raise ValueError(
+                f"You are trying to save a non contiguous tensor: `{k}` which is not allowed. It either means you"
+                " are trying to save tensors which are reference of each other in which case it's recommended to save"
+                " only the full tensors, and reslice at load time, or simply call `.contiguous()` on your tensor to"
+                " pack it before saving."
+            )
+        arr = _to_ndarray(v)
+        keep_alive_buffer.append(arr)
+        flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
-            "data": _tobytes(v, k),
+            "data_ptr": arr.ctypes.data,
+            "data_len": arr.nbytes,
         }
-        for k, v in tensors.items()
-    }
+    return flattened

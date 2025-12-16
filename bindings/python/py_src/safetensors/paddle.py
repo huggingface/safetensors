@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import paddle
@@ -35,7 +35,8 @@ def save(
     byte_data = save(tensors)
     ```
     """
-    serialized = serialize(_flatten(tensors), metadata=metadata)
+    keep_references_alive = []
+    serialized = serialize(_flatten(tensors, keep_references_alive), metadata=metadata)
     result = bytes(serialized)
     return result
 
@@ -71,7 +72,10 @@ def save_file(
     save_file(tensors, "model.safetensors")
     ```
     """
-    serialize_file(_flatten(tensors), filename, metadata=metadata)
+    keep_references_alive = []
+    serialize_file(
+        _flatten(tensors, keep_references_alive), filename, metadata=metadata
+    )
 
 
 def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
@@ -233,7 +237,7 @@ def _view2paddle(safeview, device) -> Dict[str, paddle.Tensor]:
     return result
 
 
-def _tobytes(tensor: paddle.Tensor, name: str) -> bytes:
+def _to_ndarray(tensor: paddle.Tensor, name: str):
     if not tensor.is_contiguous():
         raise ValueError(
             f"You are trying to save a non contiguous tensor: `{name}` which is not allowed. It either means you"
@@ -247,8 +251,6 @@ def _tobytes(tensor: paddle.Tensor, name: str) -> bytes:
 
     import ctypes
 
-    import numpy as np
-
     # When shape is empty (scalar), np.prod returns a float
     # we need a int for the following calculations
     length = int(np.prod(tensor.shape).item())
@@ -258,17 +260,19 @@ def _tobytes(tensor: paddle.Tensor, name: str) -> bytes:
 
     ptr = tensor.data_ptr()
     if ptr == 0:
-        return b""
+        return np.empty(0)
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
         data = data.view(npdtype).byteswap(inplace=False)
-    return data.tobytes()
+    return data
 
 
-def _flatten(tensors: Dict[str, paddle.Tensor]) -> Dict[str, Dict[str, Any]]:
+def _flatten(
+    tensors: Dict[str, paddle.Tensor], keep_alive_buffer: List
+) -> Dict[str, Dict[str, Any]]:
     if not isinstance(tensors, dict):
         raise ValueError(
             f"Expected a dict of [str, paddle.Tensor] but received {type(tensors)}"
@@ -280,11 +284,14 @@ def _flatten(tensors: Dict[str, paddle.Tensor]) -> Dict[str, Dict[str, Any]]:
                 f"Key `{k}` is invalid, expected paddle.Tensor but received {type(v)}"
             )
 
-    return {
-        k: {
+    flattened = {}
+    for k, v in tensors.items():
+        arr = _to_ndarray(v, k)
+        keep_alive_buffer.append(arr)
+        flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
-            "data": _tobytes(v, k),
+            "data_ptr": arr.ctypes.data,
+            "data_len": arr.nbytes,
         }
-        for k, v in tensors.items()
-    }
+    return flattened
