@@ -160,6 +160,9 @@ def test_pt_sf_save_cpu(benchmark):
 
     filename = "tmp.safetensors"
 
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
     def setup():
         try:
             os.unlink(filename)

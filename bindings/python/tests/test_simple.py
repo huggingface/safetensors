@@ -229,6 +229,11 @@ class ReadmeTestCase(unittest.TestCase):
         loaded = load_file_pt(filename)
         self.assertTensorEqual(tensors2, loaded, torch.allclose)
 
+        # XXX: On Windows, if we write to a file that is currently open with mmap, we get "error 1224" (ERROR_USER_MAPPED_FILE)
+        # which occurs when trying to write to a file that has an active memory-mapped section.
+        # To avoid this, we delete the loaded object before saving again.
+        del loaded
+
         save_file_pt(tensors, filename)
 
         loaded = load_file_pt(filename)

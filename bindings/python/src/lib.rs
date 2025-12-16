@@ -37,6 +37,7 @@ struct TensorRawDataView {
     dtype: Dtype,
     tensor_data_ptr: TensorDataPointer,
 }
+
 impl View for &TensorRawDataView {
     fn dtype(&self) -> Dtype {
         self.dtype
@@ -65,6 +66,7 @@ fn prepare_shape(tensor_desc: &PyBound<PyDict>) -> PyResult<Vec<usize>> {
         .ok_or_else(|| SafetensorError::new_err(format!("Missing `shape` in {tensor_desc}")))?
         .extract()
 }
+
 fn prepare_dtype(tensor_desc: &PyBound<PyDict>) -> PyResult<Dtype> {
     let pydtype = tensor_desc
         .get_item("dtype")?
@@ -97,6 +99,7 @@ fn prepare_dtype(tensor_desc: &PyBound<PyDict>) -> PyResult<Dtype> {
     };
     Ok(dtype)
 }
+
 fn prepare_tensor_raw_data_view(
     tensor_dict: HashMap<String, PyBound<PyDict>>,
 ) -> PyResult<HashMap<String, TensorRawDataView>> {
@@ -136,10 +139,17 @@ fn prepare_tensor_raw_data_view(
 
 /// Serializes raw data.
 ///
+/// NOTE: the caller is required to ensure any pointer passed via `data_ptr` is valid and will live
+/// long enough for the duration of the serialization.
+/// We will remove the need for the caller to hold references themselves when we drop support for
+/// python versions prior to 3.11 where the `PyBuffer` API is available.
+/// Creating a `PyBuffer` will enable us to hold a reference to each passed in data array,
+/// increasing its ref count preventing the gc from collecting it while we serialize.
+///
 /// Args:
 ///     tensor_dict (`Dict[str, Dict[Any]]`):
 ///         The tensor dict is like:
-///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
+///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data_ptr": 1234, "data_len": 24}}
 ///     metadata (`Dict[str, str]`, *optional*):
 ///         The optional purely text annotations
 ///
@@ -163,10 +173,17 @@ fn serialize<'b>(
 
 /// Serializes raw data into file.
 ///
+/// NOTE: the caller is required to ensure any pointer passed via `data_ptr` is valid and will live
+/// long enough for the duration of the serialization.
+/// We will remove the need for the caller to hold references themselves when we drop support for
+/// python versions prior to 3.11 where the `PyBuffer` API is available.
+/// Creating a `PyBuffer` will enable us to hold a reference to each passed in data array,
+/// increasing its ref count preventing the gc from collecting it while we serialize.
+///
 /// Args:
 ///     tensor_dict (`Dict[str, Dict[Any]]`):
 ///         The tensor dict is like:
-///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data": b"\0\0"}}
+///             {"tensor_name": {"dtype": "F32", "shape": [2, 3], "data_ptr": 1234, "data_len": 24}}
 ///     filename (`str`, or `os.PathLike`):
 ///         The name of the file to write into.
 ///     metadata (`Dict[str, str]`, *optional*):

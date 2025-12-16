@@ -347,43 +347,9 @@ where
         return Err(SafeTensorError::HeaderTooLarge);
     }
 
-    // XXX: On Windows, we write to a temporary file first and then rename it.
-    // This avoids "error 1224" (ERROR_USER_MAPPED_FILE) which occurs when
-    // trying to write to a file that has an active memory-mapped section.
-    #[cfg(windows)]
-    {
-        use std::time::{SystemTime, UNIX_EPOCH};
+    buffered_write_to_file(filename, n, &header_bytes, &tensors)?;
 
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let process_id = std::process::id();
-        let temp_name = format!(".safetensors_tmp_{}_{}.tmp", process_id, timestamp);
-
-        let temp_path =
-            if let Some(parent) = filename.parent().filter(|p| !p.as_os_str().is_empty()) {
-                parent.join(&temp_name)
-            } else {
-                std::path::PathBuf::from(&temp_name)
-            };
-
-        buffered_write_to_file(&temp_path, n, &header_bytes, &tensors)?;
-
-        if let Err(e) = std::fs::rename(&temp_path, filename) {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(e.into());
-        }
-
-        Ok(())
-    }
-
-    #[cfg(not(windows))]
-    {
-        buffered_write_to_file(filename, n, &header_bytes, &tensors)?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 /// A structure owning some metadata to lookup tensors on a shared `data`
