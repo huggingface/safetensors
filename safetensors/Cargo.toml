@@ -28,6 +28,9 @@ serde = { version = "1.0", default-features = false, features = [
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.16", features = ["serde"] }
+memmap2 = { version = "0.9", optional = true }
+rayon = { version = "1.10", optional = true }
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 criterion = "0.6"
@@ -39,6 +42,12 @@ default = ["std"]
 std = ["serde/default", "serde_json/default"]
 # Kept for backward compatibility - no-op since alloc is always available
 alloc = []
+# Enable mmap-based fast file serialization
+mmap = ["std", "dep:memmap2"]
+# Enable parallel mmap writes
+parallel = ["mmap", "dep:rayon"]
+# Enable direct I/O (F_NOCACHE on macOS)
+direct = ["std", "dep:libc"]
 
 [[bench]]
 name = "benchmark"

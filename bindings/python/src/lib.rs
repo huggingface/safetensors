@@ -209,6 +209,110 @@ fn serialize_file(
     Ok(())
 }
 
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None))]
+fn serialize_file_mmap(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<()> {
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file_mmap(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
+
+    Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None))]
+fn serialize_file_vectored(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<()> {
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file_vectored(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
+
+    Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None))]
+fn serialize_file_oneshot(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<()> {
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file_oneshot(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
+
+    Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None))]
+fn serialize_file_parallel(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<()> {
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file_parallel(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None))]
+fn serialize_file_direct(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<()> {
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file_direct(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[pyfunction]
+#[pyo3(signature = (tensor_dict, filename, metadata=None))]
+fn serialize_file_direct_vectored(
+    py: Python<'_>,
+    tensor_dict: HashMap<String, PyBound<PyDict>>,
+    filename: PathBuf,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<()> {
+    let tensors = prepare_tensor_raw_data_view(tensor_dict)?;
+    py.allow_threads(|| {
+        safetensors::tensor::serialize_to_file_direct_vectored(&tensors, metadata, filename.as_path())
+            .map_err(|e| SafetensorError::new_err(format!("Error while serializing: {e}")))
+    })?;
+
+    Ok(())
+}
+
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
@@ -1660,6 +1764,14 @@ impl _safe_open_handle {
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_file_mmap, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_file_vectored, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_file_oneshot, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_file_parallel, m)?)?;
+    #[cfg(target_os = "macos")]
+    m.add_function(wrap_pyfunction!(serialize_file_direct, m)?)?;
+    #[cfg(target_os = "macos")]
+    m.add_function(wrap_pyfunction!(serialize_file_direct_vectored, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;

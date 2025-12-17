@@ -348,6 +348,392 @@ where
     Ok(())
 }
 
+/// Serialize to file by first building the complete buffer in memory, then writing once.
+#[cfg(feature = "std")]
+pub fn serialize_to_file_oneshot<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+{
+    let buffer = serialize(data, data_info)?;
+    std::fs::write(filename, &buffer)?;
+    Ok(())
+}
+
+/// Serialize tensors to a file using memory-mapped I/O
+///
+/// This function pre-allocates the file to the exact size needed, memory-maps it,
+/// and copies data directly into the mapped region. This minimizes syscall overhead.
+///
+/// # Arguments
+/// * `data` - Iterator of (name, tensor) pairs to serialize
+/// * `data_info` - Optional metadata to include in the header
+/// * `filename` - Path to the output file
+///
+/// # Example
+/// ```ignore
+/// use safetensors::tensor::{serialize_to_file_mmap, TensorView, Dtype};
+/// use std::collections::HashMap;
+///
+/// let data: Vec<u8> = vec![0u8; 1024];
+/// let tensor = TensorView::new(Dtype::F32, vec![256], &data).unwrap();
+/// let tensors: HashMap<&str, TensorView> = [("weights", tensor)].into_iter().collect();
+/// serialize_to_file_mmap(&tensors, None, std::path::Path::new("model.safetensors")).unwrap();
+/// ```
+#[cfg(feature = "mmap")]
+pub fn serialize_to_file_mmap<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+{
+    use memmap2::MmapMut;
+
+    let (
+        PreparedData {
+            n,
+            header_bytes,
+            offset,
+        },
+        tensors,
+    ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
+    let total_size = N_LEN + header_bytes.len() + offset;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(filename)?;
+
+    file.set_len(total_size as u64)?;
+
+    // SAFETY: We just created this file exclusively and set its length.
+    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
+
+    let dst = mmap.as_mut_ptr();
+
+    let n_bytes = n.to_le_bytes();
+    // SAFETY: dst is valid for total_size bytes
+    unsafe {
+        std::ptr::copy_nonoverlapping(n_bytes.as_ptr(), dst, N_LEN);
+    }
+
+    let header_dst = unsafe { dst.add(N_LEN) };
+    unsafe {
+        std::ptr::copy_nonoverlapping(header_bytes.as_ptr(), header_dst, header_bytes.len());
+    }
+
+    let mut data_offset = N_LEN + header_bytes.len();
+    for tensor in &tensors {
+        let tensor_data = tensor.data();
+        let len = tensor_data.len();
+        if len > 0 {
+            let tensor_dst = unsafe { dst.add(data_offset) };
+            unsafe {
+                std::ptr::copy_nonoverlapping(tensor_data.as_ptr(), tensor_dst, len);
+            }
+        }
+        data_offset += len;
+    }
+
+    Ok(())
+}
+
+/// Serialize tensors to a file using direct I/O (bypassing page cache).
+/// On macOS uses F_NOCACHE, on Linux would use O_DIRECT.
+#[cfg(all(feature = "std", target_os = "macos"))]
+pub fn serialize_to_file_direct<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+{
+    use std::io::Write;
+    use std::os::unix::io::AsRawFd;
+
+    let (
+        PreparedData {
+            n,
+            header_bytes,
+            offset,
+        },
+        tensors,
+    ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
+    let total_size = N_LEN + header_bytes.len() + offset;
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(filename)?;
+
+    file.set_len(total_size as u64)?;
+
+    // Disable caching (F_NOCACHE = 48 on macOS)
+    unsafe {
+        libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
+    }
+
+    let mut f = std::io::BufWriter::with_capacity(1024 * 1024, file);
+    f.write_all(n.to_le_bytes().as_ref())?;
+    f.write_all(&header_bytes)?;
+    for tensor in &tensors {
+        f.write_all(tensor.data().as_ref())?;
+    }
+    f.flush()?;
+
+    Ok(())
+}
+
+/// Serialize tensors to a file using direct I/O with vectored writes.
+/// Combines F_NOCACHE (bypass page cache) with writev (minimal syscalls).
+#[cfg(all(feature = "direct", target_os = "macos"))]
+pub fn serialize_to_file_direct_vectored<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+{
+    use std::os::unix::io::AsRawFd;
+
+    let (
+        PreparedData {
+            n, header_bytes, ..
+        },
+        tensors,
+    ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
+    let mut file = std::fs::File::create(filename)?;
+
+    unsafe {
+        libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
+    }
+
+    let tensor_data: Vec<_> = tensors.iter().map(|t| t.data()).collect();
+
+    let n_bytes = n.to_le_bytes();
+
+    let mut buffers: Vec<&[u8]> = Vec::with_capacity(2 + tensor_data.len());
+    buffers.push(&n_bytes);
+    buffers.push(&header_bytes);
+    for td in &tensor_data {
+        buffers.push(td.as_ref());
+    }
+
+    write_all_vectored(&mut file, &buffers)?;
+
+    Ok(())
+}
+
+/// Serialize tensors to a file using parallel memory-mapped I/O.
+/// Uses multiple threads to copy tensor data concurrently, reducing page fault latency.
+#[cfg(feature = "parallel")]
+pub fn serialize_to_file_parallel<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View + Sync,
+    I: IntoIterator<Item = (S, V)>,
+{
+    use memmap2::MmapMut;
+    use rayon::prelude::*;
+
+    let (
+        PreparedData {
+            n,
+            header_bytes,
+            offset,
+        },
+        tensors,
+    ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
+    let total_size = N_LEN + header_bytes.len() + offset;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(filename)?;
+
+    file.set_len(total_size as u64)?;
+
+    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
+    let dst = mmap.as_mut_ptr();
+
+    let n_bytes = n.to_le_bytes();
+    unsafe {
+        std::ptr::copy_nonoverlapping(n_bytes.as_ptr(), dst, N_LEN);
+        std::ptr::copy_nonoverlapping(header_bytes.as_ptr(), dst.add(N_LEN), header_bytes.len());
+    }
+
+    let header_total = N_LEN + header_bytes.len();
+    let mut offsets = Vec::with_capacity(tensors.len());
+    let mut current_offset = header_total;
+    for tensor in &tensors {
+        offsets.push(current_offset);
+        current_offset += tensor.data_len();
+    }
+
+    // SAFETY: Each thread writes to a disjoint region of the mmap
+    let dst_send = dst as usize;
+    tensors
+        .par_iter()
+        .zip(offsets.par_iter())
+        .for_each(|(tensor, &off)| {
+            let tensor_data = tensor.data();
+            let len = tensor_data.len();
+            if len > 0 {
+                let dst_ptr = dst_send as *mut u8;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(tensor_data.as_ptr(), dst_ptr.add(off), len);
+                }
+            }
+        });
+
+    Ok(())
+}
+
+/// Serialize tensors to a file using vectored I/O for maximum performance.
+///
+/// This function uses `writev` to batch all writes into minimal syscalls,
+/// reducing syscall overhead compared to multiple `write` calls.
+#[cfg(feature = "std")]
+pub fn serialize_to_file_vectored<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+{
+    let (
+        PreparedData {
+            n, header_bytes, ..
+        },
+        tensors,
+    ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
+    let mut file = std::fs::File::create(filename)?;
+
+    let tensor_data: Vec<_> = tensors.iter().map(|t| t.data()).collect();
+
+    let n_bytes = n.to_le_bytes();
+
+    let mut buffers: Vec<&[u8]> = Vec::with_capacity(2 + tensor_data.len());
+    buffers.push(&n_bytes);
+    buffers.push(&header_bytes);
+    for td in &tensor_data {
+        buffers.push(td.as_ref());
+    }
+
+    write_all_vectored(&mut file, &buffers)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "std")]
+fn write_all_vectored<W: std::io::Write>(writer: &mut W, buffers: &[&[u8]]) -> std::io::Result<()> {
+    use std::io::IoSlice;
+
+    const BATCH_SIZE: usize = 1024;
+
+    let mut buf_idx = 0;
+    let mut buf_offset = 0;
+
+    while buf_idx < buffers.len() {
+        let mut slices: Vec<IoSlice<'_>> = Vec::with_capacity(BATCH_SIZE);
+        let mut slice_info: Vec<(usize, usize)> = Vec::with_capacity(BATCH_SIZE);
+
+        let mut i = buf_idx;
+        let mut first = true;
+        while i < buffers.len() && slices.len() < BATCH_SIZE {
+            let start = if first { buf_offset } else { 0 };
+            first = false;
+            let slice = &buffers[i][start..];
+            if !slice.is_empty() {
+                slice_info.push((i, start));
+                slices.push(IoSlice::new(slice));
+            }
+            i += 1;
+        }
+
+        if slices.is_empty() {
+            break;
+        }
+
+        let written = writer.write_vectored(&slices)?;
+        if written == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "failed to write whole buffer",
+            ));
+        }
+
+        // Advance position based on bytes written
+        let mut remaining = written;
+        for (idx, start) in slice_info {
+            let slice_len = buffers[idx].len() - start;
+            if remaining >= slice_len {
+                remaining -= slice_len;
+                buf_idx = idx + 1;
+                buf_offset = 0;
+            } else {
+                buf_idx = idx;
+                buf_offset = start + remaining;
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// A structure owning some metadata to lookup tensors on a shared `data`
 /// byte-buffer (not owned).
 #[derive(Debug)]

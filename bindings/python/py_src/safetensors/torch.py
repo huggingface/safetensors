@@ -10,6 +10,12 @@ from safetensors import (
     safe_open,
     serialize,
     serialize_file,
+    serialize_file_direct,
+    serialize_file_direct_vectored,
+    serialize_file_mmap,
+    serialize_file_oneshot,
+    serialize_file_parallel,
+    serialize_file_vectored,
 )
 
 
@@ -316,6 +322,72 @@ def save_file(
     """
     keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
     serialize_file(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
+
+
+def save_file_direct(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_direct(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
+
+
+def save_file_direct_vectored(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_direct_vectored(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
+
+
+def save_file_mmap(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_mmap(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
+
+
+def save_file_parallel_mmap(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_parallel(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
+
+
+def save_file_oneshot(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_oneshot(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
+
+
+def save_file_vectored(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_vectored(
         _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
     )
 

@@ -4,7 +4,16 @@ import tempfile
 import pytest
 import torch
 
-from safetensors.torch import load_file, save_file
+from safetensors.torch import (
+    load_file,
+    save_file,
+    save_file_direct,
+    save_file_direct_vectored,
+    save_file_mmap,
+    save_file_oneshot,
+    save_file_vectored,
+    save_file_parallel_mmap,
+)
 
 
 def create_gpt2(n_layers: int):
@@ -170,7 +179,163 @@ def test_pt_sf_save_cpu(benchmark):
             pass
 
     benchmark.pedantic(
-        save_file, args=(weights, filename), setup=setup, iterations=1, rounds=5
+        save_file, args=(weights, filename), setup=setup, iterations=1, rounds=50
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_direct(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-direct.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_direct,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=50,
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_direct_vectored(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-direct-vectored.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_direct_vectored,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=50,
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_mmap(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-mmap.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_mmap,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=50,
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_parallel_mmap(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-parallel-mmap.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_parallel_mmap,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=50,
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_oneshot(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-oneshot.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_oneshot,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=50,
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_vectored(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-vectored.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_vectored,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=50,
     )
 
     # Clean up files
