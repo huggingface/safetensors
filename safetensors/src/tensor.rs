@@ -357,7 +357,10 @@ fn linux_buffered_write_to_file_direct<V: View>(
     tensors: &[V],
     total_size: usize,
 ) -> Result<(), SafeTensorError> {
-    use std::{alloc::Layout, os::unix::fs::OpenOptionsExt};
+    use std::{
+        alloc::Layout,
+        os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
+    };
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -366,6 +369,17 @@ fn linux_buffered_write_to_file_direct<V: View>(
         .custom_flags(libc::O_DIRECT)
         .open(path)?;
 
+    unsafe {
+        let ret = libc::fallocate(
+            file.as_raw_fd(),
+            libc::FALLOC_FL_ZERO_RANGE,
+            0,
+            total_size as i64,
+        );
+        if ret != 0 {
+            return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
+        }
+    }
     file.set_len(total_size as u64)?;
 
     const ALIGNMENT: usize = 4096; // TODO: find the correct alignment for the platform
@@ -385,22 +399,26 @@ fn linux_buffered_write_to_file_direct<V: View>(
         .into_iter()
         .chain(tensor_data.iter().map(|t| t.as_ref()))
     {
-        let to_copy = (aligned_buf.len() - written).min(chunk.len());
+        let mut offset_in_chunk = 0;
+        while offset_in_chunk < chunk.len() {
+            let to_copy = (aligned_buf.len() - written).min(chunk.len() - offset_in_chunk);
 
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                chunk.as_ptr(),
-                aligned_buf.as_mut_ptr().add(written),
-                to_copy,
-            );
-        }
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    chunk.as_ptr().add(offset_in_chunk),
+                    aligned_buf.as_mut_ptr().add(written),
+                    to_copy,
+                );
+            }
 
-        written += to_copy;
-        logical_len += to_copy as i64;
+            written += to_copy;
+            offset_in_chunk += to_copy;
+            logical_len += to_copy as i64;
 
-        if written == aligned_buf.len() {
-            file.write_all(aligned_buf)?;
-            written = 0;
+            if written == aligned_buf.len() {
+                file.write_all(aligned_buf)?;
+                written = 0;
+            }
         }
     }
 
@@ -409,8 +427,9 @@ fn linux_buffered_write_to_file_direct<V: View>(
         file.write_all(aligned_buf)?;
     }
 
+    // TODO: free aligned_buf
+
     unsafe {
-        use std::os::fd::AsRawFd;
         let ret = libc::ftruncate(file.as_raw_fd(), logical_len);
         if ret != 0 {
             return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
