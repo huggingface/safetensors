@@ -49,6 +49,17 @@ pub enum SafeTensorError {
     /// For smaller than 1 byte dtypes, some slices will happen outside of the byte boundary, some special care has to be taken
     /// and standard functions will fail
     MisalignedSlice,
+    /// On Linux we use an alignmed memory buffer for direct IO. If the specified parameters to the
+    /// layout for that buffer aren't correct, we'll get an error.
+    #[cfg(all(feature = "std", target_os = "linux"))]
+    LayoutError(std::alloc::LayoutError),
+}
+
+#[cfg(all(feature = "std", target_os = "linux"))]
+impl From<std::alloc::LayoutError> for SafeTensorError {
+    fn from(error: std::alloc::LayoutError) -> SafeTensorError {
+        SafeTensorError::LayoutError(error)
+    }
 }
 
 #[cfg(feature = "std")]
@@ -90,7 +101,9 @@ impl Display for SafeTensorError {
             }
             MetadataIncompleteBuffer => write!(f, "incomplete metadata, file not fully covered"),
             ValidationOverflow => write!(f, "overflow computing buffer size from shape and/or element type"),
-            MisalignedSlice => write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid.")
+            MisalignedSlice => write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid."),
+            #[cfg(all(feature = "std", target_os = "linux"))]
+            LayoutError(error) => write!(f, "layout error: {error}"),
         }
     }
 }
@@ -336,6 +349,77 @@ fn buffered_write_to_file<V: View>(
     Ok(())
 }
 
+#[cfg(all(feature = "std", target_os = "linux"))]
+fn linux_buffered_write_to_file_direct<V: View>(
+    path: impl AsRef<Path>,
+    n: u64,
+    header_bytes: &[u8],
+    tensors: &[V],
+    total_size: usize,
+) -> Result<(), SafeTensorError> {
+    use std::{alloc::Layout, os::unix::fs::OpenOptionsExt};
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_DIRECT)
+        .open(path)?;
+
+    file.set_len(total_size as u64)?;
+
+    const ALIGNMENT: usize = 4096; // TODO: find the correct alignment for the platform
+    let buf_size = 1024 * 1024;
+    let layout = Layout::from_size_align(buf_size, ALIGNMENT)?;
+    let ptr = unsafe { std::alloc::alloc(layout) };
+    assert!(!ptr.is_null());
+    let aligned_buf = unsafe { std::slice::from_raw_parts_mut(ptr, buf_size) };
+
+    let n_bytes = n.to_le_bytes();
+    let header_chunks = [n_bytes.as_ref(), header_bytes];
+    let tensor_data: Vec<_> = tensors.iter().map(|t| t.data()).collect();
+
+    let mut logical_len = 0i64;
+    let mut written = 0usize;
+    for chunk in header_chunks
+        .into_iter()
+        .chain(tensor_data.iter().map(|t| t.as_ref()))
+    {
+        let to_copy = (aligned_buf.len() - written).min(chunk.len());
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                chunk.as_ptr(),
+                aligned_buf.as_mut_ptr().add(written),
+                to_copy,
+            );
+        }
+
+        written += to_copy;
+        logical_len += to_copy as i64;
+
+        if written == aligned_buf.len() {
+            file.write_all(aligned_buf)?;
+            written = 0;
+        }
+    }
+
+    if written > 0 {
+        aligned_buf[written..].fill(0);
+        file.write_all(aligned_buf)?;
+    }
+
+    unsafe {
+        use std::os::fd::AsRawFd;
+        let ret = libc::ftruncate(file.as_raw_fd(), logical_len);
+        if ret != 0 {
+            return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
+        }
+    }
+
+    Ok(())
+}
+
 /// Serialize to a regular file the dictionnary of tensors.
 /// Writing directly to file reduces the need to allocate the whole amount to
 /// memory.
@@ -366,7 +450,11 @@ where
 
     let total_size = N_LEN + header_bytes.len() + offset;
 
-    buffered_write_to_file(filename, n, &header_bytes, &tensors, total_size)?;
+    if cfg!(target_os = "linux") {
+        linux_buffered_write_to_file_direct(filename, n, &header_bytes, &tensors, total_size)?;
+    } else {
+        buffered_write_to_file(filename, n, &header_bytes, &tensors, total_size)?;
+    }
 
     Ok(())
 }

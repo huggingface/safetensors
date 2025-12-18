@@ -29,7 +29,7 @@ serde = { version = "1.0", default-features = false, features = [
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.16", features = ["serde"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
