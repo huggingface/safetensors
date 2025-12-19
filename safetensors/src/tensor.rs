@@ -349,92 +349,287 @@ fn buffered_write_to_file<V: View>(
     Ok(())
 }
 
+/// Aligned buffer for O_DIRECT I/O operations.
+/// O_DIRECT requires memory buffers to be aligned to the filesystem block size (typically 4096).
 #[cfg(all(feature = "std", target_os = "linux"))]
-fn linux_buffered_write_to_file_direct<V: View>(
+struct AlignedBuffer {
+    ptr: *mut u8,
+    layout: std::alloc::Layout,
+    capacity: usize,
+    len: usize,
+}
+
+#[cfg(all(feature = "std", target_os = "linux"))]
+impl AlignedBuffer {
+    fn new(capacity: usize, alignment: usize) -> Result<Self, SafeTensorError> {
+        let layout = std::alloc::Layout::from_size_align(capacity, alignment)?;
+        let ptr = unsafe { std::alloc::alloc(layout) };
+        if ptr.is_null() {
+            return Err(SafeTensorError::IoError(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                "failed to allocate aligned buffer",
+            )));
+        }
+        Ok(Self {
+            ptr,
+            layout,
+            capacity,
+            len: 0,
+        })
+    }
+
+    fn as_ptr(&self) -> *const u8 {
+        self.ptr
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    fn remaining(&self) -> usize {
+        self.capacity - self.len
+    }
+
+    fn fill_from(&mut self, data: &[u8]) -> usize {
+        let to_copy = self.remaining().min(data.len());
+        if to_copy > 0 {
+            unsafe {
+                std::ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(self.len), to_copy);
+            }
+            self.len += to_copy;
+        }
+        to_copy
+    }
+
+    fn pad_to_alignment(&mut self, alignment: usize) -> usize {
+        let aligned_len = self.len.next_multiple_of(alignment);
+        if aligned_len > self.len && aligned_len <= self.capacity {
+            unsafe {
+                std::ptr::write_bytes(self.ptr.add(self.len), 0, aligned_len - self.len);
+            }
+        }
+        aligned_len
+    }
+}
+
+#[cfg(all(feature = "std", target_os = "linux"))]
+impl Drop for AlignedBuffer {
+    fn drop(&mut self) {
+        unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+    }
+}
+
+/// Iterator over data chunks to be written (header length + header + tensor data).
+#[cfg(all(feature = "std", target_os = "linux"))]
+struct DataSource<'a> {
+    chunks: Vec<&'a [u8]>,
+    current_chunk: usize,
+    offset_in_chunk: usize,
+}
+
+#[cfg(all(feature = "std", target_os = "linux"))]
+impl<'a> DataSource<'a> {
+    fn new(n_bytes: &'a [u8; 8], header_bytes: &'a [u8], tensor_data: &'a [Cow<'a, [u8]>]) -> Self {
+        let mut chunks = Vec::with_capacity(2 + tensor_data.len());
+        chunks.push(n_bytes.as_slice());
+        chunks.push(header_bytes);
+        for data in tensor_data {
+            chunks.push(data.as_ref());
+        }
+        Self {
+            chunks,
+            current_chunk: 0,
+            offset_in_chunk: 0,
+        }
+    }
+
+    fn exhausted(&self) -> bool {
+        self.current_chunk >= self.chunks.len()
+    }
+
+    fn fill_buffer(&mut self, buffer: &mut AlignedBuffer) {
+        while !self.exhausted() && buffer.remaining() > 0 {
+            let chunk = self.chunks[self.current_chunk];
+            let data_to_copy = &chunk[self.offset_in_chunk..];
+            let copied = buffer.fill_from(data_to_copy);
+            self.offset_in_chunk += copied;
+
+            if self.offset_in_chunk >= chunk.len() {
+                self.current_chunk += 1;
+                self.offset_in_chunk = 0;
+            }
+        }
+    }
+}
+
+/// Write to file using io_uring with O_DIRECT for maximum throughput.
+/// This allows multiple I/O operations to be in flight simultaneously,
+/// saturating the storage device's command queue.
+#[cfg(all(feature = "std", target_os = "linux"))]
+fn linux_io_uring_write<V: View>(
     path: impl AsRef<Path>,
     n: u64,
     header_bytes: &[u8],
     tensors: &[V],
     total_size: usize,
 ) -> Result<(), SafeTensorError> {
-    use std::{
-        alloc::Layout,
-        os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
-    };
+    use io_uring::{opcode, types, IoUring};
+    use std::collections::VecDeque;
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
 
-    let mut file = std::fs::OpenOptions::new()
+    const ALIGNMENT: usize = 4096;
+    const BUF_SIZE: usize = 256 * 1024;
+    const QUEUE_DEPTH: u32 = 64;
+
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .custom_flags(libc::O_DIRECT)
-        .open(path)?;
+        .open(path.as_ref())?;
 
-    unsafe {
-        let ret = libc::fallocate(
-            file.as_raw_fd(),
-            libc::FALLOC_FL_ZERO_RANGE,
-            0,
-            total_size as i64,
-        );
-        if ret != 0 {
-            return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
-        }
+    file.set_len(total_size.next_multiple_of(ALIGNMENT) as u64)?;
+
+    let fd = types::Fd(file.as_raw_fd());
+
+    let mut ring = IoUring::new(QUEUE_DEPTH)
+        .map_err(|e| SafeTensorError::IoError(std::io::Error::other(e)))?;
+
+    let mut buffers: Vec<AlignedBuffer> = Vec::with_capacity(QUEUE_DEPTH as usize);
+    for _ in 0..QUEUE_DEPTH {
+        buffers.push(AlignedBuffer::new(BUF_SIZE, ALIGNMENT)?);
     }
-    file.set_len(total_size as u64)?;
+    let mut free_buffer_indices: VecDeque<usize> = (0..buffers.len()).collect();
+    let mut in_flight: std::collections::HashMap<u64, (usize, usize)> =
+        std::collections::HashMap::new(); // user_data -> (buffer_idx, write_len)
 
-    const ALIGNMENT: usize = 4096; // TODO: find the correct alignment for the platform
-    let buf_size = 1024 * 1024;
-    let layout = Layout::from_size_align(buf_size, ALIGNMENT)?;
-    let ptr = unsafe { std::alloc::alloc(layout) };
-    assert!(!ptr.is_null());
-    let aligned_buf = unsafe { std::slice::from_raw_parts_mut(ptr, buf_size) };
-
+    let tensor_data: Vec<Cow<'_, [u8]>> = tensors.iter().map(|t| t.data()).collect();
     let n_bytes = n.to_le_bytes();
-    let header_chunks = [n_bytes.as_ref(), header_bytes];
-    let tensor_data: Vec<_> = tensors.iter().map(|t| t.data()).collect();
+    let mut data_source = DataSource::new(&n_bytes, header_bytes, &tensor_data);
 
-    let mut logical_len = 0i64;
-    let mut written = 0usize;
-    for chunk in header_chunks
-        .into_iter()
-        .chain(tensor_data.iter().map(|t| t.as_ref()))
-    {
-        let mut offset_in_chunk = 0;
-        while offset_in_chunk < chunk.len() {
-            let to_copy = (aligned_buf.len() - written).min(chunk.len() - offset_in_chunk);
+    let mut file_offset: u64 = 0;
+    let mut user_data: u64 = 0;
+    let mut submissions_pending = 0u32;
 
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    chunk.as_ptr().add(offset_in_chunk),
-                    aligned_buf.as_mut_ptr().add(written),
-                    to_copy,
-                );
+    while !data_source.exhausted() || !in_flight.is_empty() {
+        while !data_source.exhausted()
+            && !free_buffer_indices.is_empty()
+            && !ring.submission().is_full()
+        {
+            let buf_idx = free_buffer_indices.pop_front().unwrap();
+            let buffer = &mut buffers[buf_idx];
+            buffer.clear();
+
+            data_source.fill_buffer(buffer);
+
+            if buffer.len == 0 {
+                free_buffer_indices.push_front(buf_idx);
+                break;
             }
 
-            written += to_copy;
-            offset_in_chunk += to_copy;
-            logical_len += to_copy as i64;
+            // For O_DIRECT, write length must be aligned.
+            // Only pad the last buffer - intermediate buffers should always be full (BUF_SIZE)
+            // which is already aligned. We'll truncate the file at the end to remove padding.
+            let write_len = if data_source.exhausted() {
+                buffer.pad_to_alignment(ALIGNMENT)
+            } else {
+                debug_assert_eq!(buffer.len, BUF_SIZE);
+                buffer.len
+            };
 
-            if written == aligned_buf.len() {
-                file.write_all(aligned_buf)?;
-                written = 0;
+            let write_op = opcode::Write::new(fd, buffer.as_ptr(), write_len as u32)
+                .offset(file_offset)
+                .build()
+                .user_data(user_data);
+
+            // SAFETY: the buffer remains valid until we get the completion.
+            // The queue cannot be full here since we checked is_full() above.
+            unsafe { ring.submission().push(&write_op) }
+                .expect("submission queue unexpectedly full");
+
+            in_flight.insert(user_data, (buf_idx, write_len));
+            file_offset += write_len as u64;
+            user_data += 1;
+            submissions_pending += 1;
+        }
+
+        if submissions_pending == 0 && in_flight.is_empty() {
+            break;
+        }
+
+        let wait_count =
+            if data_source.exhausted() && !in_flight.is_empty() || submissions_pending > 0 {
+                1
+            } else {
+                0
+            };
+
+        ring.submit_and_wait(wait_count)
+            .map_err(|e| SafeTensorError::IoError(std::io::Error::other(e)))?;
+        submissions_pending = 0;
+
+        for cqe in ring.completion() {
+            let ud = cqe.user_data();
+            if let Some((buf_idx, expected_len)) = in_flight.remove(&ud) {
+                let result = cqe.result();
+                if result < 0 {
+                    return Err(SafeTensorError::IoError(std::io::Error::from_raw_os_error(
+                        -result,
+                    )));
+                }
+                if (result as usize) != expected_len {
+                    return Err(SafeTensorError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        format!("short write: expected {}, got {}", expected_len, result),
+                    )));
+                }
+                free_buffer_indices.push_back(buf_idx);
             }
         }
     }
 
-    if written > 0 {
-        aligned_buf[written..].fill(0);
-        file.write_all(aligned_buf)?;
-    }
-
-    // TODO: free aligned_buf
-
+    // Truncate to actual size (we potentially padded the last buffer for O_DIRECT alignment)
     unsafe {
-        let ret = libc::ftruncate(file.as_raw_fd(), logical_len);
+        let ret = libc::ftruncate(file.as_raw_fd(), total_size as i64);
         if ret != 0 {
             return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
         }
     }
+
+    Ok(())
+}
+
+/// Serialize to a regular file the dictionnary of tensors.
+/// Writing directly to file reduces the need to allocate the whole amount to
+/// memory.
+#[cfg(all(feature = "std", target_os = "linux"))]
+pub fn serialize_to_file_linux_io_uring<S, V, I>(
+    data: I,
+    data_info: Option<HashMap<String, String>>,
+    filename: &std::path::Path,
+) -> Result<(), SafeTensorError>
+where
+    S: AsRef<str> + Ord + Display,
+    V: View,
+    I: IntoIterator<Item = (S, V)>,
+{
+    let (
+        PreparedData {
+            n,
+            header_bytes,
+            offset,
+            ..
+        },
+        tensors,
+    ) = prepare(data, data_info)?;
+
+    if n > MAX_HEADER_SIZE as u64 {
+        return Err(SafeTensorError::HeaderTooLarge);
+    }
+
+    let total_size = N_LEN + header_bytes.len() + offset;
+
+    linux_io_uring_write(filename, n, &header_bytes, &tensors, total_size)?;
 
     Ok(())
 }
@@ -469,11 +664,7 @@ where
 
     let total_size = N_LEN + header_bytes.len() + offset;
 
-    if cfg!(target_os = "linux") {
-        linux_buffered_write_to_file_direct(filename, n, &header_bytes, &tensors, total_size)?;
-    } else {
-        buffered_write_to_file(filename, n, &header_bytes, &tensors, total_size)?;
-    }
+    buffered_write_to_file(filename, n, &header_bytes, &tensors, total_size)?;
 
     Ok(())
 }
