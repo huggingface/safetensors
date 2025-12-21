@@ -400,16 +400,6 @@ impl AlignedBuffer {
         }
         to_copy
     }
-
-    fn pad_to_alignment(&mut self, alignment: usize) -> usize {
-        let aligned_len = self.len.next_multiple_of(alignment);
-        if aligned_len > self.len && aligned_len <= self.capacity {
-            unsafe {
-                std::ptr::write_bytes(self.ptr.add(self.len), 0, aligned_len - self.len);
-            }
-        }
-        aligned_len
-    }
 }
 
 #[cfg(all(feature = "std", target_os = "linux"))]
@@ -477,9 +467,21 @@ fn linux_io_uring_write<V: View>(
     use std::collections::VecDeque;
     use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
 
-    const ALIGNMENT: usize = 4096;
     const BUF_SIZE: usize = 256 * 1024;
     const QUEUE_DEPTH: u32 = 64;
+
+    // Get page size dynamically from the system
+    let alignment: usize = unsafe {
+        let page_size = libc::sysconf(libc::_SC_PAGESIZE);
+        if page_size <= 0 {
+            return Err(SafeTensorError::IoError(std::io::Error::other(
+                "failed to get system page size",
+            )));
+        }
+        page_size as usize
+    };
+
+    println!("alignment: {alignment}");
 
     let file = std::fs::OpenOptions::new()
         .write(true)
@@ -488,7 +490,18 @@ fn linux_io_uring_write<V: View>(
         .custom_flags(libc::O_DIRECT)
         .open(path.as_ref())?;
 
-    file.set_len(total_size.next_multiple_of(ALIGNMENT) as u64)?;
+    let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+    if flags == -1 {
+        return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
+    }
+    if flags & libc::O_DIRECT == 0 {
+        return Err(SafeTensorError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "O_DIRECT not supported on this filesystem",
+        )));
+    }
+
+    file.set_len(total_size as u64)?;
 
     let fd = types::Fd(file.as_raw_fd());
 
@@ -497,7 +510,7 @@ fn linux_io_uring_write<V: View>(
 
     let mut buffers: Vec<AlignedBuffer> = Vec::with_capacity(QUEUE_DEPTH as usize);
     for _ in 0..QUEUE_DEPTH {
-        buffers.push(AlignedBuffer::new(BUF_SIZE, ALIGNMENT)?);
+        buffers.push(AlignedBuffer::new(BUF_SIZE, alignment)?);
     }
     let mut free_buffer_indices: VecDeque<usize> = (0..buffers.len()).collect();
     let mut in_flight: std::collections::HashMap<u64, (usize, usize)> =
@@ -510,6 +523,8 @@ fn linux_io_uring_write<V: View>(
     let mut file_offset: u64 = 0;
     let mut user_data: u64 = 0;
     let mut submissions_pending = 0u32;
+
+    let mut unaligned_remainder: Option<(u64, Vec<u8>)> = None;
 
     while !data_source.exhausted() || !in_flight.is_empty() {
         while !data_source.exhausted()
@@ -528,10 +543,24 @@ fn linux_io_uring_write<V: View>(
             }
 
             // For O_DIRECT, write length must be aligned.
-            // Only pad the last buffer - intermediate buffers should always be full (BUF_SIZE)
-            // which is already aligned. We'll truncate the file at the end to remove padding.
+            // Saving the last buffer for a regular write later on - intermediate buffers should always be full (BUF_SIZE)
             let write_len = if data_source.exhausted() {
-                buffer.pad_to_alignment(ALIGNMENT)
+                let aligned_len = (buffer.len / alignment) * alignment;
+                if aligned_len < buffer.len {
+                    let remainder_data = unsafe {
+                        std::slice::from_raw_parts(
+                            buffer.ptr.add(aligned_len),
+                            buffer.len - aligned_len,
+                        )
+                    }
+                    .to_vec();
+                    unaligned_remainder = Some((file_offset + aligned_len as u64, remainder_data));
+                }
+                if aligned_len == 0 {
+                    free_buffer_indices.push_front(buf_idx);
+                    break;
+                }
+                aligned_len
             } else {
                 debug_assert_eq!(buffer.len, BUF_SIZE);
                 buffer.len
@@ -588,12 +617,13 @@ fn linux_io_uring_write<V: View>(
         }
     }
 
-    // Truncate to actual size (we potentially padded the last buffer for O_DIRECT alignment)
-    unsafe {
-        let ret = libc::ftruncate(file.as_raw_fd(), total_size as i64);
-        if ret != 0 {
-            return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
-        }
+    if let Some((offset, data)) = unaligned_remainder {
+        use std::os::unix::fs::FileExt;
+
+        let regular_file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path.as_ref())?;
+        regular_file.write_at(&data, offset)?;
     }
 
     Ok(())
