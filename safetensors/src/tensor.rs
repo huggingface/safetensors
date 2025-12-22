@@ -481,8 +481,6 @@ fn linux_io_uring_write<V: View>(
         page_size as usize
     };
 
-    println!("alignment: {alignment}");
-
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -602,8 +600,15 @@ fn linux_io_uring_write<V: View>(
             if let Some((buf_idx, expected_len)) = in_flight.remove(&ud) {
                 let result = cqe.result();
                 if result < 0 {
+                    let errno = -result;
+                    if errno == libc::EINVAL {
+                        return Err(SafeTensorError::IoError(std::io::Error::new(
+                            std::io::ErrorKind::Unsupported,
+                            "io_uring Write operation not supported on this kernel (requires 5.6+)",
+                        )));
+                    }
                     return Err(SafeTensorError::IoError(std::io::Error::from_raw_os_error(
-                        -result,
+                        errno,
                     )));
                 }
                 if (result as usize) != expected_len {
