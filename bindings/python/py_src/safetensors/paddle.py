@@ -260,14 +260,16 @@ def _to_ndarray(tensor: paddle.Tensor, name: str):
 
     ptr = tensor.data_ptr()
     if ptr == 0:
-        return np.empty(0)
+        return np.empty(
+            0
+        ), 0  # XXX: bogus value we don't really care if we return a tensor here
     newptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
     data = np.ctypeslib.as_array(newptr, (total_bytes,))  # no internal copy
     if sys.byteorder == "big":
         npdtype = NPDTYPES[tensor.dtype]
         # Not in place as that would potentially modify a live running model
         data = data.view(npdtype).byteswap(inplace=False)
-    return data
+    return data, tensor
 
 
 def _flatten(
@@ -286,8 +288,8 @@ def _flatten(
 
     flattened = {}
     for k, v in tensors.items():
-        arr = _to_ndarray(v, k)
-        keep_alive_buffer.append(arr)
+        arr, tensor_ref = _to_ndarray(v, k)
+        keep_alive_buffer.append((arr, tensor_ref))
         flattened[k] = {
             "dtype": str(v.dtype).split(".")[-1],
             "shape": v.shape,
