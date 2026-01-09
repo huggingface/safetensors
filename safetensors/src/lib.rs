@@ -3,6 +3,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 pub mod slice;
 pub mod tensor;
+/// deserialize_from_file_linux_io_uring only valid on Linux
+#[cfg(all(feature = "std", target_os = "linux"))]
+pub use tensor::deserialize_from_file_linux_io_uring;
 /// serialize_to_file only valid in std
 #[cfg(feature = "std")]
 pub use tensor::serialize_to_file;
