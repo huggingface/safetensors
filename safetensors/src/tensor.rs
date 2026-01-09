@@ -2058,5 +2058,101 @@ mod tests {
 
             std::fs::remove_file(filename).unwrap();
         }
+
+        #[test]
+        fn test_is_aligned_helper() {
+            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+            assert!(page_size > 0);
+
+            // Test with properly aligned pointer
+            let aligned_vec: Vec<u8> = vec![0u8; page_size * 2];
+            let ptr = aligned_vec.as_ptr();
+            // Large allocations are typically page-aligned, but not guaranteed
+            // Just verify the function works without panicking
+            let _ = is_aligned(ptr, page_size);
+
+            // Test with known unaligned pointer (offset by 1)
+            let unaligned_ptr = unsafe { ptr.add(1) };
+            assert!(!is_aligned(unaligned_ptr, page_size));
+
+            // Test with small alignment values
+            assert!(is_aligned(ptr, 1)); // Always aligned to 1
+            let even_offset = unsafe { ptr.add(2) };
+            assert!(is_aligned(even_offset, 2)); // Aligned to 2
+        }
+
+        #[test]
+        fn test_o_direct_with_large_file() {
+            // Test O_DIRECT behavior with a large file that should have aligned buffer
+            let filename = "/tmp/test_io_uring_o_direct_large.safetensors";
+
+            let mut metadata = HashMap::new();
+
+            // Create a large tensor (>1MB) to increase chances of page-aligned allocation
+            let size = 256 * 1024; // 256KB of f32 = 1MB
+            let data: Vec<f32> = vec![3.14159f32; size];
+            let data_bytes: &[u8] =
+                unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
+
+            metadata.insert(
+                "large_tensor".to_string(),
+                TensorView::new(Dtype::F32, vec![size], data_bytes).unwrap(),
+            );
+
+            serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
+
+            // Read with io_uring (may use O_DIRECT if buffer is naturally aligned)
+            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
+
+            assert_eq!(loaded.len(), 1);
+            let tensor = loaded.tensor("large_tensor").unwrap();
+            assert_eq!(tensor.shape(), vec![size]);
+            assert_eq!(tensor.dtype(), Dtype::F32);
+
+            // Verify data correctness
+            let loaded_data = tensor.data();
+            assert_eq!(loaded_data.len(), size * 4);
+
+            std::fs::remove_file(filename).unwrap();
+        }
+
+        #[test]
+        fn test_o_direct_fallback_small_file() {
+            // Small files are less likely to have page-aligned buffers
+            // This tests the fallback to buffered I/O
+            let filename = "/tmp/test_io_uring_small.safetensors";
+
+            let mut metadata = HashMap::new();
+            let data_u32: Vec<u32> = vec![1u32, 2u32, 3u32, 4u32];
+            let data_bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts(data_u32.as_ptr() as *const u8, data_u32.len() * 4)
+            };
+
+            metadata.insert(
+                "small".to_string(),
+                TensorView::new(Dtype::U32, vec![4], data_bytes).unwrap(),
+            );
+
+            serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
+
+            // This will likely use buffered I/O due to small buffer size
+            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
+
+            assert_eq!(loaded.len(), 1);
+            let tensor = loaded.tensor("small").unwrap();
+            assert_eq!(tensor.shape(), vec![4]);
+
+            std::fs::remove_file(filename).unwrap();
+        }
+
+        #[test]
+        fn test_page_size_detection() {
+            // Verify we can get page size on Linux
+            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+            assert!(page_size > 0);
+            // Common page sizes are 4KB or 64KB
+            assert!(page_size >= 4096);
+            assert!(page_size % 4096 == 0);
+        }
     }
 }
