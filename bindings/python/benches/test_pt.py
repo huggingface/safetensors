@@ -179,26 +179,11 @@ def test_pt_sf_save_cpu(benchmark):
 
 def test_pt_sf_load_cpu_linux_io_uring(benchmark):
     weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file_io_uring, f.name)
+    os.unlink(f.name)
 
-    filename = "tmp-io-uring.safetensors"
-
-    # Create the file once before benchmarking
-    save_file(weights, filename)
-
-    def setup():
-        try:
-            os.unlink(filename)
-        except Exception:
-            pass
-        save_file(weights, filename)
-
-    result = benchmark.pedantic(
-        load_file_io_uring, args=(filename,), setup=setup, iterations=1, rounds=5
-    )
-
-    # Verify data correctness
     for k, v in weights.items():
-        assert torch.allclose(v, result[k])
-
-    # Clean up files
-    os.unlink(filename)
+        tv = result[k]
+        assert torch.allclose(v, tv)
