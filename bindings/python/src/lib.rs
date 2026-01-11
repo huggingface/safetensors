@@ -209,6 +209,46 @@ fn serialize_file(
     Ok(())
 }
 
+/// Deserialize a safetensors file using Linux io_uring for high-performance reads.
+///
+/// Args:
+///     filename (`str`):
+///         Path to the safetensors file
+///
+/// Returns:
+///     (`List[str, Dict[str, Dict[str, any]]]`):
+///         The deserialized content is like:
+///             [("tensor_name", {"shape": [2, 3], "dtype": "F32", "data": b"\0\0.." }), (...)]
+#[pyfunction]
+#[pyo3(signature = (filename))]
+fn deserialize_file_linux_io_uring(
+    py: Python<'_>,
+    filename: PathBuf,
+) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
+    let safetensor = py.allow_threads(|| {
+        safetensors::tensor::deserialize_from_file_linux_io_uring(filename.as_path())
+    })
+    .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e}")))?;
+
+    let tensors = safetensor.tensors();
+    let mut items = Vec::with_capacity(tensors.len());
+
+    for (tensor_name, tensor) in tensors {
+        let pyshape: PyObject = PyList::new(py, tensor.shape().iter())?.into();
+        let pydtype: PyObject = tensor.dtype().to_string().into_pyobject(py)?.into();
+
+        let pydata: PyObject = PyByteArray::new(py, tensor.data()).into();
+
+        let map = HashMap::from([
+            ("shape".to_string(), pyshape),
+            ("dtype".to_string(), pydtype),
+            ("data".to_string(), pydata),
+        ]);
+        items.push((tensor_name, map));
+    }
+    Ok(items)
+}
+
 /// Opens a safetensors lazily and returns tensors as asked
 ///
 /// Args:
@@ -1660,6 +1700,7 @@ impl _safe_open_handle {
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_file, m)?)?;
+    m.add_function(wrap_pyfunction!(deserialize_file_linux_io_uring, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;

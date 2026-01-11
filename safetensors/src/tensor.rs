@@ -938,14 +938,13 @@ fn is_aligned(ptr: *const u8, alignment: usize) -> bool {
     (ptr as usize) % alignment == 0
 }
 
-/// Read a file using Linux io_uring with registered buffers for maximum performance.
+/// Read a file using Linux io_uring for high-performance async I/O.
 ///
 /// This function uses io_uring with the following optimizations:
-/// - Registered buffers (IORING_REGISTER_BUFFERS) for zero-copy DMA
 /// - COOP_TASKRUN for reduced interrupts and better batching
 /// - SINGLE_ISSUER for single-threaded kernel optimizations
-/// - ReadFixed operations for registered buffer I/O
-/// - Opportunistic O_DIRECT when buffer is naturally aligned
+/// - Direct reads into the destination buffer (no buffer registration needed)
+/// - Batched async I/O operations
 #[cfg(all(feature = "std", target_os = "linux"))]
 fn linux_io_uring_read(
     file: &std::fs::File,
@@ -953,7 +952,7 @@ fn linux_io_uring_read(
     mut data: Vec<u8>,
 ) -> Result<Vec<u8>, SafeTensorError> {
     use io_uring::{opcode, types, IoUring};
-    use std::io::{Error, ErrorKind, IoSliceMut};
+    use std::io::{Error, ErrorKind};
     use std::os::fd::AsRawFd;
 
     // Handle empty files
@@ -966,18 +965,6 @@ fn linux_io_uring_read(
     // Calculate number of chunks needed
     let num_chunks = file_size_usize.div_ceil(BUF_SIZE);
 
-    // Validate chunk count fits in u16 (required for ReadFixed buffer index)
-    // With 256KB chunks, max file size is ~16GB
-    if num_chunks > u16::MAX as usize {
-        return Err(SafeTensorError::IoError(Error::other(format!(
-            "file too large for io_uring registered buffers: {} chunks exceeds u16::MAX ({}). \
-             Max supported file size is {} bytes",
-            num_chunks,
-            u16::MAX,
-            u16::MAX as usize * BUF_SIZE
-        ))));
-    }
-
     // Build io_uring ring with performance flags
     let mut ring: IoUring<io_uring::squeue::Entry, io_uring::cqueue::Entry> = IoUring::builder()
         .setup_coop_taskrun() // Reduces interrupts, improves batching
@@ -986,27 +973,6 @@ fn linux_io_uring_read(
         .map_err(|e| {
             SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e)))
         })?;
-
-    // Create IoSliceMut references for buffer registration
-    // Always register buffers for consistent zero-copy DMA performance
-    let mut iovec_slices: Vec<IoSliceMut<'_>> = data.chunks_mut(BUF_SIZE).map(IoSliceMut::new).collect();
-
-    // SAFETY: Convert IoSliceMut slice to iovec slice. IoSliceMut is a transparent wrapper
-    // around libc::iovec with the same memory layout (repr C, single field).
-    let iovec_ptr = iovec_slices.as_ptr() as *const libc::iovec;
-    let iovec_slice = unsafe { std::slice::from_raw_parts(iovec_ptr, iovec_slices.len()) };
-
-    // Register buffers with the kernel for zero-copy DMA
-    // SAFETY: The buffer slices in iovec_slice reference data which remains valid
-    // for the entire duration of io_uring operations. We process all completions
-    // before returning, ensuring no use-after-free.
-    unsafe {
-        ring.submitter()
-            .register_buffers(iovec_slice)
-            .map_err(|e| {
-                SafeTensorError::IoError(Error::other(format!("buffer registration failed: {}", e)))
-            })?;
-    }
 
     let fd = types::Fd(file.as_raw_fd());
 
@@ -1032,16 +998,19 @@ fn linux_io_uring_read(
                 BUF_SIZE
             };
 
-            // Build read operation using registered buffers
-            let chunk_ptr = iovec_slices[chunk_idx].as_mut_ptr();
-            let read_op = opcode::ReadFixed::new(fd, chunk_ptr, chunk_size as u32, chunk_idx as u16)
+            // Get pointer to destination in the data buffer
+            let dest_offset = chunk_idx * BUF_SIZE;
+            let buf_ptr = data[dest_offset..].as_mut_ptr();
+
+            // Build read operation - reads directly into destination buffer
+            let read_op = opcode::Read::new(fd, buf_ptr, chunk_size as u32)
                 .offset(file_offset)
                 .build()
                 .user_data(chunk_idx as u64);
 
-            // SAFETY: The buffer slice at chunk_idx lives in data Vec which remains valid
-            // for the entire duration of io_uring operations. We track in_flight count
-            // and wait for all completions before returning.
+            // SAFETY: The buffer slice in data Vec remains valid for the entire
+            // duration of io_uring operations. We track completions and wait
+            // for all in-flight operations before returning.
             unsafe {
                 ring.submission().push(&read_op).map_err(|e| {
                     SafeTensorError::IoError(Error::other(format!("SQ push failed: {}", e)))
@@ -1076,7 +1045,6 @@ fn linux_io_uring_read(
         }
 
         // Process all available completions
-        // Collect error to handle after loop (can't borrow ring.submitter() while iterating)
         let mut io_error: Option<SafeTensorError> = None;
         for cqe in ring.completion() {
             let result = cqe.result();
@@ -1085,6 +1053,7 @@ fn linux_io_uring_read(
             // Check for errors (negative result is errno)
             if result < 0 {
                 io_error = Some(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
+                in_flight -= 1;
                 continue;
             }
 
@@ -1106,6 +1075,7 @@ fn linux_io_uring_read(
                         chunk_idx, expected_bytes, bytes_read
                     ),
                 )));
+                in_flight -= 1;
                 continue;
             }
 
@@ -1115,15 +1085,9 @@ fn linux_io_uring_read(
 
         // Handle any errors after processing completions
         if let Some(err) = io_error {
-            let _ = ring.submitter().unregister_buffers();
             return Err(err);
         }
     }
-
-    // Cleanup: unregister buffers
-    ring.submitter().unregister_buffers().map_err(|e| {
-        SafeTensorError::IoError(Error::other(format!("buffer unregistration failed: {}", e)))
-    })?;
 
     Ok(data)
 }
@@ -1140,14 +1104,13 @@ fn linux_io_uring_read(
 /// concurrent read operations to be queued and processed efficiently. This
 /// implementation uses several optimizations:
 ///
-/// - **Registered buffers**: Zero-copy DMA directly to user-space buffers (+11% throughput)
+/// - **Batched async I/O**: Up to 64 concurrent read operations in flight
 /// - **COOP_TASKRUN**: Reduces inter-processor interrupts for better batching
 /// - **SINGLE_ISSUER**: Kernel optimizations for single-threaded access
-/// - **ReadFixed**: Uses registered buffer indices instead of pointers
-/// - **O_DIRECT** (opportunistic): When buffer is naturally page-aligned, bypasses page cache
+/// - **Direct buffer writes**: Reads directly into the destination buffer
 ///
-/// Expected performance improvement over mmap: 1.5-1.8x for cold cache reads on
-/// large files (>100MB). With O_DIRECT on aligned buffers, up to 2.5x improvement.
+/// Expected performance improvement over mmap: 1.3-1.5x for cold cache reads on
+/// large files (>100MB).
 ///
 /// # Platform Support
 ///
