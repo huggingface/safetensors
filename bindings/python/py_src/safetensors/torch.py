@@ -407,11 +407,13 @@ def load_file_io_uring(
     loaded = load_file_io_uring(file_path)
     ```
     """
-    flat = deserialize_file_linux_io_uring(filename)
-    tensors = _view2torch(flat)
-    for k in tensors:
-        tensors[k] = tensors[k].to(device=device)
-    return tensors
+    from safetensors import safe_open_io_uring
+
+    result = {}
+    with safe_open_io_uring(filename, framework="pt", device=device) as f:
+        for k in f.keys():
+            result[k] = f.get_tensor(k)
+    return result
 
 
 # torch.float8 formats require 2.1; we do not support these dtypes on earlier versions

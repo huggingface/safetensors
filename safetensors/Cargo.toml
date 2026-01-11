@@ -50,3 +50,6 @@ alloc = []
 [[bench]]
 name = "benchmark"
 harness = false
+
+[profile.release]
+debug = true

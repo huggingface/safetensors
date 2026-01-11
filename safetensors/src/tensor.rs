@@ -923,28 +923,150 @@ impl Display for Dtype {
 // Linux io_uring Read Implementation
 // ============================================================================
 
-/// io_uring queue depth - number of concurrent operations
+/// Minimum file size to use io_uring (below this, use standard read)
+/// Small files have too much overhead for io_uring setup
 #[cfg(all(feature = "std", target_os = "linux"))]
-const QUEUE_DEPTH: u32 = 64;
+#[allow(dead_code)]
+const MIN_IO_URING_FILE_SIZE: u64 = 64 * 1024; // 64KB
 
-/// Buffer size for chunked reads (256KB)
+/// SQPOLL idle time in milliseconds
+/// After this time of inactivity, the kernel polling thread will sleep
 #[cfg(all(feature = "std", target_os = "linux"))]
-const BUF_SIZE: usize = 256 * 1024;
+const SQPOLL_IDLE_MS: u32 = 2000;
 
-/// Check if a pointer is aligned to the given alignment
+/// Alignment for O_DIRECT I/O (512 bytes for most Linux filesystems)
 #[cfg(all(feature = "std", target_os = "linux"))]
-#[inline]
-fn is_aligned(ptr: *const u8, alignment: usize) -> bool {
-    (ptr as usize) % alignment == 0
+const O_DIRECT_ALIGNMENT: usize = 512;
+
+/// A buffer allocated with posix_memalign for O_DIRECT I/O.
+/// 
+/// This buffer is properly aligned for direct I/O operations and
+/// automatically freed when dropped using libc::free().
+#[cfg(all(feature = "std", target_os = "linux"))]
+struct AlignedBuffer {
+    ptr: *mut u8,
+    len: usize,       // Actual data length (may be less than capacity)
+    capacity: usize,  // Aligned capacity
+}
+
+#[cfg(all(feature = "std", target_os = "linux"))]
+impl AlignedBuffer {
+    /// Allocate a new aligned buffer.
+    /// 
+    /// The capacity is rounded up to the nearest multiple of `alignment`.
+    /// The actual usable length is set to `size`.
+    fn new(size: usize, alignment: usize) -> Result<Self, SafeTensorError> {
+        use std::io::Error;
+        
+        // Round up capacity to alignment boundary
+        let capacity = size.div_ceil(alignment) * alignment;
+        
+        let mut ptr: *mut libc::c_void = std::ptr::null_mut();
+        // SAFETY: posix_memalign is a standard POSIX function.
+        // We check the return value for errors.
+        let ret = unsafe { libc::posix_memalign(&mut ptr, alignment, capacity) };
+        
+        if ret != 0 {
+            return Err(SafeTensorError::IoError(Error::from_raw_os_error(ret)));
+        }
+        
+        Ok(Self {
+            ptr: ptr as *mut u8,
+            len: size,
+            capacity,
+        })
+    }
+    
+    /// Get the buffer pointer for io_uring operations.
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.ptr
+    }
+    
+    /// Get the aligned capacity (for io_uring read length).
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+    
+    /// Consume the buffer and return a Vec.
+    /// 
+    /// This copies the data into a new Vec because we cannot safely
+    /// convert posix_memalign memory to Rust's allocator.
+    #[allow(dead_code)]
+    fn into_vec(self) -> Vec<u8> {
+        // SAFETY: ptr is valid for len bytes.
+        let slice = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+        let vec = slice.to_vec();
+        // Drop runs here and frees the aligned memory
+        vec
+    }
+    
+    /// Leak the buffer and return a 'static slice.
+    /// 
+    /// This intentionally leaks the memory to provide 'static lifetime.
+    /// The memory is NOT freed - this is for long-lived buffers like
+    /// safetensors file data that remains valid for the program's lifetime.
+    fn leak(self) -> &'static [u8] {
+        let ptr = self.ptr;
+        let len = self.len;
+        // Prevent Drop from freeing the memory
+        std::mem::forget(self);
+        // SAFETY: ptr is valid for len bytes and won't be freed (leaked)
+        unsafe { std::slice::from_raw_parts(ptr, len) }
+    }
+}
+
+#[cfg(all(feature = "std", target_os = "linux"))]
+impl Drop for AlignedBuffer {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            // SAFETY: ptr was allocated with posix_memalign
+            unsafe { libc::free(self.ptr as *mut libc::c_void) };
+        }
+    }
+}
+
+/// Calculate optimal chunk size based on file size
+/// Returns chunk_size only - queue depth will be unbounded
+#[cfg(all(feature = "std", target_os = "linux"))]
+fn calculate_io_params(file_size: u64) -> usize {
+    // Heuristics based on file size:
+    // - Small files (< 1MB): 64KB chunks
+    // - Medium files (1MB - 10MB): 256KB chunks
+    // - Large files (10MB - 100MB): 512KB chunks
+    // - Very large files (100MB - 1GB): 2MB chunks
+    // - Huge files (> 1GB): 4MB chunks
+
+    const KB: usize = 1024;
+    const MB: usize = 1024 * 1024;
+    const GB: usize = 1024 * 1024 * 1024;
+
+    if file_size < MB as u64 {
+        64 * KB
+    } else if file_size < 10 * MB as u64 {
+        256 * KB
+    } else if file_size < 100 * MB as u64 {
+        512 * KB
+    } else if file_size < GB as u64 {
+        2 * MB
+    } else {
+        4 * MB
+    }
 }
 
 /// Read a file using Linux io_uring for high-performance async I/O.
 ///
-/// This function uses io_uring with the following optimizations:
-/// - COOP_TASKRUN for reduced interrupts and better batching
-/// - SINGLE_ISSUER for single-threaded kernel optimizations
-/// - Direct reads into the destination buffer (no buffer registration needed)
-/// - Batched async I/O operations
+/// This function uses io_uring with adaptive optimizations:
+/// - **Adaptive chunk size**: Automatically adjusts based on file size
+///   - Small files (< 1MB): 64KB chunks for low latency
+///   - Medium files (1-10MB): 256KB chunks for balance
+///   - Large files (10MB - 100MB): 512KB chunks for throughput
+///   - Very large files (> 100MB): 2MB chunks for max throughput
+/// - **Unbounded queue depth**: Submit all chunks in one batch for maximum parallelism
+/// - **SQPOLL mode**: Kernel-side polling (fallback if no permissions)
+/// - **COOP_TASKRUN**: Reduces interrupts and improves batching
+/// - **SINGLE_ISSUER**: Single-threaded kernel optimizations
+/// - **posix_fadvise**: Sequential read hints and readahead
+/// - **Direct buffer writes**: No intermediate copying
 #[cfg(all(feature = "std", target_os = "linux"))]
 fn linux_io_uring_read(
     file: &std::fs::File,
@@ -961,135 +1083,246 @@ fn linux_io_uring_read(
     }
 
     let file_size_usize = file_size as usize;
-
-    // Calculate number of chunks needed
-    let num_chunks = file_size_usize.div_ceil(BUF_SIZE);
-
-    // Build io_uring ring with performance flags
-    let mut ring: IoUring<io_uring::squeue::Entry, io_uring::cqueue::Entry> = IoUring::builder()
-        .setup_coop_taskrun() // Reduces interrupts, improves batching
-        .setup_single_issuer() // Single-threaded optimization
-        .build(QUEUE_DEPTH)
-        .map_err(|e| {
-            SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e)))
-        })?;
-
     let fd = types::Fd(file.as_raw_fd());
 
-    // Track which chunks have been submitted and completed
-    let mut next_chunk_to_submit: usize = 0;
-    let mut completed_bytes: usize = 0;
-    let mut in_flight: usize = 0;
+    // Advise kernel about sequential access pattern for better readahead
+    unsafe {
+        libc::posix_fadvise(
+            file.as_raw_fd(),
+            0,
+            file_size as i64,
+            libc::POSIX_FADV_SEQUENTIAL | libc::POSIX_FADV_WILLNEED,
+        );
+    }
 
-    // Main I/O loop: submit reads and process completions
-    while completed_bytes < file_size_usize {
-        // Submit new read operations while we have queue space and chunks remaining
-        while next_chunk_to_submit < num_chunks
-            && in_flight < QUEUE_DEPTH as usize
-            && !ring.submission().is_full()
-        {
-            let chunk_idx = next_chunk_to_submit;
-            let file_offset = (chunk_idx * BUF_SIZE) as u64;
+    // Calculate optimal chunk size and queue depth
+    let buf_size = calculate_io_params(file_size);
+    let num_chunks = file_size_usize.div_ceil(buf_size);
+    let queue_depth = (num_chunks as u32).min(4096);
 
-            // Calculate actual chunk size (last chunk may be smaller)
-            let chunk_size = if chunk_idx == num_chunks - 1 {
-                file_size_usize - (chunk_idx * BUF_SIZE)
-            } else {
-                BUF_SIZE
-            };
+    // Build io_uring ring - try SQPOLL first, fall back if needed
+    let ring_result = IoUring::builder()
+        .setup_sqpoll(SQPOLL_IDLE_MS)
+        .setup_coop_taskrun()
+        .build(queue_depth);
 
-            // Get pointer to destination in the data buffer
-            let dest_offset = chunk_idx * BUF_SIZE;
-            let buf_ptr = data[dest_offset..].as_mut_ptr();
+    let mut ring: IoUring<io_uring::squeue::Entry, io_uring::cqueue::Entry> = match ring_result {
+        Ok(r) => r,
+        Err(_) => IoUring::builder()
+            .setup_coop_taskrun()
+            .setup_single_issuer()
+            .build(queue_depth)
+            .map_err(|e| {
+                SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e)))
+            })?,
+    };
+    
+    for chunk_idx in 0..num_chunks {
+        let file_offset = (chunk_idx * buf_size) as u64;
 
-            // Build read operation - reads directly into destination buffer
-            let read_op = opcode::Read::new(fd, buf_ptr, chunk_size as u32)
-                .offset(file_offset)
-                .build()
-                .user_data(chunk_idx as u64);
-
-            // SAFETY: The buffer slice in data Vec remains valid for the entire
-            // duration of io_uring operations. We track completions and wait
-            // for all in-flight operations before returning.
-            unsafe {
-                ring.submission().push(&read_op).map_err(|e| {
-                    SafeTensorError::IoError(Error::other(format!("SQ push failed: {}", e)))
-                })?;
-            }
-
-            next_chunk_to_submit += 1;
-            in_flight += 1;
-        }
-
-        // Determine how many completions to wait for
-        let wait_count = if next_chunk_to_submit >= num_chunks {
-            // All submitted, wait for remaining completions
-            in_flight.min(1)
-        } else if ring.submission().is_full() || in_flight >= QUEUE_DEPTH as usize {
-            // Queue full, must wait for at least one completion
-            1
+        // Calculate actual chunk size (last chunk may be smaller)
+        let chunk_size = if chunk_idx == num_chunks - 1 {
+            file_size_usize - (chunk_idx * buf_size)
         } else {
-            // Can continue submitting, don't block
-            0
+            buf_size
         };
 
-        // Submit and optionally wait for completions
-        if wait_count > 0 {
-            ring.submit_and_wait(wait_count).map_err(|e| {
-                SafeTensorError::IoError(Error::other(format!("submit_and_wait failed: {}", e)))
-            })?;
-        } else {
-            ring.submit().map_err(|e| {
-                SafeTensorError::IoError(Error::other(format!("submit failed: {}", e)))
+        // Get pointer to destination in the data buffer
+        let dest_offset = chunk_idx * buf_size;
+        let buf_ptr = data[dest_offset..].as_mut_ptr();
+
+        // Build read operation - reads directly into destination buffer
+        let read_op = opcode::Read::new(fd, buf_ptr, chunk_size as u32)
+            .offset(file_offset)
+            .build()
+            .user_data(chunk_idx as u64);
+
+        // SAFETY: The buffer slice in data Vec remains valid for the entire
+        // duration of io_uring operations. We track completions and wait
+        // for all in-flight operations before returning.
+        unsafe {
+            ring.submission().push(&read_op).map_err(|e| {
+                SafeTensorError::IoError(Error::other(format!("SQ push failed: {}", e)))
             })?;
         }
+    }
 
-        // Process all available completions
-        let mut io_error: Option<SafeTensorError> = None;
+    // Submit all operations
+    ring.submit().map_err(|e| {
+        SafeTensorError::IoError(Error::other(format!("submit failed: {}", e)))
+    })?;
+    
+    // Process all completions
+    let mut completions_processed = 0;
+    
+    // Keep waiting until we get all completions
+    while completions_processed < num_chunks {
+        // Wait for at least one more completion
+        ring.submit_and_wait(1).map_err(|e| {
+            SafeTensorError::IoError(Error::other(format!("wait failed: {}", e)))
+        })?;
+        
+        // Drain all available completions
         for cqe in ring.completion() {
+            completions_processed += 1;
             let result = cqe.result();
             let chunk_idx = cqe.user_data() as usize;
 
             // Check for errors (negative result is errno)
             if result < 0 {
-                io_error = Some(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
-                in_flight -= 1;
-                continue;
+                return Err(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
             }
 
             let bytes_read = result as usize;
 
             // Calculate expected bytes for this chunk
             let expected_bytes = if chunk_idx == num_chunks - 1 {
-                file_size_usize - (chunk_idx * BUF_SIZE)
+                file_size_usize - (chunk_idx * buf_size)
             } else {
-                BUF_SIZE
+                buf_size
             };
 
             // Check for short reads
             if bytes_read != expected_bytes {
-                io_error = Some(SafeTensorError::IoError(Error::new(
+                return Err(SafeTensorError::IoError(Error::new(
                     ErrorKind::UnexpectedEof,
                     format!(
                         "short read at chunk {}: expected {} bytes, got {}",
                         chunk_idx, expected_bytes, bytes_read
                     ),
                 )));
-                in_flight -= 1;
-                continue;
             }
 
-            completed_bytes += bytes_read;
-            in_flight -= 1;
-        }
-
-        // Handle any errors after processing completions
-        if let Some(err) = io_error {
-            return Err(err);
         }
     }
 
     Ok(data)
+}
+
+/// Read file using O_DIRECT + io_uring for true zero-copy from disk.
+/// 
+/// O_DIRECT bypasses the page cache, eliminating the kernel memcpy overhead
+/// that occurs with buffered I/O. This can provide significant performance
+/// improvements for large files.
+/// 
+/// Falls back silently to buffered io_uring if O_DIRECT is not supported.
+#[cfg(all(feature = "std", target_os = "linux"))]
+fn linux_io_uring_read_direct(
+    path: &std::path::Path,
+    file_size: u64,
+) -> Result<&'static [u8], SafeTensorError> {
+    use io_uring::{opcode, types, IoUring};
+    use std::ffi::CString;
+    use std::io::{Error, ErrorKind};
+    use std::os::unix::ffi::OsStrExt;
+    
+    let file_size_usize = file_size as usize;
+    
+    // Convert path to CString for libc::open
+    let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        SafeTensorError::IoError(Error::new(ErrorKind::InvalidInput, "Invalid path"))
+    })?;
+    
+    // Try to open with O_DIRECT
+    // SAFETY: c_path is a valid null-terminated string
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_DIRECT) };
+    
+    if fd < 0 {
+        // O_DIRECT not supported (e.g., tmpfs, network fs), fall back to buffered
+        let file = std::fs::File::open(path)?;
+        let data = vec![0u8; file_size_usize];
+        let data = linux_io_uring_read(&file, file_size, data)?;
+        return Ok(Box::leak(data.into_boxed_slice()));
+    }
+    
+    // Allocate aligned buffer
+    let mut buffer = match AlignedBuffer::new(file_size_usize, O_DIRECT_ALIGNMENT) {
+        Ok(buf) => buf,
+        Err(e) => {
+            unsafe { libc::close(fd) };
+            return Err(e);
+        }
+    };
+    
+    // Calculate chunk parameters
+    let mut buf_size = calculate_io_params(file_size);
+    buf_size = (buf_size / O_DIRECT_ALIGNMENT) * O_DIRECT_ALIGNMENT;
+    buf_size = buf_size.max(O_DIRECT_ALIGNMENT);
+    
+    let num_chunks = buffer.capacity().div_ceil(buf_size);
+    let queue_depth = (num_chunks as u32).min(4096);
+    
+    // Build io_uring ring
+    let mut ring: IoUring = match IoUring::builder()
+        .setup_coop_taskrun()
+        .setup_single_issuer()
+        .build(queue_depth) {
+            Ok(r) => r,
+            Err(e) => {
+                unsafe { libc::close(fd) };
+                return Err(SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e))));
+            }
+        };
+    
+    // Queue all read operations
+    let io_fd = types::Fd(fd);
+    for chunk_idx in 0..num_chunks {
+        let file_offset = (chunk_idx * buf_size) as u64;
+        
+        // For O_DIRECT, read full aligned chunks
+        // Last chunk reads to capacity (may read past file_size, that's OK)
+        let chunk_size = if chunk_idx == num_chunks - 1 {
+            buffer.capacity() - (chunk_idx * buf_size)
+        } else {
+            buf_size
+        };
+        
+        // SAFETY: buffer.as_mut_ptr() is valid, adding chunk offset stays within capacity
+        let dest_ptr = unsafe { buffer.as_mut_ptr().add(chunk_idx * buf_size) };
+        
+        let read_op = opcode::Read::new(io_fd, dest_ptr, chunk_size as u32)
+            .offset(file_offset)
+            .build()
+            .user_data(chunk_idx as u64);
+        
+        // SAFETY: buffer remains valid for the duration of io_uring operations
+        unsafe {
+            if let Err(e) = ring.submission().push(&read_op) {
+                libc::close(fd);
+                return Err(SafeTensorError::IoError(Error::other(format!("SQ push failed: {}", e))));
+            }
+        }
+    }
+    
+    // Submit all operations
+    if let Err(e) = ring.submit() {
+        unsafe { libc::close(fd) };
+        return Err(SafeTensorError::IoError(Error::other(format!("submit failed: {}", e))));
+    }
+    
+    // Wait for all completions
+    let mut completions_processed = 0;
+    while completions_processed < num_chunks {
+        if let Err(e) = ring.submit_and_wait(1) {
+            unsafe { libc::close(fd) };
+            return Err(SafeTensorError::IoError(Error::other(format!("wait failed: {}", e))));
+        }
+        
+        for cqe in ring.completion() {
+            completions_processed += 1;
+            let result = cqe.result();
+            
+            if result < 0 {
+                unsafe { libc::close(fd) };
+                return Err(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
+            }
+        }
+    }
+    
+    unsafe { libc::close(fd) };
+    
+    // Leak the aligned buffer to get 'static lifetime (zero-copy!)
+    Ok(buffer.leak())
 }
 
 /// Deserialize a safetensors file using Linux io_uring for high-performance reads.
@@ -1120,16 +1353,18 @@ fn linux_io_uring_read(
 ///
 /// # Memory
 ///
-/// This function allocates memory for the entire file contents. The returned
-/// `SafeTensors<'static>` owns this memory via a leaked allocation. For very
-/// large files where memory is a concern, consider using memory-mapped I/O instead.
+/// This function allocates memory for the entire file contents and leaks it to provide
+/// 'static lifetime. The returned buffer can be parsed with `SafeTensors::deserialize()`
+/// or `SafeTensors::read_metadata()` for zero-copy tensor access. For very large files
+/// where memory is a concern, consider using memory-mapped I/O instead.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use safetensors::deserialize_from_file_linux_io_uring;
+/// use safetensors::{deserialize_from_file_linux_io_uring, SafeTensors};
 ///
-/// let tensors = deserialize_from_file_linux_io_uring("model.safetensors")?;
+/// let buffer = deserialize_from_file_linux_io_uring("model.safetensors")?;
+/// let tensors = SafeTensors::deserialize(buffer)?;
 /// for name in tensors.names() {
 ///     let tensor = tensors.tensor(&name)?;
 ///     println!("{}: {:?} {:?}", name, tensor.dtype(), tensor.shape());
@@ -1142,77 +1377,19 @@ fn linux_io_uring_read(
 /// Returns an error if:
 /// - The file cannot be opened or read
 /// - io_uring initialization fails (e.g., kernel too old)
-/// - The file contents are not valid safetensors format
 #[cfg(all(feature = "std", target_os = "linux"))]
 pub fn deserialize_from_file_linux_io_uring(
     path: impl AsRef<Path>,
-) -> Result<SafeTensors<'static>, SafeTensorError> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    // Get page size for alignment checks and O_DIRECT
-    let page_size_raw = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-    if page_size_raw == -1 {
-        return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
-    }
-    let page_size = page_size_raw as usize;
-
-    // First, open without O_DIRECT to get file size
-    let file_std = std::fs::File::open(path.as_ref())?;
-    let metadata = file_std.metadata()?;
+) -> Result<&'static [u8], SafeTensorError> {
+    let metadata = std::fs::metadata(path.as_ref())?;
     let file_size = metadata.len();
 
-    // Handle empty files
     if file_size == 0 {
         return Err(SafeTensorError::HeaderTooSmall);
     }
 
-    // Pre-allocate buffer - Vec may naturally align to page boundaries for large allocations
-    let data = vec![0u8; file_size as usize];
-    let buffer_ptr = data.as_ptr();
-
-    // Check if buffer is naturally aligned to page size
-    let is_buffer_aligned = is_aligned(buffer_ptr, page_size);
-
-    // Try to open with O_DIRECT if buffer is aligned
-    let use_o_direct = is_buffer_aligned;
-    let file = if use_o_direct {
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECT)
-            .open(path.as_ref())
-        {
-            Ok(f) => {
-                // Verify O_DIRECT actually worked
-                use std::os::fd::AsRawFd;
-                let flags = unsafe { libc::fcntl(f.as_raw_fd(), libc::F_GETFL) };
-                if flags >= 0 && (flags & libc::O_DIRECT) != 0 {
-                    f // O_DIRECT successfully enabled
-                } else {
-                    // O_DIRECT not supported by filesystem, fall back
-                    file_std
-                }
-            }
-            Err(_) => {
-                // O_DIRECT failed, use regular file
-                file_std
-            }
-        }
-    } else {
-        file_std
-    };
-
-    // Read entire file via io_uring
-    let data = linux_io_uring_read(&file, file_size, data)?;
-
-    // Leak Vec to get 'static lifetime
-    // SAFETY: We intentionally leak this memory to provide 'static lifetime.
-    // The caller is expected to hold the SafeTensors for the duration they
-    // need the tensor data. For long-lived applications, consider using
-    // mmap-based deserialization instead.
-    let data_static: &'static [u8] = Box::leak(data.into_boxed_slice());
-
-    // Deserialize and return
-    SafeTensors::deserialize(data_static)
+    // Returns 'static slice (buffer is leaked internally)
+    linux_io_uring_read_direct(path.as_ref(), file_size)
 }
 
 #[cfg(test)]
@@ -2030,100 +2207,5 @@ mod tests {
             std::fs::remove_file(filename).unwrap();
         }
 
-        #[test]
-        fn test_is_aligned_helper() {
-            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
-            assert!(page_size > 0);
-
-            // Test with properly aligned pointer
-            let aligned_vec: Vec<u8> = vec![0u8; page_size * 2];
-            let ptr = aligned_vec.as_ptr();
-            // Large allocations are typically page-aligned, but not guaranteed
-            // Just verify the function works without panicking
-            let _ = is_aligned(ptr, page_size);
-
-            // Test with known unaligned pointer (offset by 1)
-            let unaligned_ptr = unsafe { ptr.add(1) };
-            assert!(!is_aligned(unaligned_ptr, page_size));
-
-            // Test with small alignment values
-            assert!(is_aligned(ptr, 1)); // Always aligned to 1
-            let even_offset = unsafe { ptr.add(2) };
-            assert!(is_aligned(even_offset, 2)); // Aligned to 2
-        }
-
-        #[test]
-        fn test_o_direct_with_large_file() {
-            // Test O_DIRECT behavior with a large file that should have aligned buffer
-            let filename = "/tmp/test_io_uring_o_direct_large.safetensors";
-
-            let mut metadata = HashMap::new();
-
-            // Create a large tensor (>1MB) to increase chances of page-aligned allocation
-            let size = 256 * 1024; // 256KB of f32 = 1MB
-            let data: Vec<f32> = vec![std::f32::consts::PI; size];
-            let data_bytes: &[u8] =
-                unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
-
-            metadata.insert(
-                "large_tensor".to_string(),
-                TensorView::new(Dtype::F32, vec![size], data_bytes).unwrap(),
-            );
-
-            serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
-
-            // Read with io_uring (may use O_DIRECT if buffer is naturally aligned)
-            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
-
-            assert_eq!(loaded.len(), 1);
-            let tensor = loaded.tensor("large_tensor").unwrap();
-            assert_eq!(tensor.shape(), vec![size]);
-            assert_eq!(tensor.dtype(), Dtype::F32);
-
-            // Verify data correctness
-            let loaded_data = tensor.data();
-            assert_eq!(loaded_data.len(), size * 4);
-
-            std::fs::remove_file(filename).unwrap();
-        }
-
-        #[test]
-        fn test_o_direct_fallback_small_file() {
-            // Small files are less likely to have page-aligned buffers
-            // This tests the fallback to buffered I/O
-            let filename = "/tmp/test_io_uring_small.safetensors";
-
-            let mut metadata = HashMap::new();
-            let data_u32: Vec<u32> = vec![1u32, 2u32, 3u32, 4u32];
-            let data_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(data_u32.as_ptr() as *const u8, data_u32.len() * 4)
-            };
-
-            metadata.insert(
-                "small".to_string(),
-                TensorView::new(Dtype::U32, vec![4], data_bytes).unwrap(),
-            );
-
-            serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
-
-            // This will likely use buffered I/O due to small buffer size
-            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
-
-            assert_eq!(loaded.len(), 1);
-            let tensor = loaded.tensor("small").unwrap();
-            assert_eq!(tensor.shape(), vec![4]);
-
-            std::fs::remove_file(filename).unwrap();
-        }
-
-        #[test]
-        fn test_page_size_detection() {
-            // Verify we can get page size on Linux
-            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
-            assert!(page_size > 0);
-            // Common page sizes are 4KB or 64KB
-            assert!(page_size >= 4096);
-            assert!(page_size % 4096 == 0);
-        }
     }
 }

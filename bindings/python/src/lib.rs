@@ -225,10 +225,14 @@ fn deserialize_file_linux_io_uring(
     py: Python<'_>,
     filename: PathBuf,
 ) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
-    let safetensor = py.allow_threads(|| {
+    let buffer = py.allow_threads(|| {
         safetensors::tensor::deserialize_from_file_linux_io_uring(filename.as_path())
     })
     .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e}")))?;
+
+    // Parse the buffer into SafeTensors
+    let safetensor = SafeTensors::deserialize(buffer)
+        .map_err(|e| SafetensorError::new_err(format!("Error parsing safetensors: {e}")))?;
 
     let tensors = safetensor.tensors();
     let mut items = Vec::with_capacity(tensors.len());
@@ -480,6 +484,9 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
+    /// io_uring loaded buffer with 'static lifetime
+    #[cfg(all(target_os = "linux"))]
+    IoUring(&'static [u8]),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -679,6 +686,66 @@ impl Open {
         })
     }
 
+    #[cfg(all(target_os = "linux"))]
+    fn new_with_io_uring(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+        use safetensors::tensor::deserialize_from_file_linux_io_uring;
+        
+        let device = device.unwrap_or(Device::Cpu);
+        if device != Device::Cpu
+            && framework != Framework::Pytorch
+            && framework != Framework::Paddle
+        {
+            return Err(SafetensorError::new_err(format!(
+                "Device {device} is not supported for framework {framework}",
+            )));
+        }
+
+        // Get buffer via io_uring - reads entire file eagerly
+        let buffer: &'static [u8] = deserialize_from_file_linux_io_uring(filename.to_str().ok_or_else(|| {
+            SafetensorError::new_err(format!(
+                "Path {} is not valid UTF-8",
+                filename.display()
+            ))
+        })?)
+        .map_err(|e| SafetensorError::new_err(format!("Error reading file with io_uring: {e}")))?;
+
+        // Parse metadata from buffer
+        let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
+            SafetensorError::new_err(format!("Error while deserializing header: {e}"))
+        })?;
+
+        let offset = n + 8;
+        
+        Python::with_gil(|py| -> PyResult<()> {
+            match framework {
+                Framework::Pytorch => {
+                    let module = PyModule::import(py, intern!(py, "torch"))?;
+                    TORCH_MODULE.get_or_init_py_attached(py, || module.into())
+                }
+                Framework::Paddle => {
+                    let module = PyModule::import(py, intern!(py, "paddle"))?;
+                    PADDLE_MODULE.get_or_init_py_attached(py, || module.into())
+                }
+                _ => {
+                    let module = PyModule::import(py, intern!(py, "numpy"))?;
+                    NUMPY_MODULE.get_or_init_py_attached(py, || module.into())
+                }
+            };
+            Ok(())
+        })?;
+
+        // Store as IoUring - will copy on tensor access
+        let storage = Arc::new(Storage::IoUring(buffer));
+
+        Ok(Self {
+            metadata,
+            offset,
+            framework,
+            device,
+            storage,
+        })
+    }
+
     /// Return the special non tensor information in the header
     ///
     /// Returns:
@@ -749,6 +816,75 @@ impl Open {
                     array,
                     &self.device,
                 )
+            }
+            #[cfg(all(target_os = "linux"))]
+            Storage::IoUring(buffer) => {
+                let slice = &buffer[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+                
+                if self.framework == Framework::Pytorch {
+                    Python::with_gil(|py| -> PyResult<PyObject> {
+                        let torch = get_module(py, &TORCH_MODULE)?;
+                        let ctypes = PyModule::import(py, intern!(py, "ctypes"))?;
+                        let numpy = PyModule::import(py, intern!(py, "numpy"))?;
+                        
+                        let ptr = slice.as_ptr() as usize;
+                        let size = slice.len();
+                        
+                        let c_ubyte_ptr = ctypes
+                            .getattr(intern!(py, "POINTER"))?
+                            .call1((ctypes.getattr(intern!(py, "c_ubyte"))?,))?;
+                        let cast = ctypes.getattr(intern!(py, "cast"))?;
+                        let arr_ptr = cast.call1((ptr, c_ubyte_ptr))?;
+                        
+                        let np_arr = numpy
+                            .getattr(intern!(py, "ctypeslib"))?
+                            .getattr(intern!(py, "as_array"))?
+                            .call1((arr_ptr, (size,)))?;
+                        
+                        let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
+                        let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
+                        let mut shape = info.shape.to_vec();
+                        if info.dtype == Dtype::F4 {
+                            let n = shape.len();
+                            if shape[n - 1] % 2 != 0 {
+                                return Err(SafetensorError::new_err(format!(
+                                    "f4_x2 dtype requires last dim divisible by 2: got {shape:?}"
+                                )));
+                            }
+                            shape[n - 1] /= 2;
+                        }
+                        let shape_tuple: PyObject = shape.into_pyobject(py)?.into();
+                        
+                        let tensor = torch
+                            .getattr(intern!(py, "from_numpy"))?
+                            .call1((np_arr,))?
+                            .getattr(intern!(py, "view"))?
+                            .call((), Some(&view_kwargs))?
+                            .getattr(intern!(py, "reshape"))?
+                            .call1((shape_tuple,))?;
+                        
+                        let device: PyObject = self.device.clone().into_pyobject(py)?.into();
+                        let to_kwargs = [(intern!(py, "device"), device)].into_py_dict(py)?;
+                        let tensor = if self.device != Device::Cpu {
+                            tensor.call_method("to", (), Some(&to_kwargs))?
+                        } else {
+                            tensor
+                        };
+                        
+                        Ok(tensor.into_pyobject(py)?.into())
+                    })
+                } else {
+                    let array: PyObject =
+                        Python::with_gil(|py| PyByteArray::new(py, slice).into_any().into());
+
+                    create_tensor(
+                        &self.framework,
+                        info.dtype,
+                        &info.shape,
+                        array,
+                        &self.device,
+                    )
+                }
             }
             Storage::Paddle(storage) => {
                 Python::with_gil(|py| -> PyResult<PyObject> {
@@ -1077,6 +1213,128 @@ impl safe_open {
     }
 }
 
+/// Opens a safetensors file using io_uring for high-performance reading on Linux.
+///
+/// Args:
+///
+///     filename (`str`):
+///         The filename to open
+///
+///     framework (`str`):
+///         The framework you want you tensors in. Supported values:
+///         `pt`, `tf`, `flax`, `numpy`, `paddle`.
+///
+///     device (`str`, defaults to `"cpu"`):
+///         The device on which you want the tensors.
+#[cfg(all(target_os = "linux"))]
+#[pyclass]
+#[allow(non_camel_case_types)]
+struct safe_open_io_uring {
+    inner: Option<Open>,
+}
+
+#[cfg(all(target_os = "linux"))]
+impl safe_open_io_uring {
+    fn inner(&self) -> PyResult<&Open> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| SafetensorError::new_err("File is closed".to_string()))?;
+        Ok(inner)
+    }
+}
+
+#[cfg(all(target_os = "linux"))]
+#[pymethods]
+impl safe_open_io_uring {
+    #[new]
+    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu)))]
+    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+        let inner = Some(Open::new_with_io_uring(filename, framework, device)?);
+        Ok(Self { inner })
+    }
+
+    /// Return the special non tensor information in the header
+    ///
+    /// Returns:
+    ///     (`Dict[str, str]`):
+    ///         The freeform metadata.
+    pub fn metadata(&self) -> PyResult<Option<HashMap<String, String>>> {
+        Ok(self.inner()?.metadata())
+    }
+
+    /// Returns the names of the tensors in the file.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn keys(&self) -> PyResult<Vec<String>> {
+        self.inner()?.keys()
+    }
+
+    /// Returns the names of the tensors in the file, ordered by offset.
+    ///
+    /// Returns:
+    ///     (`List[str]`):
+    ///         The name of the tensors contained in that file
+    pub fn offset_keys(&self) -> PyResult<Vec<String>> {
+        self.inner()?.offset_keys()
+    }
+
+    /// Returns a full tensor
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (`Tensor`):
+    ///         The tensor in the framework you opened the file for.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open_io_uring
+    ///
+    /// with safe_open_io_uring("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor = f.get_tensor("embedding")
+    ///
+    /// ```
+    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
+        self.inner()?.get_tensor(name)
+    }
+
+    /// Returns a full slice view object
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor you want
+    ///
+    /// Returns:
+    ///     (`PySafeSlice`):
+    ///         A dummy object you can slice into to get a real tensor
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open_io_uring
+    ///
+    /// with safe_open_io_uring("model.safetensors", framework="pt", device=0) as f:
+    ///     tensor_part = f.get_slice("embedding")[:, ::8]
+    ///
+    /// ```
+    pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
+        self.inner()?.get_slice(name)
+    }
+
+    /// Start the context manager
+    pub fn __enter__(slf: Py<Self>) -> Py<Self> {
+        slf
+    }
+
+    /// Exits the context manager
+    pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
+        self.inner = None;
+    }
+}
+
 #[pyclass]
 struct PySafeSlice {
     info: TensorInfo,
@@ -1177,7 +1435,72 @@ impl PySafeSlice {
                 };
                 let data = &mmap[self.info.data_offsets.0 + self.offset
                     ..self.info.data_offsets.1 + self.offset];
+                let shape = self.info.shape.clone();
 
+                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
+                    .map_err(|e| {
+                        SafetensorError::new_err(format!("Error preparing tensor view: {e}"))
+                    })?;
+                let slices: Vec<TensorIndexer> = slices
+                    .into_iter()
+                    .zip(shape)
+                    .enumerate()
+                    .map(slice_to_indexer)
+                    .collect::<Result<_, _>>()?;
+
+                let iterator = tensor.sliced_data(&slices).map_err(|e| {
+                    SafetensorError::new_err(format!(
+                        "Error during slicing {} with shape {:?}: {e}",
+                        Disp(slices),
+                        self.info.shape,
+                    ))
+                })?;
+                let newshape = iterator.newshape();
+
+                let mut offset = 0;
+                let length = iterator.remaining_byte_len();
+                Python::with_gil(|py| {
+                    let array: PyObject =
+                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                            for slice in iterator {
+                                let len = slice.len();
+                                bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                                offset += len;
+                            }
+                            Ok(())
+                        })?
+                        .into_any()
+                        .into();
+                    create_tensor(
+                        &self.framework,
+                        self.info.dtype,
+                        &newshape,
+                        array,
+                        &self.device,
+                    )
+                })
+            }
+            #[cfg(all(target_os = "linux"))]
+            Storage::IoUring(buffer) => {
+                let pyslices = slices;
+                let slices: Slice = pyslices.extract()?;
+                let is_list = pyslices.is_instance_of::<PyList>();
+                let slices: Vec<SliceIndex> = match slices {
+                    Slice::Slice(slice) => vec![slice],
+                    Slice::Slices(slices) => {
+                        if slices.is_empty() && is_list {
+                            vec![SliceIndex::Slice(PySlice::new(pyslices.py(), 0, 0, 0))]
+                        } else if is_list {
+                            return Err(SafetensorError::new_err(
+                                "Non empty lists are not implemented",
+                            ));
+                        } else {
+                            slices
+                        }
+                    }
+                };
+                let data = &buffer[self.info.data_offsets.0 + self.offset
+                    ..self.info.data_offsets.1 + self.offset];
                 let shape = self.info.shape.clone();
 
                 let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
@@ -1703,6 +2026,8 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(deserialize_file_linux_io_uring, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
+    #[cfg(all(target_os = "linux"))]
+    m.add_class::<safe_open_io_uring>()?;
     m.add_class::<_safe_open_handle>()?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
