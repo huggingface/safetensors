@@ -1272,17 +1272,9 @@ fn linux_io_uring_read_direct(
         SafeTensorError::IoError(Error::new(ErrorKind::InvalidInput, "Invalid path"))
     })?;
     
-    // Try to open with O_DIRECT for NVMe (bypasses page cache)
-    // Set USE_O_DIRECT=0 env var to disable if causing issues
-    let use_o_direct = std::env::var("USE_O_DIRECT").map(|v| v != "0").unwrap_or(true);
-    
+    // Open with O_DIRECT for NVMe (bypasses page cache)
     // SAFETY: c_path is a valid null-terminated string
-    let flags = if use_o_direct {
-        libc::O_RDONLY | libc::O_DIRECT
-    } else {
-        libc::O_RDONLY
-    };
-    let fd = unsafe { libc::open(c_path.as_ptr(), flags) };
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_DIRECT) };
     
     if fd < 0 {
         // O_DIRECT not supported (e.g., tmpfs, network fs), fall back to buffered
