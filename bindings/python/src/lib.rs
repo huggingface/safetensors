@@ -734,7 +734,7 @@ impl Open {
             Ok(())
         })?;
 
-        // Store as IoUring - will copy on tensor access
+        // Store as IoUring
         let storage = Arc::new(Storage::IoUring(buffer));
 
         Ok(Self {
