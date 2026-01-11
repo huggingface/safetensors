@@ -964,10 +964,22 @@ fn linux_io_uring_read(
     let file_size_usize = file_size as usize;
 
     // Calculate number of chunks needed
-    let num_chunks = (file_size_usize + BUF_SIZE - 1) / BUF_SIZE;
+    let num_chunks = file_size_usize.div_ceil(BUF_SIZE);
+
+    // Validate chunk count fits in u16 (required for ReadFixed buffer index)
+    // With 256KB chunks, max file size is ~16GB
+    if num_chunks > u16::MAX as usize {
+        return Err(SafeTensorError::IoError(Error::other(format!(
+            "file too large for io_uring registered buffers: {} chunks exceeds u16::MAX ({}). \
+             Max supported file size is {} bytes",
+            num_chunks,
+            u16::MAX,
+            u16::MAX as usize * BUF_SIZE
+        ))));
+    }
 
     // Build io_uring ring with performance flags
-    let mut ring = IoUring::builder()
+    let mut ring: IoUring<io_uring::squeue::Entry, io_uring::cqueue::Entry> = IoUring::builder()
         .setup_coop_taskrun() // Reduces interrupts, improves batching
         .setup_single_issuer() // Single-threaded optimization
         .build(QUEUE_DEPTH)
@@ -975,21 +987,22 @@ fn linux_io_uring_read(
             SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e)))
         })?;
 
-    // For small files (single chunk), skip buffer registration overhead
-    // For large files, register buffers for zero-copy DMA
-    let use_registered_buffers = num_chunks > 1;
-    let mut iovec_slices: Vec<IoSliceMut<'_>> = Vec::new();
+    // Create IoSliceMut references for buffer registration
+    // Always register buffers for consistent zero-copy DMA performance
+    let mut iovec_slices: Vec<IoSliceMut<'_>> = data.chunks_mut(BUF_SIZE).map(IoSliceMut::new).collect();
 
-    if use_registered_buffers {
-        // Create IoSliceMut references for buffer registration
-        iovec_slices = data.chunks_mut(BUF_SIZE).map(IoSliceMut::new).collect();
+    // SAFETY: Convert IoSliceMut slice to iovec slice. IoSliceMut is a transparent wrapper
+    // around libc::iovec with the same memory layout (repr C, single field).
+    let iovec_ptr = iovec_slices.as_ptr() as *const libc::iovec;
+    let iovec_slice = unsafe { std::slice::from_raw_parts(iovec_ptr, iovec_slices.len()) };
 
-        // Register buffers with the kernel for zero-copy DMA
-        // SAFETY: The buffer slices in iovec_slices reference data which remains valid
-        // for the entire duration of io_uring operations. We process all completions
-        // before returning, ensuring no use-after-free.
+    // Register buffers with the kernel for zero-copy DMA
+    // SAFETY: The buffer slices in iovec_slice reference data which remains valid
+    // for the entire duration of io_uring operations. We process all completions
+    // before returning, ensuring no use-after-free.
+    unsafe {
         ring.submitter()
-            .register_buffers(&iovec_slices)
+            .register_buffers(iovec_slice)
             .map_err(|e| {
                 SafeTensorError::IoError(Error::other(format!("buffer registration failed: {}", e)))
             })?;
@@ -1019,20 +1032,12 @@ fn linux_io_uring_read(
                 BUF_SIZE
             };
 
-            // Build read operation - use ReadFixed for registered buffers, Read otherwise
-            let read_op = if use_registered_buffers {
-                let chunk_ptr = iovec_slices[chunk_idx].as_mut_ptr();
-                opcode::ReadFixed::new(fd, chunk_ptr, chunk_size as u32, file_offset)
-                    .buf_index(chunk_idx as u16) // Reference buffer by registration index
-                    .build()
-                    .user_data(chunk_idx as u64)
-            } else {
-                let chunk_ptr = data[chunk_idx * BUF_SIZE..].as_mut_ptr();
-                opcode::Read::new(fd, chunk_ptr, chunk_size as u32)
-                    .offset(file_offset)
-                    .build()
-                    .user_data(chunk_idx as u64)
-            };
+            // Build read operation using registered buffers
+            let chunk_ptr = iovec_slices[chunk_idx].as_mut_ptr();
+            let read_op = opcode::ReadFixed::new(fd, chunk_ptr, chunk_size as u32, chunk_idx as u16)
+                .offset(file_offset)
+                .build()
+                .user_data(chunk_idx as u64);
 
             // SAFETY: The buffer slice at chunk_idx lives in data Vec which remains valid
             // for the entire duration of io_uring operations. We track in_flight count
@@ -1071,17 +1076,16 @@ fn linux_io_uring_read(
         }
 
         // Process all available completions
+        // Collect error to handle after loop (can't borrow ring.submitter() while iterating)
+        let mut io_error: Option<SafeTensorError> = None;
         for cqe in ring.completion() {
             let result = cqe.result();
             let chunk_idx = cqe.user_data() as usize;
 
             // Check for errors (negative result is errno)
             if result < 0 {
-                // Unregister buffers before returning error if we registered them
-                if use_registered_buffers {
-                    let _ = ring.submitter().unregister_buffers();
-                }
-                return Err(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
+                io_error = Some(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
+                continue;
             }
 
             let bytes_read = result as usize;
@@ -1095,30 +1099,31 @@ fn linux_io_uring_read(
 
             // Check for short reads
             if bytes_read != expected_bytes {
-                // Unregister buffers before returning error if we registered them
-                if use_registered_buffers {
-                    let _ = ring.submitter().unregister_buffers();
-                }
-                return Err(SafeTensorError::IoError(Error::new(
+                io_error = Some(SafeTensorError::IoError(Error::new(
                     ErrorKind::UnexpectedEof,
                     format!(
                         "short read at chunk {}: expected {} bytes, got {}",
                         chunk_idx, expected_bytes, bytes_read
                     ),
                 )));
+                continue;
             }
 
             completed_bytes += bytes_read;
             in_flight -= 1;
         }
+
+        // Handle any errors after processing completions
+        if let Some(err) = io_error {
+            let _ = ring.submitter().unregister_buffers();
+            return Err(err);
+        }
     }
 
-    // Cleanup: unregister buffers if we registered them
-    if use_registered_buffers {
-        ring.submitter().unregister_buffers().map_err(|e| {
-            SafeTensorError::IoError(Error::other(format!("buffer unregistration failed: {}", e)))
-        })?;
-    }
+    // Cleanup: unregister buffers
+    ring.submitter().unregister_buffers().map_err(|e| {
+        SafeTensorError::IoError(Error::other(format!("buffer unregistration failed: {}", e)))
+    })?;
 
     Ok(data)
 }
@@ -1182,12 +1187,11 @@ pub fn deserialize_from_file_linux_io_uring(
     use std::os::unix::fs::OpenOptionsExt;
 
     // Get page size for alignment checks and O_DIRECT
-    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
-    if page_size <= 0 {
-        return Err(SafeTensorError::IoError(std::io::Error::other(
-            "failed to get page size",
-        )));
+    let page_size_raw = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page_size_raw == -1 {
+        return Err(SafeTensorError::IoError(std::io::Error::last_os_error()));
     }
+    let page_size = page_size_raw as usize;
 
     // First, open without O_DIRECT to get file size
     let file_std = std::fs::File::open(path.as_ref())?;
@@ -2000,8 +2004,12 @@ mod tests {
             let loaded_standard = SafeTensors::deserialize(&buffer).unwrap();
 
             // Compare results
-            assert_eq!(loaded_io_uring.names(), loaded_standard.names());
-            for name in loaded_io_uring.names() {
+            let mut io_uring_names = loaded_io_uring.names();
+            let mut standard_names = loaded_standard.names();
+            io_uring_names.sort();
+            standard_names.sort();
+            assert_eq!(io_uring_names, standard_names);
+            for name in io_uring_names {
                 let tensor_io_uring = loaded_io_uring.tensor(&name).unwrap();
                 let tensor_standard = loaded_standard.tensor(&name).unwrap();
 
@@ -2090,7 +2098,7 @@ mod tests {
 
             // Create a large tensor (>1MB) to increase chances of page-aligned allocation
             let size = 256 * 1024; // 256KB of f32 = 1MB
-            let data: Vec<f32> = vec![3.14159f32; size];
+            let data: Vec<f32> = vec![std::f32::consts::PI; size];
             let data_bytes: &[u8] =
                 unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
 
