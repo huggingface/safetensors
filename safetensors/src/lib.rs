@@ -6,6 +6,30 @@ pub mod tensor;
 /// serialize_to_file only valid in std
 #[cfg(feature = "std")]
 pub use tensor::serialize_to_file;
+/// deserialize_from_file_io_uring only valid on Linux
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64"
+    )
+))]
+pub use tensor::{deserialize_from_file_io_uring, is_io_uring_supported, AlignedBuffer};
 pub use tensor::{serialize, Dtype, SafeTensorError, SafeTensors, View};
 
 #[cfg(not(feature = "std"))]
