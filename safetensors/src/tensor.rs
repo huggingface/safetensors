@@ -35,6 +35,19 @@ pub enum SafeTensorError {
     /// IoError
     #[cfg(feature = "std")]
     IoError(std::io::Error),
+    /// io_uring specific errors
+    #[cfg(all(
+        feature = "std",
+        target_os = "linux",
+        any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64",
+            target_arch = "powerpc64",
+        )
+    ))]
+    IoUringError(String),
     /// JSON error
     JsonError(serde_json::Error),
     /// The follow tensor cannot be created because the buffer size doesn't match shape + dtype
@@ -81,6 +94,18 @@ impl Display for SafeTensorError {
             InvalidOffset(name) => write!(f, "invalid offset for tensor `{name}`"),
             #[cfg(feature = "std")]
             IoError(error) => write!(f, "I/O error: {error}"),
+            #[cfg(all(
+                feature = "std",
+                target_os = "linux",
+                any(
+                    target_arch = "x86_64",
+                    target_arch = "aarch64",
+                    target_arch = "riscv64",
+                    target_arch = "loongarch64",
+                    target_arch = "powerpc64",
+                )
+            ))]
+            IoUringError(error) => write!(f, "io_uring error: {error}"),
             InvalidTensorView(dtype, shape, n_bytes) => {
                 write!(f, "tensor of type {dtype} and shape (")?;
                 for (i, &dim) in shape.iter().enumerate() {
@@ -134,7 +159,7 @@ struct PreparedData {
 /// use std::borrow::Cow;
 /// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: Vec<u8>}
 ///
-/// # type MyDtype = Dtype;
+/// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]type MyDtype = Dtype;
 /// impl<'data> View for &'data Tensor{
 ///    fn dtype(&self) -> Dtype{
 ///        self.dtype.into()
@@ -158,7 +183,7 @@ struct PreparedData {
 /// use std::borrow::Cow;
 /// struct Tensor<'data>{ dtype: MyDtype, shape: Vec<usize>, data: &'data[u8]}
 ///
-/// # type MyDtype = Dtype;
+/// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]type MyDtype = Dtype;
 /// impl<'data> View for Tensor<'data>{
 ///    fn dtype(&self) -> Dtype{
 ///        self.dtype.into()
@@ -182,8 +207,8 @@ struct PreparedData {
 /// use safetensors::tensor::{View, Dtype};
 /// use std::borrow::Cow;
 ///
-/// # type MyDtype = Dtype;
-/// # type OpaqueGpu = Vec<u8>;
+/// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]type MyDtype = Dtype;
+/// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]type OpaqueGpu = Vec<u8>;
 /// struct Tensor{ dtype: MyDtype, shape: Vec<usize>, data: OpaqueGpu }
 ///
 /// impl View for Tensor{
@@ -433,9 +458,9 @@ impl<'data> SafeTensors<'data> {
     /// use std::fs::File;
     ///
     /// let filename = "model.safetensors";
-    /// # use std::io::Write;
-    /// # let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
-    /// # File::create(filename).unwrap().write(serialized).unwrap();
+    /// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]use std::io::Write;
+    /// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]let serialized = b"<\x00\x00\x00\x00\x00\x00\x00{\"test\":{\"dtype\":\"I32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    /// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]File::create(filename).unwrap().write(serialized).unwrap();
     /// let file = File::open(filename).unwrap();
     /// let buffer = unsafe { MmapOptions::new().map(&file).unwrap() };
     /// let tensors = SafeTensors::deserialize(&buffer).unwrap();
@@ -925,83 +950,167 @@ impl Display for Dtype {
 
 /// Minimum file size to use io_uring (below this, use standard read)
 /// Small files have too much overhead for io_uring setup
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 #[allow(dead_code)]
 const MIN_IO_URING_FILE_SIZE: u64 = 64 * 1024; // 64KB
 
 /// SQPOLL idle time in milliseconds
 /// After this time of inactivity, the kernel polling thread will sleep
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+#[allow(dead_code)]
 const SQPOLL_IDLE_MS: u32 = 2000;
 
 /// Alignment for O_DIRECT I/O (512 bytes for most Linux filesystems)
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 const O_DIRECT_ALIGNMENT: usize = 512;
 
 /// A buffer allocated with posix_memalign for O_DIRECT I/O.
-/// 
+///
 /// This buffer is properly aligned for direct I/O operations and
 /// automatically freed when dropped using libc::free().
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 struct AlignedBuffer {
     ptr: *mut u8,
-    len: usize,       // Actual data length (may be less than capacity)
-    capacity: usize,  // Aligned capacity
+    len: usize,      // Actual data length (may be less than capacity)
+    capacity: usize, // Aligned capacity
 }
 
-#[cfg(all(feature = "std", target_os = "linux"))]
+/// A guard for a file descriptor that closes it when dropped.
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+struct FdGuard(libc::c_int);
+
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+impl Drop for FdGuard {
+    fn drop(&mut self) {
+        if self.0 >= 0 {
+            // SAFETY: self.0 is a valid file descriptor or negative.
+            unsafe { libc::close(self.0) };
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 impl AlignedBuffer {
     /// Allocate a new aligned buffer.
-    /// 
+    ///
     /// The capacity is rounded up to the nearest multiple of `alignment`.
     /// The actual usable length is set to `size`.
     fn new(size: usize, alignment: usize) -> Result<Self, SafeTensorError> {
         use std::io::Error;
-        
+
         // Round up capacity to alignment boundary
         let capacity = size.div_ceil(alignment) * alignment;
-        
+
         let mut ptr: *mut libc::c_void = std::ptr::null_mut();
         // SAFETY: posix_memalign is a standard POSIX function.
         // We check the return value for errors.
         let ret = unsafe { libc::posix_memalign(&mut ptr, alignment, capacity) };
-        
+
         if ret != 0 {
             return Err(SafeTensorError::IoError(Error::from_raw_os_error(ret)));
         }
-        
+
         Ok(Self {
             ptr: ptr as *mut u8,
             len: size,
             capacity,
         })
     }
-    
+
     /// Get the buffer pointer for io_uring operations.
     fn as_mut_ptr(&mut self) -> *mut u8 {
         self.ptr
     }
-    
+
     /// Get the aligned capacity (for io_uring read length).
     fn capacity(&self) -> usize {
         self.capacity
     }
-    
+
     /// Consume the buffer and return a Vec.
-    /// 
+    ///
     /// This copies the data into a new Vec because we cannot safely
     /// convert posix_memalign memory to Rust's allocator.
     #[allow(dead_code)]
     fn into_vec(self) -> Vec<u8> {
         // SAFETY: ptr is valid for len bytes.
         let slice = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-        let vec = slice.to_vec();
         // Drop runs here and frees the aligned memory
-        vec
+        slice.to_vec()
     }
-    
+
     /// Leak the buffer and return a 'static slice.
-    /// 
+    ///
     /// This intentionally leaks the memory to provide 'static lifetime.
     /// The memory is NOT freed - this is for long-lived buffers like
     /// safetensors file data that remains valid for the program's lifetime.
@@ -1015,7 +1124,17 @@ impl AlignedBuffer {
     }
 }
 
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 impl Drop for AlignedBuffer {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
@@ -1027,7 +1146,17 @@ impl Drop for AlignedBuffer {
 
 /// Calculate optimal chunk size based on file size
 /// Returns chunk_size only - queue depth will be unbounded
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 fn calculate_io_params(file_size: u64) -> usize {
     // Heuristics based on file size, optimized for NVMe:
     // - Small files (< 1MB): 64KB chunks
@@ -1046,7 +1175,7 @@ fn calculate_io_params(file_size: u64) -> usize {
     } else if file_size < 10 * MB as u64 {
         256 * KB
     } else if file_size < 100 * MB as u64 {
-        1 * MB
+        MB
     } else if file_size < GB as u64 {
         4 * MB
     } else if file_size < 10 * GB as u64 {
@@ -1056,167 +1185,31 @@ fn calculate_io_params(file_size: u64) -> usize {
     }
 }
 
-/// Read a file using Linux io_uring for high-performance async I/O.
-///
-/// This function uses io_uring with adaptive optimizations:
-/// - **Adaptive chunk size**: Automatically adjusts based on file size
-///   - Small files (< 1MB): 64KB chunks for low latency
-///   - Medium files (1-10MB): 256KB chunks for balance
-///   - Large files (10MB - 100MB): 512KB chunks for throughput
-///   - Very large files (> 100MB): 2MB chunks for max throughput
-/// - **Unbounded queue depth**: Submit all chunks in one batch for maximum parallelism
-/// - **SQPOLL mode**: Kernel-side polling (fallback if no permissions)
-/// - **COOP_TASKRUN**: Reduces interrupts and improves batching
-/// - **SINGLE_ISSUER**: Single-threaded kernel optimizations
-/// - **posix_fadvise**: Sequential read hints and readahead
-/// - **Direct buffer writes**: No intermediate copying
-#[cfg(all(feature = "std", target_os = "linux"))]
-fn linux_io_uring_read(
-    file: &std::fs::File,
-    file_size: u64,
-    mut data: Vec<u8>,
-) -> Result<Vec<u8>, SafeTensorError> {
-    use io_uring::{opcode, types, IoUring};
-    use std::io::{Error, ErrorKind};
-    use std::os::fd::AsRawFd;
-
-    // Handle empty files
-    if file_size == 0 {
-        return Ok(Vec::new());
-    }
-
-    let file_size_usize = file_size as usize;
-    let fd = types::Fd(file.as_raw_fd());
-
-    // Advise kernel about sequential access pattern for better readahead
-    unsafe {
-        libc::posix_fadvise(
-            file.as_raw_fd(),
-            0,
-            file_size as i64,
-            libc::POSIX_FADV_SEQUENTIAL | libc::POSIX_FADV_WILLNEED,
-        );
-    }
-
-    // Calculate optimal chunk size and queue depth
-    let buf_size = calculate_io_params(file_size);
-    let num_chunks = file_size_usize.div_ceil(buf_size);
-    let queue_depth = (num_chunks as u32).min(4096);
-
-    // Build io_uring ring - try SQPOLL first, fall back if needed
-    let ring_result = IoUring::builder()
-        .setup_sqpoll(SQPOLL_IDLE_MS)
-        .setup_coop_taskrun()
-        .build(queue_depth);
-
-    let mut ring: IoUring<io_uring::squeue::Entry, io_uring::cqueue::Entry> = match ring_result {
-        Ok(r) => r,
-        Err(_) => IoUring::builder()
-            .setup_coop_taskrun()
-            .setup_single_issuer()
-            .build(queue_depth)
-            .map_err(|e| {
-                SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e)))
-            })?,
-    };
-    
-    for chunk_idx in 0..num_chunks {
-        let file_offset = (chunk_idx * buf_size) as u64;
-
-        // Calculate actual chunk size (last chunk may be smaller)
-        let chunk_size = if chunk_idx == num_chunks - 1 {
-            file_size_usize - (chunk_idx * buf_size)
-        } else {
-            buf_size
-        };
-
-        // Get pointer to destination in the data buffer
-        let dest_offset = chunk_idx * buf_size;
-        let buf_ptr = data[dest_offset..].as_mut_ptr();
-
-        // Build read operation - reads directly into destination buffer
-        let read_op = opcode::Read::new(fd, buf_ptr, chunk_size as u32)
-            .offset(file_offset)
-            .build()
-            .user_data(chunk_idx as u64);
-
-        // SAFETY: The buffer slice in data Vec remains valid for the entire
-        // duration of io_uring operations. We track completions and wait
-        // for all in-flight operations before returning.
-        unsafe {
-            ring.submission().push(&read_op).map_err(|e| {
-                SafeTensorError::IoError(Error::other(format!("SQ push failed: {}", e)))
-            })?;
-        }
-    }
-
-    // Submit all operations
-    ring.submit().map_err(|e| {
-        SafeTensorError::IoError(Error::other(format!("submit failed: {}", e)))
-    })?;
-    
-    // Process all completions
-    let mut completions_processed = 0;
-    
-    // Keep waiting until we get all completions
-    while completions_processed < num_chunks {
-        // Wait for at least one more completion
-        ring.submit_and_wait(1).map_err(|e| {
-            SafeTensorError::IoError(Error::other(format!("wait failed: {}", e)))
-        })?;
-        
-        // Drain all available completions
-        for cqe in ring.completion() {
-            completions_processed += 1;
-            let result = cqe.result();
-            let chunk_idx = cqe.user_data() as usize;
-
-            // Check for errors (negative result is errno)
-            if result < 0 {
-                return Err(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
-            }
-
-            let bytes_read = result as usize;
-
-            // Calculate expected bytes for this chunk
-            let expected_bytes = if chunk_idx == num_chunks - 1 {
-                file_size_usize - (chunk_idx * buf_size)
-            } else {
-                buf_size
-            };
-
-            // Check for short reads
-            if bytes_read != expected_bytes {
-                return Err(SafeTensorError::IoError(Error::new(
-                    ErrorKind::UnexpectedEof,
-                    format!(
-                        "short read at chunk {}: expected {} bytes, got {}",
-                        chunk_idx, expected_bytes, bytes_read
-                    ),
-                )));
-            }
-
-        }
-    }
-
-    Ok(data)
-}
-
 /// Build an optimized io_uring ring with automatic fallback for older kernels.
-/// 
+///
 /// Tries configurations in order of performance (most optimized first):
 /// 1. defer_taskrun + coop_taskrun (kernel 6.1+) - best batching
 /// 2. coop_taskrun + single_issuer (kernel 5.19+) - good performance
 /// 3. Minimal config (kernel 5.1+) - maximum compatibility
-/// 
+///
 /// Note: IOPOLL is not used because it requires NVMe poll_queues to be enabled
 /// at the kernel module level, which is not common in default configurations.
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 fn build_optimized_ring(queue_depth: u32) -> std::io::Result<io_uring::IoUring> {
     use io_uring::IoUring;
-    
+
     let cq_size = queue_depth.max(256);
-    
+
     // Try 1: defer_taskrun + coop_taskrun (kernel 6.1+, best batching)
     if let Ok(ring) = IoUring::builder()
         .setup_defer_taskrun()
@@ -1227,7 +1220,7 @@ fn build_optimized_ring(queue_depth: u32) -> std::io::Result<io_uring::IoUring> 
     {
         return Ok(ring);
     }
-    
+
     // Try 2: coop_taskrun + single_issuer (kernel 5.19+)
     if let Ok(ring) = IoUring::builder()
         .setup_coop_taskrun()
@@ -1237,26 +1230,31 @@ fn build_optimized_ring(queue_depth: u32) -> std::io::Result<io_uring::IoUring> 
     {
         return Ok(ring);
     }
-    
+
     // Try 3: Minimal config (kernel 5.1+)
     IoUring::builder().build(queue_depth)
 }
 
 /// Read file using O_DIRECT + io_uring for true zero-copy from disk.
-/// 
+///
 /// O_DIRECT bypasses the page cache, eliminating the kernel memcpy overhead
-/// that occurs with buffered I/O. This can provide significant performance
-/// improvements for large files.
-/// 
-/// Performance optimizations:
-/// - IOPOLL: Busy-polling for NVMe, eliminates IRQ overhead
-/// - defer_taskrun: Better completion batching (kernel 6.1+)
-/// - Large chunks (8MB for 1GB+ files): Fewer I/O operations
-/// - MADV_HUGEPAGE: Reduces TLB misses for large buffers
-/// 
-/// Falls back silently to buffered io_uring if O_DIRECT is not supported.
-#[cfg(all(feature = "std", target_os = "linux"))]
-fn linux_io_uring_read_direct(
+/// that occurs with buffered I/O. This provides the best performance for
+/// large files when the data isn't already in the page cache.
+///
+/// This function automatically falls back to buffered I/O if O_DIRECT
+/// is not supported by the filesystem (e.g., tmpfs or some NFS mounts).
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+fn read_file_io_uring(
     path: &std::path::Path,
     file_size: u64,
 ) -> Result<&'static [u8], SafeTensorError> {
@@ -1264,37 +1262,40 @@ fn linux_io_uring_read_direct(
     use std::ffi::CString;
     use std::io::{Error, ErrorKind};
     use std::os::unix::ffi::OsStrExt;
-    
+
     let file_size_usize = file_size as usize;
-    
+
     // Convert path to CString for libc::open
     let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
         SafeTensorError::IoError(Error::new(ErrorKind::InvalidInput, "Invalid path"))
     })?;
-    
-    // Open with O_DIRECT for NVMe (bypasses page cache)
+
+    // Try opening with O_DIRECT first for zero-copy
     // SAFETY: c_path is a valid null-terminated string
-    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_DIRECT) };
-    
-    if fd < 0 {
-        // O_DIRECT not supported (e.g., tmpfs, network fs), fall back to buffered
-        let file = std::fs::File::open(path)?;
-        let data = vec![0u8; file_size_usize];
-        let data = linux_io_uring_read(&file, file_size, data)?;
-        return Ok(Box::leak(data.into_boxed_slice()));
-    }
-    
-    // Allocate aligned buffer
-    let mut buffer = match AlignedBuffer::new(file_size_usize, O_DIRECT_ALIGNMENT) {
-        Ok(buf) => buf,
-        Err(e) => {
-            unsafe { libc::close(fd) };
-            return Err(e);
+    let mut fd_raw = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_DIRECT) };
+    let mut alignment = O_DIRECT_ALIGNMENT;
+    let mut use_direct = true;
+
+    if fd_raw < 0 {
+        let err = Error::last_os_error();
+        if err.raw_os_error() == Some(libc::EINVAL) {
+            // Fallback to buffered I/O if O_DIRECT is not supported (e.g. tmpfs, NFS)
+            fd_raw = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY) };
+            alignment = 8;
+            use_direct = false;
         }
-    };
-    
+
+        if fd_raw < 0 {
+            return Err(SafeTensorError::IoError(Error::last_os_error()));
+        }
+    }
+
+    let fd = FdGuard(fd_raw);
+
+    // Allocate buffer with required alignment
+    let mut buffer = AlignedBuffer::new(file_size_usize, alignment)?;
+
     // Request transparent huge pages for better TLB performance on large buffers
-    // This is a hint - kernel may ignore it if huge pages aren't available
     if buffer.capacity() >= 2 * 1024 * 1024 {
         unsafe {
             libc::madvise(
@@ -1304,29 +1305,33 @@ fn linux_io_uring_read_direct(
             );
         }
     }
-    
+
     // Calculate chunk parameters - larger chunks = fewer operations
     let mut buf_size = calculate_io_params(file_size);
-    buf_size = (buf_size / O_DIRECT_ALIGNMENT) * O_DIRECT_ALIGNMENT;
-    buf_size = buf_size.max(O_DIRECT_ALIGNMENT);
-    
+    if use_direct {
+        // O_DIRECT requires aligned I/O sizes
+        buf_size = (buf_size / O_DIRECT_ALIGNMENT) * O_DIRECT_ALIGNMENT;
+        buf_size = buf_size.max(O_DIRECT_ALIGNMENT);
+    }
+
     let num_chunks = buffer.capacity().div_ceil(buf_size);
     let queue_depth = (num_chunks as u32).min(4096);
-    
+
     // Build optimized io_uring ring with automatic fallback
     let mut ring = match build_optimized_ring(queue_depth) {
         Ok(r) => r,
         Err(e) => {
-            unsafe { libc::close(fd) };
-            return Err(SafeTensorError::IoError(Error::other(format!("io_uring init failed: {}", e))));
+            return Err(SafeTensorError::IoUringError(format!(
+                "io_uring init failed: {}",
+                e
+            )));
         }
     };
-    
+
     // Queue all read operations
-    let io_fd = types::Fd(fd);
     for chunk_idx in 0..num_chunks {
         let file_offset = (chunk_idx * buf_size) as u64;
-        
+
         // For O_DIRECT, read full aligned chunks
         // Last chunk reads to capacity (may read past file_size, that's OK)
         let chunk_size = if chunk_idx == num_chunks - 1 {
@@ -1334,54 +1339,54 @@ fn linux_io_uring_read_direct(
         } else {
             buf_size
         };
-        
+
         // SAFETY: buffer.as_mut_ptr() is valid, adding chunk offset stays within capacity
         let dest_ptr = unsafe { buffer.as_mut_ptr().add(chunk_idx * buf_size) };
-        
-        let read_op = opcode::Read::new(io_fd, dest_ptr, chunk_size as u32)
+
+        let read_op = opcode::Read::new(types::Fd(fd.0), dest_ptr, chunk_size as u32)
             .offset(file_offset)
             .build()
             .user_data(chunk_idx as u64);
-        
+
         // SAFETY: buffer remains valid for the duration of io_uring operations
         unsafe {
             if let Err(e) = ring.submission().push(&read_op) {
-                libc::close(fd);
-                return Err(SafeTensorError::IoError(Error::other(format!("SQ push failed: {}", e))));
+                return Err(SafeTensorError::IoUringError(format!(
+                    "SQ push failed: {}",
+                    e
+                )));
             }
         }
     }
-    
+
     // Submit all operations at once
     if let Err(e) = ring.submit() {
-        unsafe { libc::close(fd) };
-        return Err(SafeTensorError::IoError(Error::other(format!("submit failed: {}", e))));
+        return Err(SafeTensorError::IoUringError(format!(
+            "submit failed: {}",
+            e
+        )));
     }
-    
-    // Wait for all completions - optimized loop
+
+    // Wait for all completions
     let mut completions_processed = 0;
     while completions_processed < num_chunks {
         // Wait for remaining completions
         let remaining = num_chunks - completions_processed;
         if let Err(e) = ring.submit_and_wait(remaining) {
-            unsafe { libc::close(fd) };
-            return Err(SafeTensorError::IoError(Error::other(format!("wait failed: {}", e))));
+            return Err(SafeTensorError::IoUringError(format!("wait failed: {}", e)));
         }
-        
+
         // Process all available completions
         for cqe in ring.completion() {
             completions_processed += 1;
             let result = cqe.result();
-            
+
             if result < 0 {
-                unsafe { libc::close(fd) };
                 return Err(SafeTensorError::IoError(Error::from_raw_os_error(-result)));
             }
         }
     }
-    
-    unsafe { libc::close(fd) };
-    
+
     // Leak the aligned buffer to get 'static lifetime (zero-copy!)
     Ok(buffer.leak())
 }
@@ -1392,54 +1397,62 @@ fn linux_io_uring_read_direct(
 /// It reads the entire file into an owned buffer and returns a SafeTensors instance
 /// with 'static lifetime.
 ///
-/// # Performance
+/// Performance
 ///
 /// io_uring provides better performance for large files by allowing multiple
 /// concurrent read operations to be queued and processed efficiently. This
 /// implementation uses several optimizations:
 ///
-/// - **Batched async I/O**: Up to 64 concurrent read operations in flight
-/// - **COOP_TASKRUN**: Reduces inter-processor interrupts for better batching
-/// - **SINGLE_ISSUER**: Kernel optimizations for single-threaded access
-/// - **Direct buffer writes**: Reads directly into the destination buffer
+/// - **Batched async I/O**: Up to 4096 concurrent read operations in flight
+/// - **O_DIRECT**: Bypasses page cache for true zero-copy reads
+/// - **COOP_TASKRUN**: Reduces inter-processor interrupts (kernel 5.19+)
+/// - **SINGLE_ISSUER**: Kernel optimizations for single-threaded access (kernel 6.0+)
+/// - **DEFER_TASKRUN**: Better completion batching (kernel 6.1+)
 ///
-/// Expected performance improvement over mmap: 1.3-1.5x for cold cache reads on
-/// large files (>100MB).
+/// Platform Support
 ///
-/// # Platform Support
-///
-/// This function is only available on Linux with kernel 5.6 or later (required
-/// for IORING_OP_READ). For cross-platform code, use `SafeTensors::deserialize()`
+/// This function is only available on Linux with 64-bit architectures.
+/// For cross-platform code, use `SafeTensors::deserialize()`
 /// with memory-mapped files via the `memmap2` crate.
 ///
-/// # Memory
+/// Memory
 ///
 /// This function allocates memory for the entire file contents and leaks it to provide
 /// 'static lifetime. The returned buffer can be parsed with `SafeTensors::deserialize()`
 /// or `SafeTensors::read_metadata()` for zero-copy tensor access. For very large files
 /// where memory is a concern, consider using memory-mapped I/O instead.
 ///
-/// # Example
+/// Example
 ///
 /// ```rust,no_run
-/// use safetensors::{deserialize_from_file_linux_io_uring, SafeTensors};
+/// use safetensors::{deserialize_from_file_io_uring, SafeTensors};
 ///
-/// let buffer = deserialize_from_file_linux_io_uring("model.safetensors")?;
+/// let buffer = deserialize_from_file_io_uring("model.safetensors")?;
 /// let tensors = SafeTensors::deserialize(buffer)?;
 /// for name in tensors.names() {
 ///     let tensor = tensors.tensor(&name)?;
 ///     println!("{}: {:?} {:?}", name, tensor.dtype(), tensor.shape());
 /// }
-/// # Ok::<(), safetensors::SafeTensorError>(())
+/// Ok::<(), safetensors::SafeTensorError>(())
 /// ```
 ///
-/// # Errors
+/// Errors
 ///
 /// Returns an error if:
 /// - The file cannot be opened or read
 /// - io_uring initialization fails (e.g., kernel too old)
-#[cfg(all(feature = "std", target_os = "linux"))]
-pub fn deserialize_from_file_linux_io_uring(
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+pub fn deserialize_from_file_io_uring(
     path: impl AsRef<Path>,
 ) -> Result<&'static [u8], SafeTensorError> {
     let metadata = std::fs::metadata(path.as_ref())?;
@@ -1450,7 +1463,7 @@ pub fn deserialize_from_file_linux_io_uring(
     }
 
     // Returns 'static slice (buffer is leaked internally)
-    linux_io_uring_read_direct(path.as_ref(), file_size)
+    read_file_io_uring(path.as_ref(), file_size)
 }
 
 #[cfg(test)]
@@ -1548,7 +1561,7 @@ mod tests {
     /// assumes that `metadata` contains at least one tensor, and that tensors are
     /// ordered by offset in `metadata.tensors`.
     ///
-    /// # Panics
+    /// #[cfg(all(feature = "std", target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]Panics
     ///
     /// This method will panic if `metadata` does not contain any tensors.
     fn data_size(metadata: &Metadata) -> usize {
@@ -2110,7 +2123,8 @@ mod tests {
             serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
 
             // Read with io_uring
-            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
+            let buffer = deserialize_from_file_io_uring(filename).unwrap();
+            let loaded = SafeTensors::deserialize(buffer).unwrap();
 
             // Verify contents match
             assert_eq!(loaded.names(), vec!["test"]);
@@ -2141,7 +2155,8 @@ mod tests {
             serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
 
             // Read with io_uring (tests chunking logic and registered buffers)
-            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
+            let buffer = deserialize_from_file_io_uring(filename).unwrap();
+            let loaded = SafeTensors::deserialize(buffer).unwrap();
 
             assert_eq!(loaded.names(), vec!["large"]);
             let loaded_tensor = loaded.tensor("large").unwrap();
@@ -2153,8 +2168,7 @@ mod tests {
 
         #[test]
         fn test_io_uring_read_nonexistent() {
-            let result =
-                deserialize_from_file_linux_io_uring("/tmp/nonexistent_io_uring.safetensors");
+            let result = deserialize_from_file_io_uring("/tmp/nonexistent_io_uring.safetensors");
             assert!(matches!(result, Err(SafeTensorError::IoError(_))));
         }
 
@@ -2165,7 +2179,8 @@ mod tests {
             let tensors: HashMap<String, TensorView> = HashMap::new();
             serialize_to_file(&tensors, None, Path::new(filename)).unwrap();
 
-            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
+            let buffer = deserialize_from_file_io_uring(filename).unwrap();
+            let loaded = SafeTensors::deserialize(buffer).unwrap();
             assert_eq!(loaded.len(), 0);
 
             std::fs::remove_file(filename).unwrap();
@@ -2183,8 +2198,7 @@ mod tests {
                 .collect();
             let data2: Vec<u8> = vec![5, 6, 7, 8]
                 .into_iter()
-                .map(|i: i32| i.to_le_bytes())
-                .flatten()
+                .flat_map(|i: i32| i.to_le_bytes())
                 .collect();
 
             let tensor1 = TensorView::new(Dtype::F32, vec![4], &data1).unwrap();
@@ -2197,7 +2211,8 @@ mod tests {
             serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
 
             // Read with io_uring
-            let loaded_io_uring = deserialize_from_file_linux_io_uring(filename).unwrap();
+            let io_uring_buffer = deserialize_from_file_io_uring(filename).unwrap();
+            let loaded_io_uring = SafeTensors::deserialize(io_uring_buffer).unwrap();
 
             // Read with standard mmap-based approach
             let file = std::fs::File::open(filename).unwrap();
@@ -2211,8 +2226,8 @@ mod tests {
             standard_names.sort();
             assert_eq!(io_uring_names, standard_names);
             for name in io_uring_names {
-                let tensor_io_uring = loaded_io_uring.tensor(&name).unwrap();
-                let tensor_standard = loaded_standard.tensor(&name).unwrap();
+                let tensor_io_uring = loaded_io_uring.tensor(name).unwrap();
+                let tensor_standard = loaded_standard.tensor(name).unwrap();
 
                 assert_eq!(tensor_io_uring.dtype(), tensor_standard.dtype());
                 assert_eq!(tensor_io_uring.shape(), tensor_standard.shape());
@@ -2258,7 +2273,8 @@ mod tests {
 
             serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
 
-            let loaded = deserialize_from_file_linux_io_uring(filename).unwrap();
+            let buffer = deserialize_from_file_io_uring(filename).unwrap();
+            let loaded = SafeTensors::deserialize(buffer).unwrap();
 
             assert_eq!(loaded.len(), 3);
             assert!(loaded.tensor("f32").is_ok());
@@ -2267,6 +2283,5 @@ mod tests {
 
             std::fs::remove_file(filename).unwrap();
         }
-
     }
 }

@@ -226,7 +226,7 @@ fn deserialize_file_linux_io_uring(
     filename: PathBuf,
 ) -> PyResult<Vec<(String, HashMap<String, PyObject>)>> {
     let buffer = py.allow_threads(|| {
-        safetensors::tensor::deserialize_from_file_linux_io_uring(filename.as_path())
+        safetensors::tensor::deserialize_from_file_io_uring(filename.as_path())
     })
     .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e}")))?;
 
@@ -477,7 +477,7 @@ enum Storage {
     /// Torch specific mmap
     /// This allows us to not manage it
     /// so Pytorch can handle the whole lifecycle.
-    /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
+    /// https://pytorch.org/docs/stable/storage.html#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]orch.TypedStorage.from_file.
     Torch(OnceLock<PyObject>),
     // Paddle specific mmap
     // This allows us to not manage the lifecycle of the storage,
@@ -688,7 +688,7 @@ impl Open {
 
     #[cfg(all(target_os = "linux"))]
     fn new_with_io_uring(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        use safetensors::tensor::deserialize_from_file_linux_io_uring;
+        use safetensors::tensor::deserialize_from_file_io_uring;
         
         let device = device.unwrap_or(Device::Cpu);
         if device != Device::Cpu
@@ -701,7 +701,7 @@ impl Open {
         }
 
         // Get buffer via io_uring - reads entire file eagerly
-        let buffer: &'static [u8] = deserialize_from_file_linux_io_uring(filename.to_str().ok_or_else(|| {
+        let buffer: &'static [u8] = deserialize_from_file_io_uring(filename.to_str().ok_or_else(|| {
             SafetensorError::new_err(format!(
                 "Path {} is not valid UTF-8",
                 filename.display()
@@ -1407,7 +1407,7 @@ impl PySafeSlice {
     ///
     /// with safe_open("model.safetensors", framework="pt", device=0) as f:
     ///     tslice = f.get_slice("embedding")
-    ///     dtype = tslice.get_dtype() # "F32"
+    ///     dtype = tslice.get_dtype() #[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64", target_arch = "powerpc64le")))]"F32"
     /// ```
     pub fn get_dtype(&self, py: Python) -> PyResult<PyObject> {
         Ok(self.info.dtype.to_string().into_pyobject(py)?.into())

@@ -7,7 +7,7 @@ from packaging.version import Version
 import torch
 from safetensors import (
     deserialize,
-    deserialize_file_linux_io_uring,
+    deserialize_file_io_uring,
     safe_open,
     serialize,
     serialize_file,
