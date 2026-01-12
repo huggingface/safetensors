@@ -998,6 +998,14 @@ const O_DIRECT_ALIGNMENT: usize = 512;
 ///
 /// This buffer is properly aligned for direct I/O operations and
 /// automatically freed when dropped using libc::free().
+/// A buffer with alignment suitable for O_DIRECT I/O operations.
+///
+/// This buffer is allocated using `posix_memalign` to satisfy the alignment
+/// requirements of O_DIRECT file I/O. When the buffer is dropped, the memory
+/// is automatically freed.
+///
+/// The buffer implements `Deref<Target=[u8]>` and `AsRef<[u8]>` for convenient
+/// zero-copy access to the underlying data.
 #[cfg(all(
     feature = "std",
     target_os = "linux",
@@ -1009,7 +1017,7 @@ const O_DIRECT_ALIGNMENT: usize = 512;
         target_arch = "powerpc64",
     )
 ))]
-struct AlignedBuffer {
+pub struct AlignedBuffer {
     ptr: *mut u8,
     len: usize,      // Actual data length (may be less than capacity)
     capacity: usize, // Aligned capacity
@@ -1097,6 +1105,12 @@ impl AlignedBuffer {
         self.capacity
     }
 
+    /// Returns an immutable slice view of the buffer.
+    pub fn as_slice(&self) -> &[u8] {
+        // SAFETY: ptr is valid for len bytes as guaranteed by constructor
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+
     /// Consume the buffer and return a Vec.
     ///
     /// This copies the data into a new Vec because we cannot safely
@@ -1108,19 +1122,41 @@ impl AlignedBuffer {
         // Drop runs here and frees the aligned memory
         slice.to_vec()
     }
+}
 
-    /// Leak the buffer and return a 'static slice.
-    ///
-    /// This intentionally leaks the memory to provide 'static lifetime.
-    /// The memory is NOT freed - this is for long-lived buffers like
-    /// safetensors file data that remains valid for the program's lifetime.
-    fn leak(self) -> &'static [u8] {
-        let ptr = self.ptr;
-        let len = self.len;
-        // Prevent Drop from freeing the memory
-        std::mem::forget(self);
-        // SAFETY: ptr is valid for len bytes and won't be freed (leaked)
-        unsafe { std::slice::from_raw_parts(ptr, len) }
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+impl std::ops::Deref for AlignedBuffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+impl AsRef<[u8]> for AlignedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
     }
 }
 
@@ -1205,6 +1241,17 @@ fn calculate_io_params(file_size: u64) -> usize {
         target_arch = "powerpc64",
     )
 ))]
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
 fn build_optimized_ring(queue_depth: u32) -> std::io::Result<io_uring::IoUring> {
     use io_uring::IoUring;
 
@@ -1235,6 +1282,25 @@ fn build_optimized_ring(queue_depth: u32) -> std::io::Result<io_uring::IoUring> 
     IoUring::builder().build(queue_depth)
 }
 
+/// Probe if io_uring is supported by the kernel and available for use.
+///
+/// This checks if the `io_uring_setup` syscall is available and permitted.
+#[cfg(all(
+    feature = "std",
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64",
+        target_arch = "powerpc64",
+    )
+))]
+pub fn is_io_uring_supported() -> bool {
+    // Try to create a minimal ring to verify kernel support and permissions
+    build_optimized_ring(1).is_ok()
+}
+
 /// Read file using O_DIRECT + io_uring for true zero-copy from disk.
 ///
 /// O_DIRECT bypasses the page cache, eliminating the kernel memcpy overhead
@@ -1257,7 +1323,7 @@ fn build_optimized_ring(queue_depth: u32) -> std::io::Result<io_uring::IoUring> 
 fn read_file_io_uring(
     path: &std::path::Path,
     file_size: u64,
-) -> Result<&'static [u8], SafeTensorError> {
+) -> Result<AlignedBuffer, SafeTensorError> {
     use io_uring::{opcode, types};
     use std::ffi::CString;
     use std::io::{Error, ErrorKind};
@@ -1387,15 +1453,14 @@ fn read_file_io_uring(
         }
     }
 
-    // Leak the aligned buffer to get 'static lifetime (zero-copy!)
-    Ok(buffer.leak())
+    // Return the owned buffer (will be freed when dropped)
+    Ok(buffer)
 }
 
 /// Deserialize a safetensors file using Linux io_uring for high-performance reads.
 ///
 /// This function uses io_uring to efficiently read large safetensors files on Linux.
-/// It reads the entire file into an owned buffer and returns a SafeTensors instance
-/// with 'static lifetime.
+/// It reads the entire file into an owned buffer and returns it.
 ///
 /// Performance
 ///
@@ -1415,12 +1480,12 @@ fn read_file_io_uring(
 /// For cross-platform code, use `SafeTensors::deserialize()`
 /// with memory-mapped files via the `memmap2` crate.
 ///
-/// Memory
+/// # Memory Management
 ///
-/// This function allocates memory for the entire file contents and leaks it to provide
-/// 'static lifetime. The returned buffer can be parsed with `SafeTensors::deserialize()`
-/// or `SafeTensors::read_metadata()` for zero-copy tensor access. For very large files
-/// where memory is a concern, consider using memory-mapped I/O instead.
+/// This function returns an owned `AlignedBuffer` that manages the memory
+/// lifecycle. The buffer is automatically freed when it goes out of scope.
+/// The buffer implements `Deref<Target=[u8]>`, so you can use it directly
+/// with `SafeTensors::deserialize(&buffer)` for zero-copy access.
 ///
 /// Example
 ///
@@ -1428,12 +1493,13 @@ fn read_file_io_uring(
 /// use safetensors::{deserialize_from_file_io_uring, SafeTensors};
 ///
 /// let buffer = deserialize_from_file_io_uring("model.safetensors")?;
-/// let tensors = SafeTensors::deserialize(buffer)?;
+/// let tensors = SafeTensors::deserialize(&buffer)?;
 /// for name in tensors.names() {
 ///     let tensor = tensors.tensor(&name)?;
 ///     println!("{}: {:?} {:?}", name, tensor.dtype(), tensor.shape());
 /// }
-/// Ok::<(), safetensors::SafeTensorError>(())
+/// // buffer is automatically freed when it goes out of scope
+/// # Ok::<(), safetensors::SafeTensorError>(())
 /// ```
 ///
 /// Errors
@@ -1454,7 +1520,7 @@ fn read_file_io_uring(
 ))]
 pub fn deserialize_from_file_io_uring(
     path: impl AsRef<Path>,
-) -> Result<&'static [u8], SafeTensorError> {
+) -> Result<AlignedBuffer, SafeTensorError> {
     let metadata = std::fs::metadata(path.as_ref())?;
     let file_size = metadata.len();
 
@@ -1462,7 +1528,6 @@ pub fn deserialize_from_file_io_uring(
         return Err(SafeTensorError::HeaderTooSmall);
     }
 
-    // Returns 'static slice (buffer is leaked internally)
     read_file_io_uring(path.as_ref(), file_size)
 }
 
@@ -2124,7 +2189,7 @@ mod tests {
 
             // Read with io_uring
             let buffer = deserialize_from_file_io_uring(filename).unwrap();
-            let loaded = SafeTensors::deserialize(buffer).unwrap();
+            let loaded = SafeTensors::deserialize(&buffer).unwrap();
 
             // Verify contents match
             assert_eq!(loaded.names(), vec!["test"]);
@@ -2156,7 +2221,7 @@ mod tests {
 
             // Read with io_uring (tests chunking logic and registered buffers)
             let buffer = deserialize_from_file_io_uring(filename).unwrap();
-            let loaded = SafeTensors::deserialize(buffer).unwrap();
+            let loaded = SafeTensors::deserialize(&buffer).unwrap();
 
             assert_eq!(loaded.names(), vec!["large"]);
             let loaded_tensor = loaded.tensor("large").unwrap();
@@ -2180,7 +2245,7 @@ mod tests {
             serialize_to_file(&tensors, None, Path::new(filename)).unwrap();
 
             let buffer = deserialize_from_file_io_uring(filename).unwrap();
-            let loaded = SafeTensors::deserialize(buffer).unwrap();
+            let loaded = SafeTensors::deserialize(&buffer).unwrap();
             assert_eq!(loaded.len(), 0);
 
             std::fs::remove_file(filename).unwrap();
@@ -2212,7 +2277,7 @@ mod tests {
 
             // Read with io_uring
             let io_uring_buffer = deserialize_from_file_io_uring(filename).unwrap();
-            let loaded_io_uring = SafeTensors::deserialize(io_uring_buffer).unwrap();
+            let loaded_io_uring = SafeTensors::deserialize(&io_uring_buffer).unwrap();
 
             // Read with standard mmap-based approach
             let file = std::fs::File::open(filename).unwrap();
@@ -2274,7 +2339,7 @@ mod tests {
             serialize_to_file(&metadata, None, Path::new(filename)).unwrap();
 
             let buffer = deserialize_from_file_io_uring(filename).unwrap();
-            let loaded = SafeTensors::deserialize(buffer).unwrap();
+            let loaded = SafeTensors::deserialize(&buffer).unwrap();
 
             assert_eq!(loaded.len(), 3);
             assert!(loaded.tensor("f32").is_ok());

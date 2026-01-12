@@ -211,6 +211,9 @@ fn serialize_file(
 
 /// Deserialize a safetensors file using Linux io_uring for high-performance reads.
 ///
+/// NOTE: This function reads the entire file into memory eagerly. The memory is
+/// automatically freed when the returned data is no longer referenced.
+///
 /// Args:
 ///     filename (`str`):
 ///         Path to the safetensors file
@@ -231,7 +234,7 @@ fn deserialize_file_linux_io_uring(
     .map_err(|e| SafetensorError::new_err(format!("Error while deserializing: {e}")))?;
 
     // Parse the buffer into SafeTensors
-    let safetensor = SafeTensors::deserialize(buffer)
+    let safetensor = SafeTensors::deserialize(&buffer)
         .map_err(|e| SafetensorError::new_err(format!("Error parsing safetensors: {e}")))?;
 
     let tensors = safetensor.tensors();
@@ -484,9 +487,9 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
-    /// io_uring loaded buffer with 'static lifetime
+    /// io_uring loaded buffer with RAII management
     #[cfg(all(target_os = "linux"))]
-    IoUring(&'static [u8]),
+    IoUring(safetensors::AlignedBuffer),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -701,7 +704,7 @@ impl Open {
         }
 
         // Get buffer via io_uring - reads entire file eagerly
-        let buffer: &'static [u8] = deserialize_from_file_io_uring(filename.to_str().ok_or_else(|| {
+        let buffer = deserialize_from_file_io_uring(filename.to_str().ok_or_else(|| {
             SafetensorError::new_err(format!(
                 "Path {} is not valid UTF-8",
                 filename.display()
@@ -1214,6 +1217,9 @@ impl safe_open {
 }
 
 /// Opens a safetensors file using io_uring for high-performance reading on Linux.
+///
+/// NOTE: This function reads the entire file into memory eagerly using io_uring. 
+/// The memory is automatically freed when the returned object is closed or garbage collected.
 ///
 /// Args:
 ///
