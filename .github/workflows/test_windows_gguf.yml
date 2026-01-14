@@ -1,0 +1,43 @@
+name: Test Windows GGUF Conversion
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/test_windows_gguf.yml'
+
+jobs:
+  test_gguf_conversion:
+    name: Test convert_hf_to_gguf.py on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout safetensors
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install safetensors transformers sentencepiece protobuf pyyaml gguf huggingface_hub
+        shell: bash
+
+      - name: Clone llama.cpp
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
+        shell: bash
+
+      - name: Download DeepSeek model
+        run: |
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('deepseek-ai/DeepSeek-R1-Distill-Llama-8B', local_dir='./deepseek-8b')"
+        shell: bash
+
+      - name: Run convert_hf_to_gguf.py with DeepSeek model
+        run: |
+          cd llama.cpp
+          # Using 8B variant - same Llama architecture as 70B but smaller
+          python convert_hf_to_gguf.py --outfile test.gguf ../deepseek-8b
+        shell: bash
