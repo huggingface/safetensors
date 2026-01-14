@@ -30,13 +30,13 @@ jobs:
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
         shell: bash
 
-      - name: Download Qwen model
+      - name: Download Deepseek model
         run: |
-          python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen2.5-7B', local_dir='./qwen-7b')"
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('deepseek-ai/DeepSeek-R1-Distill-Llama-70B', local_dir='./deepseek-70b')"
         shell: bash
 
-      - name: Run convert_hf_to_gguf.py with Qwen model
+      - name: Run convert_hf_to_gguf.py with Deepseek model
         run: |
           cd llama.cpp
-          python convert_hf_to_gguf.py --outfile test.gguf ../qwen-7b
+          python convert_hf_to_gguf.py --outfile test.gguf ../deepseek-70b
         shell: bash
