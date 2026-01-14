@@ -20,24 +20,15 @@ jobs:
         with:
           python-version: "3.12.8"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install dependencies
         run: |
-          # Match reporter's environment: PyTorch 2.5.1, Python 3.12.8
+          # Match reporter's environment: PyTorch 2.5.1, Python 3.12.8, safetensors 0.6.2
           pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-          pip install numpy packaging maturin
-          # Install gguf conversion dependencies (may install safetensors as dep)
+          pip install numpy packaging
+          # Install gguf conversion dependencies first
           pip install transformers sentencepiece protobuf pyyaml gguf "huggingface_hub[hf_xet]"
-        shell: bash
-
-      - name: Build safetensors 0.6.2 from source (cp312-specific, after other deps)
-        run: |
-          # Build last to ensure we have 0.6.2 and not whatever transformers installed
-          git clone --depth 1 --branch v0.6.2 https://github.com/huggingface/safetensors.git safetensors-0.6.2
-          cd safetensors-0.6.2/bindings/python
-          pip install . --force-reinstall --no-deps
+          # Force exact safetensors version last (in case transformers pulled different version)
+          pip install safetensors==0.6.2 --force-reinstall
         shell: bash
 
       - name: Verify safetensors version
