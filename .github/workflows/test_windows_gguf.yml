@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install safetensors transformers sentencepiece protobuf pyyaml gguf huggingface_hub
+          pip install safetensors transformers sentencepiece protobuf pyyaml gguf "huggingface_hub[hf_xet]"
         shell: bash
 
       - name: Clone llama.cpp
@@ -30,14 +30,13 @@ jobs:
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
         shell: bash
 
-      - name: Download DeepSeek model
+      - name: Download Qwen model
         run: |
-          python -c "from huggingface_hub import snapshot_download; snapshot_download('deepseek-ai/DeepSeek-R1-Distill-Llama-8B', local_dir='./deepseek-8b')"
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen2.5-7B', local_dir='./qwen-7b')"
         shell: bash
 
-      - name: Run convert_hf_to_gguf.py with DeepSeek model
+      - name: Run convert_hf_to_gguf.py with Qwen model
         run: |
           cd llama.cpp
-          # Using 8B variant - same Llama architecture as 70B but smaller
-          python convert_hf_to_gguf.py --outfile test.gguf ../deepseek-8b
+          python convert_hf_to_gguf.py --outfile test.gguf ../qwen-7b
         shell: bash
