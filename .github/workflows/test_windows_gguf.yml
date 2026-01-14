@@ -28,17 +28,40 @@ jobs:
           # Match reporter's environment: PyTorch 2.5.1, Python 3.12.8
           pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
           pip install numpy packaging maturin
+          # Install gguf conversion dependencies (may install safetensors as dep)
+          pip install transformers sentencepiece protobuf pyyaml gguf "huggingface_hub[hf_xet]"
         shell: bash
 
-      - name: Build safetensors 0.6.2 from source (cp312-specific)
+      - name: Build safetensors 0.6.2 from source (cp312-specific, after other deps)
         run: |
-          # Checkout safetensors 0.6.2 tag and build for cp312
+          # Build last to ensure we have 0.6.2 and not whatever transformers installed
           git clone --depth 1 --branch v0.6.2 https://github.com/huggingface/safetensors.git safetensors-0.6.2
           cd safetensors-0.6.2/bindings/python
-          pip install .
+          pip install . --force-reinstall --no-deps
+        shell: bash
+
+      - name: Verify safetensors version
+        run: |
+          python -c "import safetensors; print(f'safetensors version: {safetensors.__version__}')"
         shell: bash
 
       - name: Run minimal reproduction script
         run: |
           python test_windows_repro.py
+        shell: bash
+
+      - name: Clone llama.cpp
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
+        shell: bash
+
+      - name: Download model for conversion test
+        run: |
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('deepseek-ai/DeepSeek-R1-Distill-Llama-8B', local_dir='./deepseek-8b')"
+        shell: bash
+
+      - name: Run convert_hf_to_gguf.py
+        run: |
+          cd llama.cpp
+          python convert_hf_to_gguf.py --outfile test.gguf ../deepseek-8b
         shell: bash
