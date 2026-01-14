@@ -20,11 +20,22 @@ jobs:
         with:
           python-version: "3.12.8"
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dependencies
         run: |
-          # Match reporter's environment: PyTorch 2.5.1, Python 3.12.8, safetensors 0.6.2
+          # Match reporter's environment: PyTorch 2.5.1, Python 3.12.8
           pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-          pip install safetensors==0.6.2 numpy packaging
+          pip install numpy packaging maturin
+        shell: bash
+
+      - name: Build safetensors 0.6.2 from source (cp312-specific)
+        run: |
+          # Checkout safetensors 0.6.2 tag and build for cp312
+          git clone --depth 1 --branch v0.6.2 https://github.com/huggingface/safetensors.git safetensors-0.6.2
+          cd safetensors-0.6.2/bindings/python
+          pip install .
         shell: bash
 
       - name: Run minimal reproduction script
