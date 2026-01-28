@@ -2,7 +2,7 @@
 name = "safetensors-python"
 version = "0.7.0-dev.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.80"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -10,9 +10,10 @@ name = "safetensors_rust"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.25", features = ["abi3", "abi3-py38"] }
-memmap2 = "0.9"
+dlpark = "0.6.0"
+pyo3 = { version = "0.26", features = ["abi3", "abi3-py310"] }
 serde_json = "1.0"
 
 [dependencies.safetensors]
 path = "../../safetensors"
+features = ["loader", "cuda"]

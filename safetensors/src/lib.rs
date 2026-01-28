@@ -3,6 +3,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 pub mod slice;
 pub mod tensor;
+
+/// High-performance loader module using hmll.
+#[cfg(feature = "loader")]
+pub mod loader;
 /// serialize_to_file only valid in std
 #[cfg(feature = "std")]
 pub use tensor::serialize_to_file;

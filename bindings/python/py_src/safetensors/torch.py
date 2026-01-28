@@ -12,7 +12,6 @@ from safetensors import (
     serialize_file,
 )
 
-
 def storage_ptr(tensor: torch.Tensor) -> int:
     try:
         return tensor.untyped_storage().data_ptr()

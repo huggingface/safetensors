@@ -29,6 +29,9 @@ serde = { version = "1.0", default-features = false, features = [
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.16", features = ["serde"] }
 
+# Optional loader dependency
+hmll = { path = "/home/ubuntu/hmll/lib/rust/hmll", default-features = false, features = ["vendored"], optional = true }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
@@ -36,12 +39,20 @@ libc = "0.2"
 criterion = "0.6"
 memmap2 = "0.9"
 proptest = "1.7"
+tempfile = "3"
 
 [features]
 default = ["std"]
 std = ["serde/default", "serde_json/default"]
 # Kept for backward compatibility - no-op since alloc is always available
 alloc = []
+
+# High-performance loader using hmll
+loader = ["std", "hmll"]
+# CUDA support for direct GPU loading
+cuda = ["loader", "hmll/cuda"]
+# io_uring support for async I/O (Linux only)
+io_uring = ["loader", "hmll/io_uring"]
 
 [[bench]]
 name = "benchmark"

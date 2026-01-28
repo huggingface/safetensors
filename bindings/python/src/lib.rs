@@ -1,7 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
 use core::slice;
-use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::OnceLockExt;
@@ -9,23 +8,415 @@ use pyo3::types::IntoPyDict;
 use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
+use safetensors::loader::{Buffer as LoaderBuffer, Device as LoaderDevice, Loader as CoreLoader};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
 use safetensors::View;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fs::File;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static TORCH_AS_TENSOR: OnceLock<Py<PyAny>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static NUMPY_ASARRAY: OnceLock<Py<PyAny>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+
+/// A CPU buffer wrapper that exposes `__array_interface__` for zero-copy
+/// tensor creation with NumPy, PyTorch, and other frameworks.
+///
+/// This allows frameworks to directly wrap the CPU buffer without any memory copy.
+#[pyclass]
+struct CpuBuffer {
+    /// The underlying buffer (kept alive as long as this object exists)
+    buffer: LoaderBuffer,
+    /// Tensor shape
+    shape: Vec<usize>,
+    /// Dtype string for __array_interface__ (e.g., "<f4" for float32)
+    typestr: String,
+}
+
+impl CpuBuffer {
+    /// Create a new CpuBuffer from a loader Buffer.
+    fn new(buffer: LoaderBuffer, shape: Vec<usize>, dtype: Dtype) -> Self {
+        let typestr = dtype_to_typestr(dtype);
+        Self {
+            buffer,
+            shape,
+            typestr,
+        }
+    }
+}
+
+#[pymethods]
+impl CpuBuffer {
+    /// Returns the NumPy array interface dict for zero-copy interop.
+    ///
+    /// See: https://numpy.org/doc/stable/reference/arrays.interface.html
+    #[getter]
+    fn __array_interface__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let dict = PyDict::new(py);
+
+        // Shape must be a tuple (not a list)
+        let shape_tuple = pyo3::types::PyTuple::new(py, &self.shape)?;
+        dict.set_item("shape", shape_tuple)?;
+
+        // Type string (e.g., "<f4" for float32 little-endian)
+        dict.set_item("typestr", &self.typestr)?;
+
+        // Data pointer and read-only flag: (ptr, readonly)
+        let ptr = self.buffer.as_ptr() as usize;
+        let data_tuple = (ptr, false).into_pyobject(py)?;
+        dict.set_item("data", data_tuple)?;
+
+        // Version (3 is the current version)
+        dict.set_item("version", 3)?;
+
+        // Optional: strides (None means C-contiguous)
+        dict.set_item("strides", py.None())?;
+
+        Ok(dict.into())
+    }
+
+    /// Returns the shape of the buffer.
+    #[getter]
+    fn shape(&self) -> Vec<usize> {
+        self.shape.clone()
+    }
+
+    /// Returns the size in bytes.
+    #[getter]
+    fn nbytes(&self) -> usize {
+        self.buffer.len()
+    }
+}
+
+/// A GPU buffer wrapper that exposes `__cuda_array_interface__` for zero-copy
+/// tensor creation with PyTorch and other CUDA-aware frameworks.
+///
+/// This allows PyTorch to directly wrap the GPU buffer without any memory copy.
+#[pyclass]
+struct GpuBuffer {
+    /// The underlying buffer (kept alive as long as this object exists)
+    buffer: LoaderBuffer,
+    /// Tensor shape
+    shape: Vec<usize>,
+    /// Dtype string for __cuda_array_interface__ (e.g., "<f4" for float32)
+    typestr: String,
+    /// CUDA device index
+    device_index: usize,
+}
+
+impl GpuBuffer {
+    /// Create a new GpuBuffer from a loader Buffer.
+    fn new(buffer: LoaderBuffer, shape: Vec<usize>, dtype: Dtype, device_index: usize) -> Self {
+        let typestr = dtype_to_typestr(dtype);
+        Self {
+            buffer,
+            shape,
+            typestr,
+            device_index,
+        }
+    }
+}
+
+#[pymethods]
+impl GpuBuffer {
+    /// Returns the CUDA array interface dict for zero-copy interop with PyTorch.
+    ///
+    /// See: https://numba.readthedocs.io/en/stable/cuda/cuda_array_interface.html
+    #[getter]
+    fn __cuda_array_interface__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let dict = PyDict::new(py);
+
+        // Shape as tuple
+        let shape_tuple = self.shape.clone().into_pyobject(py)?;
+        dict.set_item("shape", shape_tuple)?;
+
+        // Type string (e.g., "<f4" for float32 little-endian)
+        dict.set_item("typestr", &self.typestr)?;
+
+        // Data pointer and read-only flag: (ptr, readonly)
+        let ptr = self.buffer.as_ptr() as usize;
+        let data_tuple = (ptr, false).into_pyobject(py)?;
+        dict.set_item("data", data_tuple)?;
+
+        // Version (3 is the current version)
+        dict.set_item("version", 3)?;
+
+        // Optional: strides (None means C-contiguous)
+        dict.set_item("strides", py.None())?;
+
+        Ok(dict.into())
+    }
+
+    /// Returns the shape of the buffer.
+    #[getter]
+    fn shape(&self) -> Vec<usize> {
+        self.shape.clone()
+    }
+
+    /// Returns the size in bytes.
+    #[getter]
+    fn nbytes(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Returns the CUDA device index.
+    #[getter]
+    fn device_index(&self) -> usize {
+        self.device_index
+    }
+}
+
+/// Convert safetensors Dtype to numpy/CUDA array interface typestr.
+/// Format: '<' (little-endian) + type char + byte size
+fn dtype_to_typestr(dtype: Dtype) -> String {
+    match dtype {
+        Dtype::BOOL => "|b1".to_string(),    // bool
+        Dtype::U8 => "|u1".to_string(),      // uint8
+        Dtype::I8 => "|i1".to_string(),      // int8
+        Dtype::U16 => "<u2".to_string(),     // uint16
+        Dtype::I16 => "<i2".to_string(),     // int16
+        Dtype::U32 => "<u4".to_string(),     // uint32
+        Dtype::I32 => "<i4".to_string(),     // int32
+        Dtype::U64 => "<u8".to_string(),     // uint64
+        Dtype::I64 => "<i8".to_string(),     // int64
+        Dtype::F16 => "<f2".to_string(),     // float16
+        Dtype::BF16 => "<V2".to_string(),    // bfloat16 (no standard typestr, use void)
+        Dtype::F32 => "<f4".to_string(),     // float32
+        Dtype::F64 => "<f8".to_string(),     // float64
+        Dtype::F8_E4M3 => "|V1".to_string(), // float8 (void, 1 byte)
+        Dtype::F8_E5M2 => "|V1".to_string(), // float8 (void, 1 byte)
+        Dtype::F8_E8M0 => "|V1".to_string(), // float8 (void, 1 byte)
+        Dtype::F4 => "|V1".to_string(),      // float4 packed
+        Dtype::C64 => "<c8".to_string(),     // complex64
+        _ => "<V1".to_string(),              // fallback to void
+    }
+}
+
+/// High-performance loader for safetensors files.
+///
+/// This is a thin wrapper around the core Loader that adds Python-specific
+/// functionality like CUDA tensor creation via __cuda_array_interface__.
+struct Loader {
+    /// The core loader (handles file access, device targeting, synchronization)
+    core: CoreLoader,
+    /// CUDA device index (if applicable)
+    cuda_index: Option<usize>,
+    /// Cached device string (e.g., "cuda:0") for faster tensor creation
+    device_str: Option<String>,
+    /// Cached kwargs dict with device already set (avoids PyDict creation per tensor)
+    cuda_kwargs: Option<Py<PyDict>>,
+}
+
+impl Loader {
+    /// Create a new Loader from a file path with specified device.
+    fn new(path: &std::path::Path, device: LoaderDevice) -> Result<Self, safetensors::loader::LoaderError> {
+        let (cuda_index, device_str) = match device {
+            LoaderDevice::Cpu => (None, None),
+            LoaderDevice::Cuda(idx) => (Some(idx), Some(format!("cuda:{idx}"))),
+        };
+        let core = CoreLoader::open(path, device)?;
+        Ok(Self { core, cuda_index, device_str })
+    }
+
+    /// Fetch a range of bytes and return the raw Buffer.
+    /// For CUDA, this buffer is on the GPU.
+    fn fetch_buffer(&self, start: usize, end: usize) -> Result<LoaderBuffer, safetensors::loader::LoaderError> {
+        self.core.fetch(start, end)
+    }
+
+    /// Fetch a range of bytes and create a PyTorch CUDA tensor with ZERO COPY.
+    ///
+    /// This loads data directly to GPU, then creates a PyTorch tensor
+    /// that wraps the GPU memory using `__cuda_array_interface__`. No memory
+    /// copy occurs - PyTorch directly references the GPU buffer.
+    ///
+    /// The GpuBuffer object is attached to the tensor to ensure the underlying
+    /// memory stays alive as long as the tensor exists.
+    fn fetch_cuda_tensor(
+        &self,
+        py: Python<'_>,
+        start: usize,
+        end: usize,
+        dtype: Dtype,
+        shape: &[usize],
+    ) -> PyResult<PyObject> {
+        // Ensure we're configured for CUDA
+        if !matches!(self.core.device(), LoaderDevice::Cuda(_)) {
+            return Err(SafetensorError::new_err(
+                "Loader not configured for CUDA",
+            ));
+        }
+
+        let device_index = self.cuda_index.unwrap_or(0);
+
+        // Note: CUDA device is set once when the loader is created (in safe_open/SafeLoader::new)
+        // This avoids the overhead of calling torch.cuda.set_device() for every tensor fetch
+
+        // Fetch data directly to GPU
+        let buffer = self.fetch_buffer(start, end).map_err(|e| {
+            SafetensorError::new_err(format!("Loader fetch error: {e}"))
+        })?;
+
+        // Wrap the GPU buffer in a GpuBuffer that exposes __cuda_array_interface__
+        let gpu_buffer = Py::new(
+            py,
+            GpuBuffer::new(buffer, shape.to_vec(), dtype, device_index),
+        )?;
+
+        // Get cached torch.as_tensor function and device string
+        let as_tensor = TORCH_AS_TENSOR
+            .get()
+            .ok_or_else(|| SafetensorError::new_err("torch module not initialized"))?
+            .bind(py);
+        let device_str = self.device_str.as_deref().unwrap_or("cuda:0");
+
+        // Create tensor using torch.as_tensor() which uses __cuda_array_interface__
+        // This is ZERO COPY - PyTorch wraps our GPU memory directly
+        // NOTE: We must explicitly pass the device to avoid issues when
+        // torch.set_default_device has been called previously.
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(intern!(py, "device"), device_str)?;
+        let tensor = as_tensor.call((gpu_buffer.bind(py),), Some(&kwargs))?;
+
+        // Attach the GpuBuffer to the tensor to keep it alive
+        tensor.setattr(intern!(py, "_safetensors_buffer"), gpu_buffer)?;
+
+        Ok(tensor.into())
+    }
+
+    /// Fetch a range of bytes and create a CPU tensor using zero-copy.
+    ///
+    /// For native numpy dtypes (float32, int64, etc.), uses __array_interface__ directly.
+    /// For extended dtypes (bfloat16, float8, float4 from ml_dtypes), creates a uint8 array
+    /// via __array_interface__, then uses view() + reshape() for zero-copy reinterpretation.
+    /// For zero-sized tensors, falls back to copy-based approach (null pointers).
+    fn fetch_cpu_tensor(
+        &self,
+        py: Python<'_>,
+        start: usize,
+        end: usize,
+        dtype: Dtype,
+        shape: &[usize],
+        framework: &Framework,
+        device: &Device,
+    ) -> PyResult<PyObject> {
+        // Check if tensor is zero-sized (any dimension is 0)
+        let is_zero_sized = shape.iter().any(|&d| d == 0);
+
+        if is_zero_sized {
+            // Zero-sized tensors have null pointers - use copy-based path
+            let data = self.core.fetch_to_vec(start, end).map_err(|e| {
+                SafetensorError::new_err(format!("Loader fetch error: {e}"))
+            })?;
+            let array: PyObject = PyByteArray::new(py, &data).into_any().into();
+            return create_tensor(framework, dtype, shape, array, device);
+        }
+
+        // Fetch raw buffer (zero-copy)
+        let buffer = self.fetch_buffer(start, end).map_err(|e| {
+            SafetensorError::new_err(format!("Loader fetch error: {e}"))
+        })?;
+
+        // Check if dtype has native __array_interface__ support
+        let dtype_is_standard = matches!(
+            dtype,
+            Dtype::BOOL
+                | Dtype::U8
+                | Dtype::I8
+                | Dtype::U16
+                | Dtype::I16
+                | Dtype::U32
+                | Dtype::I32
+                | Dtype::U64
+                | Dtype::I64
+                | Dtype::F16
+                | Dtype::F32
+                | Dtype::F64
+                | Dtype::C64
+        );
+
+        let numpy = get_module(py, &NUMPY_MODULE)?;
+        let asarray = NUMPY_ASARRAY
+            .get()
+            .ok_or_else(|| SafetensorError::new_err("numpy module not initialized"))?
+            .bind(py);
+
+        if dtype_is_standard {
+            // Standard dtype: use __array_interface__ directly with correct typestr
+            let cpu_buffer = Py::new(py, CpuBuffer::new(buffer, shape.to_vec(), dtype))?;
+            let array = asarray.call1((cpu_buffer.bind(py),))?;
+            create_tensor_from_numpy(framework, &array, device, cpu_buffer, None, None)
+        } else {
+            // Extended dtype (bfloat16, float8, float4 from ml_dtypes): zero-copy via view()
+            // 1. Create uint8 array via __array_interface__ (flat, just the raw bytes)
+            let nbytes = buffer.len();
+            let cpu_buffer = Py::new(py, CpuBuffer::new(buffer, vec![nbytes], Dtype::U8))?;
+            let raw_array = asarray.call1((cpu_buffer.bind(py),))?;
+
+            // For PyTorch: pass uint8 array + dtype info, let create_tensor_from_numpy handle it
+            // (PyTorch needs torch.from_numpy → view → reshape, not numpy view)
+            if framework == &Framework::Pytorch {
+                return create_tensor_from_numpy(
+                    framework,
+                    &raw_array,
+                    device,
+                    cpu_buffer,
+                    Some(dtype),
+                    Some(shape),
+                );
+            }
+
+            // For other frameworks: use numpy view() + reshape() (zero-copy)
+            let target_dtype = get_pydtype(numpy, dtype, true)?;
+            let typed_array = raw_array.call_method1(intern!(py, "view"), (target_dtype,))?;
+            let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+
+            create_tensor_from_numpy(framework, &shaped_array, device, cpu_buffer, None, None)
+        }
+    }
+
+    /// Get the loader device.
+    fn device(&self) -> LoaderDevice {
+        self.core.device()
+    }
+
+    /// Get the CUDA device index (if applicable).
+    #[allow(dead_code)]
+    fn cuda_index(&self) -> Option<usize> {
+        self.cuda_index
+    }
+}
+
+/// Convert Python Device to loader Device.
+/// PyTorch CUDA devices get direct GPU loading via __cuda_array_interface__.
+/// For other frameworks/devices, use CPU and let the framework handle device transfer.
+fn device_to_loader(device: &Device, framework: &Framework) -> LoaderDevice {
+    match (device, framework) {
+        // PyTorch CUDA devices get direct GPU loading
+        // hmll uses the current CUDA context, so we'll set the device before operations
+        (Device::Cuda(idx), Framework::Pytorch) => LoaderDevice::Cuda(*idx),
+        _ => LoaderDevice::Cpu,
+    }
+}
+
+/// Create a Loader with the appropriate device configuration.
+fn create_loader(
+    filename: &std::path::Path,
+    device: &Device,
+    framework: &Framework,
+) -> Result<Loader, safetensors::loader::LoaderError> {
+    let loader_device = device_to_loader(device, framework);
+    Loader::new(filename, loader_device)
+}
 
 struct TensorDataPointer {
     addr: u64,
@@ -428,78 +819,24 @@ impl<'py> IntoPyObject<'py> for Device {
     }
 }
 
-enum Storage {
-    Mmap(Mmap),
-    /// Torch specific mmap
-    /// This allows us to not manage it
-    /// so Pytorch can handle the whole lifecycle.
-    /// https://pytorch.org/docs/stable/storage.html#torch.TypedStorage.from_file.
-    Torch(OnceLock<PyObject>),
-    // Paddle specific mmap
-    // This allows us to not manage the lifecycle of the storage,
-    // Paddle can handle the whole lifecycle.
-    // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
-    Paddle(OnceLock<PyObject>),
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd)]
-struct Version {
-    major: u8,
-    minor: u8,
-    patch: u8,
-}
-
-impl Version {
-    fn new(major: u8, minor: u8, patch: u8) -> Self {
-        Self {
-            major,
-            minor,
-            patch,
-        }
-    }
-
-    fn from_string(string: &str) -> Result<Self, String> {
-        let mut parts = string.split('.');
-        let err = || format!("Could not parse torch package version {string}.");
-        let major_str = parts.next().ok_or_else(err)?;
-        let minor_str = parts.next().ok_or_else(err)?;
-        let patch_str = parts.next().ok_or_else(err)?;
-        // Patch is more complex and can be:
-        // - `1` a number
-        // - `1a0`, `1b0`, `1rc1` an alpha, beta, release candidate version
-        // - `1a0+git2323` from source with commit number
-        let patch_str: String = patch_str
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-
-        let major = major_str.parse().map_err(|_| err())?;
-        let minor = minor_str.parse().map_err(|_| err())?;
-        let patch = patch_str.parse().map_err(|_| err())?;
-        Ok(Version {
-            major,
-            minor,
-            patch,
-        })
-    }
-}
-
 struct Open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
     device: Device,
-    storage: Arc<Storage>,
+    loader: Arc<Loader>,
 }
 
 impl Open {
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(&filename).map_err(|_| {
-            PyFileNotFoundError::new_err(format!(
+        // Validate file exists
+        if !filename.exists() {
+            return Err(PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
                 filename.display()
-            ))
-        })?;
+            )));
+        }
+
         let device = device.unwrap_or(Device::Cpu);
         if device != Device::Cpu
             && framework != Framework::Pytorch
@@ -510,132 +847,59 @@ impl Open {
             )));
         }
 
-        // SAFETY: Mmap is used to prevent allocating in Rust
-        // before making a copy within Python.
-        let buffer = unsafe { MmapOptions::new().map_copy_read_only(&file)? };
-
-        let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
+        // Read metadata from the file header (efficient - only reads header, not full file)
+        let (n, metadata) = SafeTensors::read_metadata_from_file(&filename).map_err(|e| {
             SafetensorError::new_err(format!("Error while deserializing header: {e}"))
         })?;
 
         let offset = n + 8;
         Python::with_gil(|py| -> PyResult<()> {
+            // Always initialize numpy - needed for zero-copy path via __array_interface__
+            let numpy = PyModule::import(py, intern!(py, "numpy"))?;
+            // Cache numpy.asarray for faster access
+            let asarray = numpy.getattr(intern!(py, "asarray"))?;
+            NUMPY_ASARRAY.get_or_init_py_attached(py, || asarray.unbind());
+            NUMPY_MODULE.get_or_init_py_attached(py, || numpy.into());
+
+            // Also initialize framework-specific modules
             match framework {
                 Framework::Pytorch => {
                     let module = PyModule::import(py, intern!(py, "torch"))?;
-                    TORCH_MODULE.get_or_init_py_attached(py, || module.into())
+                    // Cache torch.as_tensor for faster access (avoids getattr per tensor)
+                    let as_tensor = module.getattr(intern!(py, "as_tensor"))?;
+                    TORCH_AS_TENSOR.get_or_init_py_attached(py, || as_tensor.unbind());
+                    // Set CUDA device once here BEFORE storing the module
+                    // hmll uses the current CUDA context, so this is much more
+                    // efficient than setting it per-tensor fetch
+                    if let Device::Cuda(idx) = device {
+                        module
+                            .getattr(intern!(py, "cuda"))?
+                            .getattr(intern!(py, "set_device"))?
+                            .call1((idx,))?;
+                    }
+                    TORCH_MODULE.get_or_init_py_attached(py, || module.into());
                 }
                 Framework::Paddle => {
                     let module = PyModule::import(py, intern!(py, "paddle"))?;
-                    PADDLE_MODULE.get_or_init_py_attached(py, || module.into())
+                    PADDLE_MODULE.get_or_init_py_attached(py, || module.into());
                 }
-                _ => {
-                    let module = PyModule::import(py, intern!(py, "numpy"))?;
-                    NUMPY_MODULE.get_or_init_py_attached(py, || module.into())
-                }
+                _ => {} // numpy already initialized above
             };
 
             Ok(())
         })?;
 
-        let storage = match &framework {
-            Framework::Paddle => Python::with_gil(|py| -> PyResult<Storage> {
-                let paddle = get_module(py, &PADDLE_MODULE)?;
-                let version: String = paddle.getattr(intern!(py, "__version__"))?.extract()?;
-                let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
-
-                // todo: version check, only paddle 3.1.1 or develop
-                if version >= Version::new(3, 1, 1) || version == Version::new(0, 0, 0) {
-                    let py_filename: PyObject = filename
-                        .to_str()
-                        .ok_or_else(|| {
-                            SafetensorError::new_err(format!(
-                                "Path {} is not valid UTF-8",
-                                filename.display()
-                            ))
-                        })?
-                        .into_pyobject(py)?
-                        .into();
-                    let size: PyObject = buffer.len().into_pyobject(py)?.into();
-                    let init_kargs = [
-                        (intern!(py, "filename"), py_filename),
-                        (intern!(py, "nbytes"), size),
-                    ]
-                    .into_py_dict(py)?;
-                    let storage = paddle
-                        .getattr(intern!(py, "MmapStorage"))?
-                        .call((), Some(&init_kargs))?
-                        .into_pyobject(py)?
-                        .into();
-                    let gil_storage = OnceLock::new();
-                    gil_storage.get_or_init_py_attached(py, || storage);
-                    Ok(Storage::Paddle(gil_storage))
-                } else {
-                    let module = PyModule::import(py, intern!(py, "numpy"))?;
-                    NUMPY_MODULE.get_or_init_py_attached(py, || module.into());
-                    Ok(Storage::Mmap(buffer))
-                }
-            })?,
-            Framework::Pytorch => Python::with_gil(|py| -> PyResult<Storage> {
-                let module = get_module(py, &TORCH_MODULE)?;
-
-                let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
-                let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
-
-                // Untyped storage only exists for versions over 1.11.0
-                // Same for torch.asarray which is necessary for zero-copy tensor
-                if version >= Version::new(1, 11, 0) {
-                    // storage = torch.ByteStorage.from_file(filename, shared=False, size=size).untyped()
-                    let py_filename: PyObject = filename
-                        .to_str()
-                        .ok_or_else(|| {
-                            SafetensorError::new_err(format!(
-                                "Path {} is not valid UTF-8",
-                                filename.display()
-                            ))
-                        })?
-                        .into_pyobject(py)?
-                        .into();
-                    let size: PyObject = buffer.len().into_pyobject(py)?.into();
-                    let shared: PyObject = PyBool::new(py, false).to_owned().into();
-                    let (size_name, storage_name) = if version >= Version::new(2, 0, 0) {
-                        (intern!(py, "nbytes"), intern!(py, "UntypedStorage"))
-                    } else {
-                        (intern!(py, "size"), intern!(py, "ByteStorage"))
-                    };
-
-                    let kwargs =
-                        [(intern!(py, "shared"), shared), (size_name, size)].into_py_dict(py)?;
-                    let storage = module
-                        .getattr(storage_name)?
-                        // .getattr(intern!(py, "from_file"))?
-                        .call_method("from_file", (py_filename,), Some(&kwargs))?;
-
-                    let untyped: PyBound<'_, PyAny> = match storage.getattr(intern!(py, "untyped"))
-                    {
-                        Ok(untyped) => untyped,
-                        Err(_) => storage.getattr(intern!(py, "_untyped"))?,
-                    };
-                    let storage = untyped.call0()?.into_pyobject(py)?.into();
-                    let gil_storage = OnceLock::new();
-                    gil_storage.get_or_init_py_attached(py, || storage);
-
-                    Ok(Storage::Torch(gil_storage))
-                } else {
-                    Ok(Storage::Mmap(buffer))
-                }
-            })?,
-            _ => Storage::Mmap(buffer),
-        };
-
-        let storage = Arc::new(storage);
+        // Create high-performance loader (CUDA device already set above if needed)
+        let loader = create_loader(&filename, &device, &framework).map_err(|e| {
+            SafetensorError::new_err(format!("Failed to create loader: {e}"))
+        })?;
 
         Ok(Self {
             metadata,
             offset,
             framework,
             device,
-            storage,
+            loader: Arc::new(loader),
         })
     }
 
@@ -686,203 +950,50 @@ impl Open {
     ///     tensor = f.get_tensor("embedding")
     ///
     /// ```
-    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
+    pub fn get_tensor(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
         let info = self.metadata.info(name).ok_or_else(|| {
             SafetensorError::new_err(format!("File does not contain tensor {name}",))
         })?;
-        // let info = tensors.get(name).ok_or_else(|| {
-        //     SafetensorError::new_err(format!("File does not contain tensor {name}",))
-        // })?;
 
-        match &self.storage.as_ref() {
-            Storage::Mmap(mmap) => {
-                let data =
-                    &mmap[info.data_offsets.0 + self.offset..info.data_offsets.1 + self.offset];
+        let start = info.data_offsets.0 + self.offset;
+        let end = info.data_offsets.1 + self.offset;
 
-                let array: PyObject =
-                    Python::with_gil(|py| PyByteArray::new(py, data).into_any().into());
-
-                create_tensor(
-                    &self.framework,
-                    info.dtype,
-                    &info.shape,
-                    array,
-                    &self.device,
-                )
-            }
-            Storage::Paddle(storage) => {
-                Python::with_gil(|py| -> PyResult<PyObject> {
-                    let paddle = get_module(py, &PADDLE_MODULE)?;
-                    let cur_type = if info.dtype == Dtype::U16 {
-                        Dtype::BF16
-                    } else {
-                        info.dtype
-                    };
-                    let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
-                    let paddle_uint8: PyObject = get_pydtype(paddle, Dtype::U8, false)?;
-                    let mut shape = info.shape.to_vec();
-                    if cur_type == Dtype::F4 {
-                        let n = shape.len();
-                        if shape[n - 1] % 2 != 0 {
-                            return Err(SafetensorError::new_err(format!(
-                        "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
-                                )));
-                        }
-                        shape[n - 1] /= 2;
-                    }
-                    let shape: PyObject = shape.into_pyobject(py)?.into();
-                    let start = (info.data_offsets.0 + self.offset) as isize;
-                    let stop = (info.data_offsets.1 + self.offset) as isize;
-
-                    let kwargs = [
-                        (intern!(py, "dtype"), paddle_uint8),
-                        (intern!(py, "start"), start.into_pyobject(py)?.into()),
-                        (intern!(py, "stop"), stop.into_pyobject(py)?.into()),
-                    ]
-                    .into_py_dict(py)?;
-                    let sys = PyModule::import(py, intern!(py, "sys"))?;
-                    let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
-                    let storage: &PyObject = storage
-                        .get()
-                        .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
-                    let storage: &PyBound<PyAny> = storage.bind(py);
-                    let storage_slice = storage
-                        .getattr(intern!(py, "get_slice"))?
-                        .call((), Some(&kwargs))?;
-                    let mut tensor = storage_slice
-                        .getattr(intern!(py, "view"))?
-                        .call1((dtype,))?;
-
-                    if byteorder == "big" {
-                        let inplace_kwargs =
-                            [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
-
-                        let intermediary_dtype = match cur_type {
-                            Dtype::BF16 => Some(Dtype::F16),
-                            Dtype::F8_E5M2 => Some(Dtype::U8),
-                            Dtype::F8_E4M3 => Some(Dtype::U8),
-                            Dtype::F8_E8M0 => Some(Dtype::U8),
-                            _ => None,
-                        };
-                        if let Some(intermediary_dtype) = intermediary_dtype {
-                            // Reinterpret to f16 for numpy compatibility.
-                            let dtype: PyObject = get_pydtype(paddle, intermediary_dtype, false)?;
-                            tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
-                        }
-                        let numpy = tensor
-                            .getattr(intern!(py, "numpy"))?
-                            .call0()?
-                            .getattr("byteswap")?
-                            .call((), Some(&inplace_kwargs))?;
-                        tensor = paddle.getattr(intern!(py, "to_tensor"))?.call1((numpy,))?;
-                        if intermediary_dtype.is_some() {
-                            // Reinterpret to f16 for numpy compatibility.
-                            let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
-                            tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
-                        }
-                    }
-
-                    if self.device != Device::Cpu {
-                        let device: PyObject = if let Device::Cuda(index) = self.device {
-                            format!("gpu:{index}").into_pyobject(py)?.into()
-                        } else {
-                            self.device.clone().into_pyobject(py)?.into()
-                        };
-                        let kwargs = PyDict::new(py);
-                        tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
-                    }
-
-                    let tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-                    // Paddle's MmapStorage.get_slice() doesn't keep the storage alive,
-                    // so we attach it to the tensor to prevent it from being garbage collected
-                    tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
-                    Ok(tensor.into_pyobject(py)?.into())
-                })
-            }
-            Storage::Torch(storage) => {
-                Python::with_gil(|py| -> PyResult<PyObject> {
-                    let torch = get_module(py, &TORCH_MODULE)?;
-                    let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
-                    let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
-                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
-                    let kwargs = [
-                        (intern!(py, "dtype"), torch_uint8),
-                        (intern!(py, "device"), device),
-                    ]
-                    .into_py_dict(py)?;
-                    let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                    let mut shape = info.shape.to_vec();
-                    if info.dtype == Dtype::F4 {
-                        let n = shape.len();
-                        if shape[n - 1] % 2 != 0 {
-                            return Err(SafetensorError::new_err(format!(
+        // Handle F4 dtype shape adjustment for PyTorch
+        let shape = if self.framework == Framework::Pytorch && info.dtype == Dtype::F4 {
+            let mut shape = info.shape.to_vec();
+            let n = shape.len();
+            if shape[n - 1] % 2 != 0 {
+                return Err(SafetensorError::new_err(format!(
                     "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
                 )));
-                        }
-                        shape[n - 1] /= 2;
-                    }
-                    let shape: PyObject = shape.into_pyobject(py)?.into();
-
-                    let start = (info.data_offsets.0 + self.offset) as isize;
-                    let stop = (info.data_offsets.1 + self.offset) as isize;
-                    let slice = PySlice::new(py, start, stop, 1);
-                    let storage: &PyObject = storage
-                        .get()
-                        .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
-                    let storage: &PyBound<PyAny> = storage.bind(py);
-                    let storage_slice = storage
-                        .getattr(intern!(py, "__getitem__"))?
-                        .call1((slice,))?;
-
-                    let sys = PyModule::import(py, intern!(py, "sys"))?;
-                    let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
-
-                    let mut tensor = torch
-                        .getattr(intern!(py, "asarray"))?
-                        .call((storage_slice,), Some(&kwargs))?
-                        .getattr(intern!(py, "view"))?
-                        .call((), Some(&view_kwargs))?;
-
-                    if byteorder == "big" {
-                        let inplace_kwargs =
-                            [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
-
-                        let intermediary_dtype = match info.dtype {
-                            Dtype::BF16 => Some(Dtype::F16),
-                            Dtype::F8_E5M2 => Some(Dtype::U8),
-                            Dtype::F8_E4M3 => Some(Dtype::U8),
-                            Dtype::F8_E8M0 => Some(Dtype::U8),
-                            _ => None,
-                        };
-                        if let Some(intermediary_dtype) = intermediary_dtype {
-                            // Reinterpret to f16 for numpy compatibility.
-                            let dtype: PyObject = get_pydtype(torch, intermediary_dtype, false)?;
-                            let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                            tensor = tensor
-                                .getattr(intern!(py, "view"))?
-                                .call((), Some(&view_kwargs))?;
-                        }
-                        let numpy = tensor
-                            .getattr(intern!(py, "numpy"))?
-                            .call0()?
-                            .getattr("byteswap")?
-                            .call((), Some(&inplace_kwargs))?;
-                        tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-                        if intermediary_dtype.is_some() {
-                            // Reinterpret to f16 for numpy compatibility.
-                            let dtype: PyObject = get_pydtype(torch, info.dtype, false)?;
-                            let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                            tensor = tensor
-                                .getattr(intern!(py, "view"))?
-                                .call((), Some(&view_kwargs))?;
-                        }
-                    }
-
-                    tensor = tensor.getattr(intern!(py, "reshape"))?.call1((shape,))?;
-                    Ok(tensor.into_pyobject(py)?.into())
-                })
             }
+            shape[n - 1] /= 2;
+            shape
+        } else {
+            info.shape.to_vec()
+        };
+
+        // For PyTorch + CUDA loader, use zero-copy path via __cuda_array_interface__
+        // NOTE: We check the loader's device, not self.device, because the loader
+        // may be configured for CPU even when target device is CUDA (e.g., cuda:1
+        // falls back to CPU loader since hmll only supports cuda:0 direct loading)
+        if self.framework == Framework::Pytorch
+            && matches!(self.loader.device(), LoaderDevice::Cuda(_))
+        {
+            return self.loader
+                .fetch_cuda_tensor(py, start, end, info.dtype, &shape);
         }
+
+        // CPU path: use zero-copy fetch_cpu_tensor
+        self.loader.fetch_cpu_tensor(
+            py,
+            start,
+            end,
+            info.dtype,
+            &shape,
+            &self.framework,
+            &self.device,
+        )
     }
 
     /// Returns a full slice view object
@@ -909,7 +1020,7 @@ impl Open {
                 framework: self.framework.clone(),
                 offset: self.offset,
                 device: self.device.clone(),
-                storage: self.storage.clone(),
+                loader: self.loader.clone(),
             })
         } else {
             Err(SafetensorError::new_err(format!(
@@ -1001,8 +1112,8 @@ impl safe_open {
     ///     tensor = f.get_tensor("embedding")
     ///
     /// ```
-    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        self.inner()?.get_tensor(name)
+    pub fn get_tensor(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
+        self.inner()?.get_tensor(py, name)
     }
 
     /// Returns a full slice view object
@@ -1043,7 +1154,7 @@ struct PySafeSlice {
     framework: Framework,
     offset: usize,
     device: Device,
-    storage: Arc<Storage>,
+    loader: Arc<Loader>,
 }
 
 #[derive(FromPyObject)]
@@ -1116,232 +1227,117 @@ impl PySafeSlice {
     }
 
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<PyObject> {
-        match &self.storage.as_ref() {
-            Storage::Mmap(mmap) => {
-                let pyslices = slices;
-                let slices: Slice = pyslices.extract()?;
-                let is_list = pyslices.is_instance_of::<PyList>();
-                let slices: Vec<SliceIndex> = match slices {
-                    Slice::Slice(slice) => vec![slice],
-                    Slice::Slices(slices) => {
-                        if slices.is_empty() && is_list {
-                            vec![SliceIndex::Slice(PySlice::new(pyslices.py(), 0, 0, 0))]
-                        } else if is_list {
-                            return Err(SafetensorError::new_err(
-                                "Non empty lists are not implemented",
-                            ));
-                        } else {
-                            slices
-                        }
-                    }
-                };
-                let data = &mmap[self.info.data_offsets.0 + self.offset
-                    ..self.info.data_offsets.1 + self.offset];
+        // For PyTorch + CUDA loader, load full tensor to GPU then slice on GPU
+        // (CPU-side slicing requires CPU buffer which CUDA loader can't provide)
+        // NOTE: We check the loader's device, not self.device, because the loader
+        // may be configured for CPU even when target device is CUDA
+        if self.framework == Framework::Pytorch
+            && matches!(self.loader.device(), LoaderDevice::Cuda(_))
+        {
+            let start = self.info.data_offsets.0 + self.offset;
+            let end = self.info.data_offsets.1 + self.offset;
 
-                let shape = self.info.shape.clone();
-
-                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
-                    .map_err(|e| {
-                        SafetensorError::new_err(format!("Error preparing tensor view: {e}"))
-                    })?;
-                let slices: Vec<TensorIndexer> = slices
-                    .into_iter()
-                    .zip(shape)
-                    .enumerate()
-                    .map(slice_to_indexer)
-                    .collect::<Result<_, _>>()?;
-
-                let iterator = tensor.sliced_data(&slices).map_err(|e| {
-                    SafetensorError::new_err(format!(
-                        "Error during slicing {} with shape {:?}: {e}",
-                        Disp(slices),
-                        self.info.shape,
-                    ))
-                })?;
-                let newshape = iterator.newshape();
-
-                let mut offset = 0;
-                let length = iterator.remaining_byte_len();
-                Python::with_gil(|py| {
-                    let array: PyObject =
-                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
-                            for slice in iterator {
-                                let len = slice.len();
-                                bytes[offset..offset + slice.len()].copy_from_slice(slice);
-                                offset += len;
-                            }
-                            Ok(())
-                        })?
-                        .into_any()
-                        .into();
-                    create_tensor(
-                        &self.framework,
-                        self.info.dtype,
-                        &newshape,
-                        array,
-                        &self.device,
-                    )
-                })
+            // Handle F4 dtype shape adjustment
+            let mut shape = self.info.shape.to_vec();
+            if self.info.dtype == Dtype::F4 {
+                let n = shape.len();
+                if shape[n - 1] % 2 != 0 {
+                    return Err(SafetensorError::new_err(format!(
+                        "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {shape:?}",
+                    )));
+                }
+                shape[n - 1] /= 2;
             }
-            Storage::Torch(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
-                let torch = get_module(py, &TORCH_MODULE)?;
-                let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
-                let torch_uint8: PyObject = get_pydtype(torch, Dtype::U8, false)?;
-                let kwargs = [(intern!(py, "dtype"), torch_uint8)].into_py_dict(py)?;
-                let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                let shape = self.info.shape.to_vec();
-                let shape: PyObject = shape.into_pyobject(py)?.into();
 
-                let start = (self.info.data_offsets.0 + self.offset) as isize;
-                let stop = (self.info.data_offsets.1 + self.offset) as isize;
-                let slice = PySlice::new(py, start, stop, 1);
-                let storage: &PyObject = storage
-                    .get()
-                    .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
-                let storage: &PyBound<'_, PyAny> = storage.bind(py);
+            // Load full tensor to GPU
+            let full_tensor = Python::with_gil(|py| {
+                self.loader
+                    .fetch_cuda_tensor(py, start, end, self.info.dtype, &shape)
+            })?;
 
-                let storage_slice = storage
-                    .getattr(intern!(py, "__getitem__"))?
-                    .call1((slice,))?;
-
-                let slices = slices.into_pyobject(py)?;
-
-                let sys = PyModule::import(py, intern!(py, "sys"))?;
-                let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
-
-                let mut tensor = torch
-                    .getattr(intern!(py, "asarray"))?
-                    .call((storage_slice,), Some(&kwargs))?
-                    .getattr(intern!(py, "view"))?
-                    .call((), Some(&view_kwargs))?;
-                if byteorder == "big" {
-                    // Important, do NOT use inplace otherwise the slice itself
-                    // is byteswapped, meaning multiple calls will fails
-                    let inplace_kwargs =
-                        [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
-
-                    let intermediary_dtype = match self.info.dtype {
-                        Dtype::BF16 => Some(Dtype::F16),
-                        Dtype::F8_E5M2 => Some(Dtype::U8),
-                        Dtype::F8_E4M3 => Some(Dtype::U8),
-                        Dtype::F8_E8M0 => Some(Dtype::U8),
-                        _ => None,
-                    };
-                    if let Some(intermediary_dtype) = intermediary_dtype {
-                        // Reinterpret to f16 for numpy compatibility.
-                        let dtype: PyObject = get_pydtype(torch, intermediary_dtype, false)?;
-                        let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                        tensor = tensor
-                            .getattr(intern!(py, "view"))?
-                            .call((), Some(&view_kwargs))?;
-                    }
-                    let numpy = tensor
-                        .getattr(intern!(py, "numpy"))?
-                        .call0()?
-                        .getattr("byteswap")?
-                        .call((), Some(&inplace_kwargs))?;
-                    tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((numpy,))?;
-                    if intermediary_dtype.is_some() {
-                        // Reinterpret to f16 for numpy compatibility.
-                        let dtype: PyObject = get_pydtype(torch, self.info.dtype, false)?;
-                        let view_kwargs = [(intern!(py, "dtype"), dtype)].into_py_dict(py)?;
-                        tensor = tensor
-                            .getattr(intern!(py, "view"))?
-                            .call((), Some(&view_kwargs))?;
-                    }
-                }
-                tensor = tensor
-                    .getattr(intern!(py, "reshape"))?
-                    .call1((shape,))?
+            // Apply slice on GPU tensor
+            return Python::with_gil(|py| {
+                let tensor = full_tensor.bind(py);
+                let sliced = tensor
                     .getattr(intern!(py, "__getitem__"))?
                     .call1((slices,))?;
-                if self.device != Device::Cpu {
-                    let device: PyObject = self.device.clone().into_pyobject(py)?.into();
-                    let kwargs = PyDict::new(py);
-                    tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
-                }
-                Ok(tensor.into())
-            }),
-            Storage::Paddle(storage) => Python::with_gil(|py| -> PyResult<PyObject> {
-                let paddle = get_module(py, &PADDLE_MODULE)?;
-                let cur_type = if self.info.dtype == Dtype::U16 {
-                    Dtype::BF16
-                } else {
-                    self.info.dtype
-                };
-                let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
-                let paddle_uint8: PyObject = get_pydtype(paddle, Dtype::U8, false)?;
-                let shape = self.info.shape.to_vec();
-                let shape: PyObject = shape.into_pyobject(py)?.into();
-                let start = (self.info.data_offsets.0 + self.offset) as isize;
-                let stop = (self.info.data_offsets.1 + self.offset) as isize;
-                let slices = slices.into_pyobject(py)?;
-                let storage: &PyObject = storage
-                    .get()
-                    .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
-                let storage: &PyBound<'_, PyAny> = storage.bind(py);
-                let slice_kwargs = [
-                    (intern!(py, "dtype"), paddle_uint8),
-                    (intern!(py, "start"), start.into_pyobject(py)?.into()),
-                    (intern!(py, "stop"), stop.into_pyobject(py)?.into()),
-                ]
-                .into_py_dict(py)?;
-                let storage_slice = storage
-                    .getattr(intern!(py, "get_slice"))?
-                    .call((), Some(&slice_kwargs))?;
-                let mut tensor = storage_slice
-                    .getattr(intern!(py, "view"))?
-                    .call1((dtype,))?;
-                let sys = PyModule::import(py, intern!(py, "sys"))?;
-                let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
-                if byteorder == "big" {
-                    let inplace_kwargs =
-                        [(intern!(py, "inplace"), PyBool::new(py, false))].into_py_dict(py)?;
-
-                    let intermediary_dtype = match cur_type {
-                        Dtype::BF16 => Some(Dtype::F16),
-                        Dtype::F8_E5M2 => Some(Dtype::U8),
-                        Dtype::F8_E4M3 => Some(Dtype::U8),
-                        Dtype::F8_E8M0 => Some(Dtype::U8),
-                        _ => None,
-                    };
-                    if let Some(intermediary_dtype) = intermediary_dtype {
-                        // Reinterpret to f16 for numpy compatibility.
-                        let dtype: PyObject = get_pydtype(paddle, intermediary_dtype, false)?;
-                        tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
-                    }
-                    let numpy = tensor
-                        .getattr(intern!(py, "numpy"))?
-                        .call0()?
-                        .getattr("byteswap")?
-                        .call((), Some(&inplace_kwargs))?;
-                    tensor = paddle.getattr(intern!(py, "to_tensor"))?.call1((numpy,))?;
-                    if intermediary_dtype.is_some() {
-                        // Reinterpret to f16 for numpy compatibility.
-                        let dtype: PyObject = get_pydtype(paddle, cur_type, false)?;
-                        tensor = tensor.getattr(intern!(py, "view"))?.call1((dtype,))?;
-                    }
-                }
-                tensor = tensor
-                    .getattr(intern!(py, "reshape"))?
-                    .call1((shape,))?
-                    .getattr(intern!(py, "__getitem__"))?
-                    .call1((slices,))?;
-                if self.device != Device::Cpu {
-                    let device: PyObject = if let Device::Cuda(index) = self.device {
-                        format!("gpu:{index}").into_pyobject(py)?.into()
-                    } else {
-                        self.device.clone().into_pyobject(py)?.into()
-                    };
-                    let kwargs = PyDict::new(py);
-                    tensor = tensor.call_method("to", (device,), Some(&kwargs))?;
-                }
-                // Paddle's MmapStorage.get_slice() doesn't keep the storage alive,
-                // so we attach it to the tensor to prevent it from being garbage collected
-                tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
-                Ok(tensor.into())
-            }),
+                Ok(sliced.into())
+            });
         }
+
+        // CPU path: fetch data and apply slicing
+        let pyslices = slices;
+        let slices: Slice = pyslices.extract()?;
+        let is_list = pyslices.is_instance_of::<PyList>();
+        let slices: Vec<SliceIndex> = match slices {
+            Slice::Slice(slice) => vec![slice],
+            Slice::Slices(slices) => {
+                if slices.is_empty() && is_list {
+                    vec![SliceIndex::Slice(PySlice::new(pyslices.py(), 0, 0, 0))]
+                } else if is_list {
+                    return Err(SafetensorError::new_err(
+                        "Non empty lists are not implemented",
+                    ));
+                } else {
+                    slices
+                }
+            }
+        };
+
+        // Fetch the tensor data using loader (zero-copy via buffer protocol)
+        let start = self.info.data_offsets.0 + self.offset;
+        let end = self.info.data_offsets.1 + self.offset;
+        let buffer = self.loader.fetch_buffer(start, end).map_err(|e| {
+            SafetensorError::new_err(format!("Loader fetch error: {e}"))
+        })?;
+
+        let data = buffer
+            .as_slice()
+            .ok_or_else(|| SafetensorError::new_err("Buffer not on CPU"))?;
+
+        let shape = self.info.shape.clone();
+
+        let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data).map_err(
+            |e| SafetensorError::new_err(format!("Error preparing tensor view: {e}")),
+        )?;
+        let slices: Vec<TensorIndexer> = slices
+            .into_iter()
+            .zip(shape)
+            .enumerate()
+            .map(slice_to_indexer)
+            .collect::<Result<_, _>>()?;
+
+        let iterator = tensor.sliced_data(&slices).map_err(|e| {
+            SafetensorError::new_err(format!(
+                "Error during slicing {} with shape {:?}: {e}",
+                Disp(slices),
+                self.info.shape,
+            ))
+        })?;
+        let newshape = iterator.newshape();
+
+        // For slicing, we need to copy the non-contiguous data into a new buffer
+        let mut offset = 0;
+        let length = iterator.remaining_byte_len();
+        Python::with_gil(|py| {
+            let array: PyObject = PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                for slice in iterator {
+                    let len = slice.len();
+                    bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                    offset += len;
+                }
+                Ok(())
+            })?
+            .into_any()
+            .into();
+            create_tensor(
+                &self.framework,
+                self.info.dtype,
+                &newshape,
+                array,
+                &self.device,
+            )
+        })
     }
 }
 
@@ -1490,6 +1486,116 @@ fn create_tensor<'a>(
     })
 }
 
+/// Create a tensor from a numpy array (zero-copy path from CpuBuffer with __array_interface__).
+///
+/// For standard dtypes, the numpy array already has the correct dtype.
+/// For extended dtypes (bfloat16, float8, float4 from ml_dtypes), the numpy array is uint8
+/// and needs dtype conversion via view() - handled differently per framework.
+///
+/// The cpu_buffer is passed to attach it to frameworks that support it, ensuring memory stays alive.
+fn create_tensor_from_numpy(
+    framework: &Framework,
+    array: &PyBound<'_, PyAny>,
+    device: &Device,
+    cpu_buffer: Py<CpuBuffer>,
+    target_dtype: Option<Dtype>,
+    target_shape: Option<&[usize]>,
+) -> PyResult<PyObject> {
+    Python::with_gil(|py| -> PyResult<PyObject> {
+        let tensor: PyBound<'_, PyAny> = match framework {
+            Framework::Pytorch => {
+                let torch = get_module(py, &TORCH_MODULE)?;
+
+                // For extended dtypes: use torch.from_numpy(uint8) → view(dtype) → reshape
+                // For standard dtypes: use torch.as_tensor directly
+                let tensor = if let (Some(dtype), Some(shape)) = (target_dtype, target_shape) {
+                    // Extended dtype path: torch.from_numpy(uint8_array).view(torch_dtype).reshape(shape)
+                    let uint8_tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((array,))?;
+                    let torch_dtype = get_pydtype(torch, dtype, false)?;
+                    let typed_tensor = uint8_tensor.call_method1(intern!(py, "view"), (torch_dtype,))?;
+                    typed_tensor.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+                } else {
+                    // Standard dtype: torch.as_tensor with explicit device="cpu"
+                    let kwargs = PyDict::new(py);
+                    kwargs.set_item(intern!(py, "device"), "cpu")?;
+                    torch
+                        .getattr(intern!(py, "as_tensor"))?
+                        .call((array,), Some(&kwargs))?
+                };
+
+                // Attach the CpuBuffer to keep memory alive
+                tensor.setattr(intern!(py, "_safetensors_buffer"), cpu_buffer)?;
+
+                // Move to target device if needed
+                if device != &Device::Cpu {
+                    let device_obj: PyObject = device.clone().into_pyobject(py)?.into();
+                    let kwargs = PyDict::new(py);
+                    tensor.call_method("to", (device_obj,), Some(&kwargs))?
+                } else {
+                    tensor
+                }
+            }
+            Framework::Numpy => {
+                // numpy arrays via __array_interface__ keep reference via array.base
+                // For extended dtypes, the view() and reshape() were already applied
+                array.clone()
+            }
+            Framework::Flax => {
+                // JAX copies data, so buffer reference not needed
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "jax"))?;
+                    Ok(FLAX_MODULE.get_or_init_py_attached(py, || module.into()))
+                })?
+                .bind(py);
+                module
+                    .getattr(intern!(py, "numpy"))?
+                    .getattr(intern!(py, "array"))?
+                    .call1((array,))?
+            }
+            Framework::Tensorflow => {
+                // TensorFlow copies data, so buffer reference not needed
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "tensorflow"))?;
+                    Ok(TENSORFLOW_MODULE.get_or_init_py_attached(py, || module.into()))
+                })?
+                .bind(py);
+                module
+                    .getattr(intern!(py, "convert_to_tensor"))?
+                    .call1((array,))?
+            }
+            Framework::Mlx => {
+                // MLX copies data, so buffer reference not needed
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "mlx"))?;
+                    Ok(MLX_MODULE.get_or_init_py_attached(py, || module.into()))
+                })?
+                .bind(py);
+                module
+                    .getattr(intern!(py, "core"))?
+                    .call_method1("array", (array,))?
+            }
+            Framework::Paddle => {
+                // Paddle copies data, so buffer reference not needed
+                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
+                    let module = PyModule::import(py, intern!(py, "paddle"))?;
+                    Ok(PADDLE_MODULE.get_or_init_py_attached(py, || module.into()))
+                })?
+                .bind(py);
+                let device_obj: PyObject = if let Device::Cuda(index) = device {
+                    format!("gpu:{index}").into_pyobject(py)?.into()
+                } else {
+                    device.clone().into_pyobject(py)?.into()
+                };
+                let kwargs = [(intern!(py, "place"), device_obj)].into_py_dict(py)?;
+                module
+                    .getattr(intern!(py, "to_tensor"))?
+                    .call((array,), Some(&kwargs))?
+            }
+        };
+        Ok(tensor.into())
+    })
+}
+
 fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> PyResult<PyObject> {
     Python::with_gil(|py| {
         let dtype: PyObject = match dtype {
@@ -1521,10 +1627,46 @@ fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> 
                     module.getattr(intern!(py, "bool"))?.into()
                 }
             }
-            Dtype::F8_E4M3 => module.getattr(intern!(py, "float8_e4m3fn"))?.into(),
-            Dtype::F8_E5M2 => module.getattr(intern!(py, "float8_e5m2"))?.into(),
-            Dtype::F8_E8M0 => module.getattr(intern!(py, "float8_e8m0fnu"))?.into(),
-            Dtype::F4 => module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into(),
+            Dtype::F8_E4M3 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("float8_e4m3fn",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "float8_e4m3fn"))?.into()
+                }
+            }
+            Dtype::F8_E5M2 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("float8_e5m2",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "float8_e5m2"))?.into()
+                }
+            }
+            Dtype::F8_E8M0 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("float8_e8m0fnu",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "float8_e8m0fnu"))?.into()
+                }
+            }
+            Dtype::F4 => {
+                if is_numpy {
+                    module
+                        .getattr(intern!(py, "dtype"))?
+                        .call1(("float4_e2m1fn_x2",))?
+                        .into()
+                } else {
+                    module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into()
+                }
+            }
             Dtype::C64 => module.getattr(intern!(py, "complex64"))?.into(),
             dtype => {
                 return Err(SafetensorError::new_err(format!(
@@ -1619,8 +1761,8 @@ impl _safe_open_handle {
     ///     tensor = f.get_tensor("embedding")
     ///
     /// ```
-    pub fn get_tensor(&self, name: &str) -> PyResult<PyObject> {
-        self.inner()?.get_tensor(name)
+    pub fn get_tensor(&self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
+        self.inner()?.get_tensor(py, name)
     }
 
     /// Returns a full slice view object
@@ -1663,6 +1805,8 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;
+    m.add_class::<CpuBuffer>()?;
+    m.add_class::<GpuBuffer>()?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

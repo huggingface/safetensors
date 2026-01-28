@@ -424,6 +424,60 @@ impl<'data> SafeTensors<'data> {
         Ok((n, metadata))
     }
 
+    /// Reads only the metadata header from a file without loading tensor data.
+    ///
+    /// This is more efficient than `read_metadata` when you only need the header
+    /// information and don't want to memory-map or load the entire file.
+    ///
+    /// Returns a tuple of (header_size, metadata). The data offset in the file
+    /// is `8 + header_size` (8 bytes for the header length field).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use safetensors::SafeTensors;
+    /// use std::path::Path;
+    ///
+    /// let (header_size, metadata) = SafeTensors::read_metadata_from_file("model.safetensors")?;
+    /// let data_offset = 8 + header_size;
+    /// println!("Tensor data starts at byte {}", data_offset);
+    /// # Ok::<(), safetensors::SafeTensorError>(())
+    /// ```
+    #[cfg(feature = "std")]
+    pub fn read_metadata_from_file<P: AsRef<Path>>(path: P) -> Result<(usize, Metadata), SafeTensorError> {
+        use std::io::Read;
+
+        let mut file = std::fs::File::open(path).map_err(SafeTensorError::IoError)?;
+
+        // Read the 8-byte header length
+        let mut header_len_bytes = [0u8; N_LEN];
+        file.read_exact(&mut header_len_bytes)
+            .map_err(SafeTensorError::IoError)?;
+
+        let n: usize = u64::from_le_bytes(header_len_bytes)
+            .try_into()
+            .map_err(|_| SafeTensorError::HeaderTooLarge)?;
+
+        if n > MAX_HEADER_SIZE {
+            return Err(SafeTensorError::HeaderTooLarge);
+        }
+
+        // Read the header JSON
+        let mut header_bytes = vec![0u8; n];
+        file.read_exact(&mut header_bytes)
+            .map_err(SafeTensorError::IoError)?;
+
+        let string = core::str::from_utf8(&header_bytes).map_err(SafeTensorError::InvalidHeader)?;
+        let metadata: HashMetadata =
+            serde_json::from_str(string).map_err(SafeTensorError::InvalidHeaderDeserialization)?;
+        let metadata: Metadata = metadata.try_into()?;
+
+        // Validate the metadata structure (but not buffer completeness)
+        let _ = metadata.validate()?;
+
+        Ok((n, metadata))
+    }
+
     /// Given a byte-buffer representing the whole safetensor file
     /// parses it and returns the Deserialized form (No Tensor allocation).
     ///
