@@ -313,6 +313,8 @@ impl Loader {
     /// Always creates a uint8 array via __array_interface__, then uses view() + reshape()
     /// for zero-copy dtype reinterpretation. This unified path works for all dtypes.
     /// For zero-sized tensors, falls back to copy-based approach (null pointers).
+    ///
+    /// Uses fetch_view() for true zero-copy mmap access when available.
     fn fetch_cpu_tensor(
         &self,
         py: Python<'_>,
@@ -335,8 +337,12 @@ impl Loader {
             return create_tensor(framework, dtype, shape, array, device);
         }
 
-        // Fetch raw buffer (zero-copy)
-        let buffer = self.fetch_buffer(start, end).map_err(|e| {
+        // Try zero-copy fetch_view first (true mmap zero-copy)
+        // Falls back to fetch() with copy if view is not available
+        let buffer = self.core.fetch_view(start, end).or_else(|_| {
+            // fetch_view not available (e.g., non-mmap backend), fall back to fetch
+            self.fetch_buffer(start, end)
+        }).map_err(|e| {
             SafetensorError::new_err(format!("Loader fetch error: {e}"))
         })?;
 

@@ -264,6 +264,52 @@ impl Loader {
         Ok(buffer)
     }
 
+    /// Fetch a zero-copy view of a byte range from the file.
+    ///
+    /// This returns a `Buffer` that points directly into the mmap'd file
+    /// without any memory allocation or copying. The buffer is only valid
+    /// as long as this `Loader` remains valid.
+    ///
+    /// **Note**: This only works for CPU targets with the mmap backend.
+    /// For CUDA targets or other backends, use `fetch()` instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - Start offset in bytes
+    /// * `end` - End offset in bytes (exclusive)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use safetensors::loader::{Loader, Device};
+    /// # let loader = Loader::open("model.safetensors", Device::Cpu)?;
+    /// // Get a zero-copy view into the file
+    /// let view = loader.fetch_view(1000, 2000)?;
+    /// assert_eq!(view.len(), 1000);
+    /// // view points directly into mmap'd memory - no allocation or copy!
+    /// # Ok::<(), safetensors::loader::LoaderError>(())
+    /// ```
+    pub fn fetch_view(&self, start: usize, end: usize) -> Result<Buffer> {
+        if start > end {
+            return Err(LoaderError::InvalidRange);
+        }
+        if start == end {
+            // Return empty buffer for zero-length range
+            return Ok(Buffer::empty(self.device.to_hmll()));
+        }
+
+        // Only works for CPU device
+        if self.device != Device::Cpu {
+            return Err(LoaderError::FetchError(
+                "fetch_view only supported for CPU device".into(),
+            ));
+        }
+
+        let mut guard = self.inner.lock().unwrap();
+        let buffer = guard.loader.fetch_view(start..end, 0)?;
+        Ok(buffer)
+    }
+
     /// Fetch a range of bytes and copy to a Vec.
     ///
     /// This is a convenience method that fetches data and copies it to
