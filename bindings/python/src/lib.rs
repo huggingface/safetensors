@@ -77,26 +77,21 @@ static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 /// A CPU buffer wrapper that exposes `__array_interface__` for zero-copy
 /// tensor creation with NumPy, PyTorch, and other frameworks.
 ///
-/// This allows frameworks to directly wrap the CPU buffer without any memory copy.
+/// Always exposes data as uint8 - callers use view() + reshape() for dtype conversion.
+/// This simplifies the code path and works uniformly for all dtypes including exotic ones.
 #[pyclass]
 struct CpuBuffer {
     /// The underlying buffer (kept alive as long as this object exists)
     buffer: LoaderBuffer,
-    /// Tensor shape
-    shape: Vec<usize>,
-    /// Dtype string for __array_interface__ (e.g., "<f4" for float32)
-    typestr: String,
+    /// Size in bytes (exposed as 1D uint8 array)
+    nbytes: usize,
 }
 
 impl CpuBuffer {
     /// Create a new CpuBuffer from a loader Buffer.
-    fn new(buffer: LoaderBuffer, shape: Vec<usize>, dtype: Dtype) -> Self {
-        let typestr = dtype_to_typestr(dtype);
-        Self {
-            buffer,
-            shape,
-            typestr,
-        }
+    fn new(buffer: LoaderBuffer) -> Self {
+        let nbytes = buffer.len();
+        Self { buffer, nbytes }
     }
 }
 
@@ -104,17 +99,18 @@ impl CpuBuffer {
 impl CpuBuffer {
     /// Returns the NumPy array interface dict for zero-copy interop.
     ///
+    /// Always returns uint8 dtype - callers use view() + reshape() for conversion.
     /// See: https://numpy.org/doc/stable/reference/arrays.interface.html
     #[getter]
     fn __array_interface__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let dict = PyDict::new(py);
 
-        // Shape must be a tuple (not a list)
-        let shape_tuple = pyo3::types::PyTuple::new(py, &self.shape)?;
+        // Shape as 1D array of bytes
+        let shape_tuple = pyo3::types::PyTuple::new(py, &[self.nbytes])?;
         dict.set_item("shape", shape_tuple)?;
 
-        // Type string (e.g., "<f4" for float32 little-endian)
-        dict.set_item("typestr", &self.typestr)?;
+        // Always uint8
+        dict.set_item("typestr", "|u1")?;
 
         // Data pointer and read-only flag: (ptr, readonly)
         let ptr = self.buffer.as_ptr() as usize;
@@ -130,72 +126,22 @@ impl CpuBuffer {
         Ok(dict.into())
     }
 
-    /// Returns the shape of the buffer.
-    #[getter]
-    fn shape(&self) -> Vec<usize> {
-        self.shape.clone()
-    }
-
     /// Returns the size in bytes.
     #[getter]
     fn nbytes(&self) -> usize {
-        self.buffer.len()
+        self.nbytes
     }
 }
 
-/// A GPU buffer wrapper that exposes DLPack protocol for zero-copy
-/// tensor creation with PyTorch and other CUDA-aware frameworks.
-///
-/// DLPack is ~6x faster than `__cuda_array_interface__` for PyTorch tensor creation.
-#[pyclass]
-struct GpuBuffer {
-    /// The underlying buffer (kept alive as long as this object exists)
-    buffer: LoaderBuffer,
-    /// Tensor shape
-    shape: Vec<usize>,
-    /// Tensor shape as i64 for DLPack (must be kept alive)
-    shape_i64: Vec<i64>,
-    /// Original safetensors dtype
-    dtype: Dtype,
-    /// DLPack dtype (None for exotic dtypes - will export as uint8)
-    dlpack_dtype: Option<dlpack_ffi::DataType>,
-    /// Dtype string for __cuda_array_interface__ fallback
-    typestr: String,
-    /// CUDA device index
-    device_index: usize,
-    /// Total byte count (used for uint8 export of exotic dtypes)
-    nbytes: usize,
-}
-
-impl GpuBuffer {
-    /// Create a new GpuBuffer from a loader Buffer.
-    fn new(buffer: LoaderBuffer, shape: Vec<usize>, dtype: Dtype, device_index: usize) -> Self {
-        let typestr = dtype_to_typestr(dtype);
-        let dlpack_dtype = dtype_to_dlpack(dtype);
-        let shape_i64: Vec<i64> = shape.iter().map(|&s| s as i64).collect();
-        let nbytes = buffer.len();
-        Self {
-            buffer,
-            shape,
-            shape_i64,
-            dtype,
-            dlpack_dtype,
-            typestr,
-            device_index,
-            nbytes,
-        }
-    }
-}
-
-/// Lightweight holder just to keep GPU buffer alive when attached to a tensor.
-/// Much cheaper to create than the full GpuBuffer pyclass.
+/// Lightweight holder to keep GPU buffer alive when attached to a tensor.
+/// Attached via tensor._safetensors_buffer to prevent deallocation.
 #[pyclass]
 struct GpuBufferHolder {
     #[allow(dead_code)]
     buffer: LoaderBuffer,
 }
 
-/// Wrapper for creating DLPack tensor from GpuBuffer.
+/// Wrapper for creating DLPack tensor from GPU memory.
 /// This struct owns all its data to avoid lifetime issues with PyO3.
 struct DlpackGpuWrapper {
     ptr: *mut std::ffi::c_void,
@@ -228,129 +174,8 @@ impl TensorLike<RowMajorCompactLayout> for DlpackGpuWrapper {
     }
 }
 
-#[pymethods]
-impl GpuBuffer {
-    /// Returns a DLPack capsule for zero-copy tensor exchange.
-    ///
-    /// This is ~6x faster than __cuda_array_interface__ for PyTorch.
-    /// For exotic dtypes (F8, F4), exports as uint8 - caller must view-cast.
-    /// See: https://dmlc.github.io/dlpack/latest/
-    #[pyo3(signature = (stream=None))]
-    fn __dlpack__(&self, py: Python<'_>, stream: Option<i64>) -> PyResult<PyObject> {
-        let _ = stream; // stream is unused but required by the protocol
-
-        // For exotic dtypes, export as uint8 (caller will view-cast)
-        let (dlpack_dtype, shape) = if let Some(dtype) = self.dlpack_dtype {
-            (dtype, self.shape_i64.clone())
-        } else {
-            // Export as flat uint8 array for exotic dtypes
-            (dlpack_ffi::DataType::U8, vec![self.nbytes as i64])
-        };
-
-        // Create wrapper that owns its data (cloned from GpuBuffer)
-        let wrapper = DlpackGpuWrapper {
-            ptr: self.buffer.as_ptr() as *mut std::ffi::c_void,
-            shape,
-            dtype: dlpack_dtype,
-            device_index: self.device_index,
-        };
-
-        // Create SafeManagedTensor which handles memory management
-        let managed_tensor = SafeManagedTensor::new(wrapper)
-            .map_err(|e| SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e)))?;
-
-        // Convert to PyCapsule using our own function (not dlpark's pyo3 integration
-        // because dlpark uses pyo3 0.25 and we use 0.26)
-        managed_tensor_to_capsule(py, managed_tensor)
-    }
-
-    /// Returns the device type and device ID for DLPack.
-    fn __dlpack_device__(&self) -> (i32, i32) {
-        // DeviceType::Cuda = 2 in DLPack spec
-        (2, self.device_index as i32)
-    }
-
-    /// Returns the CUDA array interface dict for zero-copy interop with PyTorch.
-    /// This is a fallback for dtypes not supported by DLPack.
-    ///
-    /// See: https://numba.readthedocs.io/en/stable/cuda/cuda_array_interface.html
-    #[getter]
-    fn __cuda_array_interface__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new(py);
-
-        // Shape as tuple
-        let shape_tuple = self.shape.clone().into_pyobject(py)?;
-        dict.set_item("shape", shape_tuple)?;
-
-        // Type string (e.g., "<f4" for float32 little-endian)
-        dict.set_item("typestr", &self.typestr)?;
-
-        // Data pointer and read-only flag: (ptr, readonly)
-        let ptr = self.buffer.as_ptr() as usize;
-        let data_tuple = (ptr, false).into_pyobject(py)?;
-        dict.set_item("data", data_tuple)?;
-
-        // Version (3 is the current version)
-        dict.set_item("version", 3)?;
-
-        // Optional: strides (None means C-contiguous)
-        dict.set_item("strides", py.None())?;
-
-        Ok(dict.into())
-    }
-
-    /// Returns the shape of the buffer.
-    #[getter]
-    fn shape(&self) -> Vec<usize> {
-        self.shape.clone()
-    }
-
-    /// Returns the size in bytes.
-    #[getter]
-    fn nbytes(&self) -> usize {
-        self.buffer.len()
-    }
-
-    /// Returns the CUDA device index.
-    #[getter]
-    fn device_index(&self) -> usize {
-        self.device_index
-    }
-
-    /// Returns whether DLPack is supported for this buffer's dtype.
-    #[getter]
-    fn supports_dlpack(&self) -> bool {
-        self.dlpack_dtype.is_some()
-    }
-}
-
-/// Convert safetensors Dtype to numpy/CUDA array interface typestr.
-/// Format: '<' (little-endian) + type char + byte size
-fn dtype_to_typestr(dtype: Dtype) -> String {
-    match dtype {
-        Dtype::BOOL => "|b1".to_string(),    // bool
-        Dtype::U8 => "|u1".to_string(),      // uint8
-        Dtype::I8 => "|i1".to_string(),      // int8
-        Dtype::U16 => "<u2".to_string(),     // uint16
-        Dtype::I16 => "<i2".to_string(),     // int16
-        Dtype::U32 => "<u4".to_string(),     // uint32
-        Dtype::I32 => "<i4".to_string(),     // int32
-        Dtype::U64 => "<u8".to_string(),     // uint64
-        Dtype::I64 => "<i8".to_string(),     // int64
-        Dtype::F16 => "<f2".to_string(),     // float16
-        Dtype::BF16 => "<V2".to_string(),    // bfloat16 (no standard typestr, use void)
-        Dtype::F32 => "<f4".to_string(),     // float32
-        Dtype::F64 => "<f8".to_string(),     // float64
-        Dtype::F8_E4M3 => "|V1".to_string(), // float8 (void, 1 byte)
-        Dtype::F8_E5M2 => "|V1".to_string(), // float8 (void, 1 byte)
-        Dtype::F8_E8M0 => "|V1".to_string(), // float8 (void, 1 byte)
-        Dtype::F4 => "|V1".to_string(),      // float4 packed
-        Dtype::C64 => "<c8".to_string(),     // complex64
-        _ => "<V1".to_string(),              // fallback to void
-    }
-}
-
 /// Convert safetensors Dtype to DLPack DataType.
+/// Returns None for exotic types (F8, F4) which are exported as uint8 + view-cast.
 fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
     Some(match dtype {
         Dtype::BOOL => dlpack_ffi::DataType::BOOL,
@@ -366,7 +191,7 @@ fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
         Dtype::BF16 => dlpack_ffi::DataType::BF16,
         Dtype::F32 => dlpack_ffi::DataType::F32,
         Dtype::F64 => dlpack_ffi::DataType::F64,
-        // For F8 and F4 types, we fall back to None (use __cuda_array_interface__)
+        // For F8 and F4 types, export as uint8 and view-cast
         _ => return None,
     })
 }
@@ -374,27 +199,23 @@ fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
 /// High-performance loader for safetensors files.
 ///
 /// This is a thin wrapper around the core Loader that adds Python-specific
-/// functionality like CUDA tensor creation via __cuda_array_interface__.
+/// functionality like CUDA tensor creation via DLPack protocol.
 struct Loader {
     /// The core loader (handles file access, device targeting, synchronization)
     core: CoreLoader,
     /// CUDA device index (if applicable)
     cuda_index: Option<usize>,
-    /// Cached device string (e.g., "cuda:0") for faster tensor creation
-    device_str: Option<String>,
-    /// Cached kwargs dict with device already set (avoids PyDict creation per tensor)
-    cuda_kwargs: Option<Py<PyDict>>,
 }
 
 impl Loader {
     /// Create a new Loader from a file path with specified device.
     fn new(path: &std::path::Path, device: LoaderDevice) -> Result<Self, safetensors::loader::LoaderError> {
-        let (cuda_index, device_str) = match device {
-            LoaderDevice::Cpu => (None, None),
-            LoaderDevice::Cuda(idx) => (Some(idx), Some(format!("cuda:{idx}"))),
+        let cuda_index = match device {
+            LoaderDevice::Cpu => None,
+            LoaderDevice::Cuda(idx) => Some(idx),
         };
         let core = CoreLoader::open(path, device)?;
-        Ok(Self { core, cuda_index, device_str, cuda_kwargs: None })
+        Ok(Self { core, cuda_index })
     }
 
     /// Fetch a range of bytes and return the raw Buffer.
@@ -489,9 +310,8 @@ impl Loader {
 
     /// Fetch a range of bytes and create a CPU tensor using zero-copy.
     ///
-    /// For native numpy dtypes (float32, int64, etc.), uses __array_interface__ directly.
-    /// For extended dtypes (bfloat16, float8, float4 from ml_dtypes), creates a uint8 array
-    /// via __array_interface__, then uses view() + reshape() for zero-copy reinterpretation.
+    /// Always creates a uint8 array via __array_interface__, then uses view() + reshape()
+    /// for zero-copy dtype reinterpretation. This unified path works for all dtypes.
     /// For zero-sized tensors, falls back to copy-based approach (null pointers).
     fn fetch_cpu_tensor(
         &self,
@@ -520,62 +340,17 @@ impl Loader {
             SafetensorError::new_err(format!("Loader fetch error: {e}"))
         })?;
 
-        // Check if dtype has native __array_interface__ support
-        let dtype_is_standard = matches!(
-            dtype,
-            Dtype::BOOL
-                | Dtype::U8
-                | Dtype::I8
-                | Dtype::U16
-                | Dtype::I16
-                | Dtype::U32
-                | Dtype::I32
-                | Dtype::U64
-                | Dtype::I64
-                | Dtype::F16
-                | Dtype::F32
-                | Dtype::F64
-                | Dtype::C64
-        );
-
-        let numpy = get_module(py, &NUMPY_MODULE)?;
         let asarray = NUMPY_ASARRAY
             .get()
             .ok_or_else(|| SafetensorError::new_err("numpy module not initialized"))?
             .bind(py);
 
-        if dtype_is_standard {
-            // Standard dtype: use __array_interface__ directly with correct typestr
-            let cpu_buffer = Py::new(py, CpuBuffer::new(buffer, shape.to_vec(), dtype))?;
-            let array = asarray.call1((cpu_buffer.bind(py),))?;
-            create_tensor_from_numpy(framework, &array, device, cpu_buffer, None, None)
-        } else {
-            // Extended dtype (bfloat16, float8, float4 from ml_dtypes): zero-copy via view()
-            // 1. Create uint8 array via __array_interface__ (flat, just the raw bytes)
-            let nbytes = buffer.len();
-            let cpu_buffer = Py::new(py, CpuBuffer::new(buffer, vec![nbytes], Dtype::U8))?;
-            let raw_array = asarray.call1((cpu_buffer.bind(py),))?;
+        // Unified path: uint8 array via __array_interface__, then view() + reshape()
+        let cpu_buffer = Py::new(py, CpuBuffer::new(buffer))?;
+        let raw_array = asarray.call1((cpu_buffer.bind(py),))?;
 
-            // For PyTorch: pass uint8 array + dtype info, let create_tensor_from_numpy handle it
-            // (PyTorch needs torch.from_numpy → view → reshape, not numpy view)
-            if framework == &Framework::Pytorch {
-                return create_tensor_from_numpy(
-                    framework,
-                    &raw_array,
-                    device,
-                    cpu_buffer,
-                    Some(dtype),
-                    Some(shape),
-                );
-            }
-
-            // For other frameworks: use numpy view() + reshape() (zero-copy)
-            let target_dtype = get_pydtype(numpy, dtype, true)?;
-            let typed_array = raw_array.call_method1(intern!(py, "view"), (target_dtype,))?;
-            let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
-
-            create_tensor_from_numpy(framework, &shaped_array, device, cpu_buffer, None, None)
-        }
+        // Pass to framework-specific handler with dtype info for view-casting
+        create_tensor_from_numpy(framework, &raw_array, device, cpu_buffer, dtype, shape)
     }
 
     /// Get the loader device.
@@ -1683,42 +1458,30 @@ fn create_tensor<'a>(
     })
 }
 
-/// Create a tensor from a numpy array (zero-copy path from CpuBuffer with __array_interface__).
+/// Create a tensor from a uint8 numpy array using zero-copy view + reshape.
 ///
-/// For standard dtypes, the numpy array already has the correct dtype.
-/// For extended dtypes (bfloat16, float8, float4 from ml_dtypes), the numpy array is uint8
-/// and needs dtype conversion via view() - handled differently per framework.
+/// The array is always uint8 (raw bytes from CpuBuffer). We use view() + reshape()
+/// for zero-copy dtype reinterpretation. This unified path works for all dtypes.
 ///
-/// The cpu_buffer is passed to attach it to frameworks that support it, ensuring memory stays alive.
+/// The cpu_buffer is attached to the tensor to ensure memory stays alive.
 fn create_tensor_from_numpy(
     framework: &Framework,
     array: &PyBound<'_, PyAny>,
     device: &Device,
     cpu_buffer: Py<CpuBuffer>,
-    target_dtype: Option<Dtype>,
-    target_shape: Option<&[usize]>,
+    dtype: Dtype,
+    shape: &[usize],
 ) -> PyResult<PyObject> {
     Python::with_gil(|py| -> PyResult<PyObject> {
         let tensor: PyBound<'_, PyAny> = match framework {
             Framework::Pytorch => {
                 let torch = get_module(py, &TORCH_MODULE)?;
 
-                // For extended dtypes: use torch.from_numpy(uint8) → view(dtype) → reshape
-                // For standard dtypes: use torch.as_tensor directly
-                let tensor = if let (Some(dtype), Some(shape)) = (target_dtype, target_shape) {
-                    // Extended dtype path: torch.from_numpy(uint8_array).view(torch_dtype).reshape(shape)
-                    let uint8_tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((array,))?;
-                    let torch_dtype = get_pydtype(torch, dtype, false)?;
-                    let typed_tensor = uint8_tensor.call_method1(intern!(py, "view"), (torch_dtype,))?;
-                    typed_tensor.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
-                } else {
-                    // Standard dtype: torch.as_tensor with explicit device="cpu"
-                    let kwargs = PyDict::new(py);
-                    kwargs.set_item(intern!(py, "device"), "cpu")?;
-                    torch
-                        .getattr(intern!(py, "as_tensor"))?
-                        .call((array,), Some(&kwargs))?
-                };
+                // torch.from_numpy(uint8_array).view(torch_dtype).reshape(shape)
+                let uint8_tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((array,))?;
+                let torch_dtype = get_pydtype(torch, dtype, false)?;
+                let typed_tensor = uint8_tensor.call_method1(intern!(py, "view"), (torch_dtype,))?;
+                let tensor = typed_tensor.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
                 // Attach the CpuBuffer to keep memory alive
                 tensor.setattr(intern!(py, "_safetensors_buffer"), cpu_buffer)?;
@@ -1733,12 +1496,20 @@ fn create_tensor_from_numpy(
                 }
             }
             Framework::Numpy => {
-                // numpy arrays via __array_interface__ keep reference via array.base
-                // For extended dtypes, the view() and reshape() were already applied
-                array.clone()
+                let numpy = get_module(py, &NUMPY_MODULE)?;
+                // numpy view() + reshape() is zero-copy
+                let target_dtype = get_pydtype(numpy, dtype, true)?;
+                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+                // Note: numpy keeps reference via array.base chain
             }
             Framework::Flax => {
-                // JAX copies data, so buffer reference not needed
+                let numpy = get_module(py, &NUMPY_MODULE)?;
+                // First view-cast in numpy, then convert to JAX (which copies)
+                let target_dtype = get_pydtype(numpy, dtype, true)?;
+                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "jax"))?;
                     Ok(FLAX_MODULE.get_or_init_py_attached(py, || module.into()))
@@ -1747,10 +1518,15 @@ fn create_tensor_from_numpy(
                 module
                     .getattr(intern!(py, "numpy"))?
                     .getattr(intern!(py, "array"))?
-                    .call1((array,))?
+                    .call1((shaped_array,))?
             }
             Framework::Tensorflow => {
-                // TensorFlow copies data, so buffer reference not needed
+                let numpy = get_module(py, &NUMPY_MODULE)?;
+                // First view-cast in numpy, then convert to TensorFlow (which copies)
+                let target_dtype = get_pydtype(numpy, dtype, true)?;
+                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "tensorflow"))?;
                     Ok(TENSORFLOW_MODULE.get_or_init_py_attached(py, || module.into()))
@@ -1758,10 +1534,15 @@ fn create_tensor_from_numpy(
                 .bind(py);
                 module
                     .getattr(intern!(py, "convert_to_tensor"))?
-                    .call1((array,))?
+                    .call1((shaped_array,))?
             }
             Framework::Mlx => {
-                // MLX copies data, so buffer reference not needed
+                let numpy = get_module(py, &NUMPY_MODULE)?;
+                // First view-cast in numpy, then convert to MLX (which copies)
+                let target_dtype = get_pydtype(numpy, dtype, true)?;
+                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "mlx"))?;
                     Ok(MLX_MODULE.get_or_init_py_attached(py, || module.into()))
@@ -1769,10 +1550,15 @@ fn create_tensor_from_numpy(
                 .bind(py);
                 module
                     .getattr(intern!(py, "core"))?
-                    .call_method1("array", (array,))?
+                    .call_method1("array", (shaped_array,))?
             }
             Framework::Paddle => {
-                // Paddle copies data, so buffer reference not needed
+                let numpy = get_module(py, &NUMPY_MODULE)?;
+                // First view-cast in numpy, then convert to Paddle
+                let target_dtype = get_pydtype(numpy, dtype, true)?;
+                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "paddle"))?;
                     Ok(PADDLE_MODULE.get_or_init_py_attached(py, || module.into()))
@@ -1786,7 +1572,7 @@ fn create_tensor_from_numpy(
                 let kwargs = [(intern!(py, "place"), device_obj)].into_py_dict(py)?;
                 module
                     .getattr(intern!(py, "to_tensor"))?
-                    .call((array,), Some(&kwargs))?
+                    .call((shaped_array,), Some(&kwargs))?
             }
         };
         Ok(tensor.into())
@@ -2003,7 +1789,6 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;
     m.add_class::<CpuBuffer>()?;
-    m.add_class::<GpuBuffer>()?;
     m.add_class::<GpuBufferHolder>()?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
