@@ -88,7 +88,7 @@ struct CpuBuffer {
 }
 
 impl CpuBuffer {
-    /// Create a new CpuBuffer from a loader Buffer.
+    /// Create a new CpuBuffer from an hmll LoaderBuffer.
     fn new(buffer: LoaderBuffer) -> Self {
         let nbytes = buffer.len();
         Self { buffer, nbytes }
@@ -106,7 +106,7 @@ impl CpuBuffer {
         let dict = PyDict::new(py);
 
         // Shape as 1D array of bytes
-        let shape_tuple = pyo3::types::PyTuple::new(py, &[self.nbytes])?;
+        let shape_tuple = pyo3::types::PyTuple::new(py, [self.nbytes])?;
         dict.set_item("shape", shape_tuple)?;
 
         // Always uint8
@@ -191,7 +191,6 @@ fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
         Dtype::BF16 => dlpack_ffi::DataType::BF16,
         Dtype::F32 => dlpack_ffi::DataType::F32,
         Dtype::F64 => dlpack_ffi::DataType::F64,
-        // For F8 and F4 types, export as uint8 and view-cast
         _ => return None,
     })
 }
@@ -203,24 +202,26 @@ fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
 struct Loader {
     /// The core loader (handles file access, device targeting, synchronization)
     core: CoreLoader,
-    /// CUDA device index (if applicable)
-    cuda_index: Option<usize>,
 }
 
 impl Loader {
     /// Create a new Loader from a file path with specified device.
-    fn new(path: &std::path::Path, device: LoaderDevice) -> Result<Self, safetensors::loader::LoaderError> {
-        let cuda_index = match device {
-            LoaderDevice::Cpu => None,
-            LoaderDevice::Cuda(idx) => Some(idx),
-        };
-        let core = CoreLoader::open(path, device)?;
-        Ok(Self { core, cuda_index })
+    fn new(
+        path: &std::path::Path,
+        device: LoaderDevice,
+    ) -> Result<Self, safetensors::loader::LoaderError> {
+        Ok(Self {
+            core: CoreLoader::open(path, device)?,
+        })
     }
 
     /// Fetch a range of bytes and return the raw Buffer.
     /// For CUDA, this buffer is on the GPU.
-    fn fetch_buffer(&self, start: usize, end: usize) -> Result<LoaderBuffer, safetensors::loader::LoaderError> {
+    fn fetch_buffer(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<LoaderBuffer, safetensors::loader::LoaderError> {
         self.core.fetch(start, end)
     }
 
@@ -240,27 +241,22 @@ impl Loader {
         dtype: Dtype,
         shape: &[usize],
     ) -> PyResult<PyObject> {
-        // Ensure we're configured for CUDA
-        if !matches!(self.core.device(), LoaderDevice::Cuda(_)) {
-            return Err(SafetensorError::new_err(
-                "Loader not configured for CUDA",
-            ));
-        }
+        let current_device = self.core.device();
+        let device_index = if let LoaderDevice::Cuda(idx) = current_device {
+            idx
+        } else {
+            return Err(SafetensorError::new_err(format!(
+                "Loader not configured for CUDA: {current_device}"
+            )));
+        };
 
-        let device_index = self.cuda_index.unwrap_or(0);
-
-        // Note: CUDA device is set once when the loader is created (in safe_open/SafeLoader::new)
-        // This avoids the overhead of calling torch.cuda.set_device() for every tensor fetch
-
-        // Fetch data directly to GPU
-        let buffer = self.fetch_buffer(start, end).map_err(|e| {
-            SafetensorError::new_err(format!("Loader fetch error: {e}"))
-        })?;
+        let buffer = self
+            .fetch_buffer(start, end)
+            .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
 
         let nbytes = buffer.len();
         let ptr = buffer.as_ptr() as *mut std::ffi::c_void;
 
-        // For exotic dtypes, export as uint8 (caller will view-cast)
         let (dlpack_dtype, dlpack_shape) = if let Some(dt) = dtype_to_dlpack(dtype) {
             let shape_i64: Vec<i64> = shape.iter().map(|&s| s as i64).collect();
             (dt, shape_i64)
@@ -269,7 +265,6 @@ impl Loader {
             (dlpack_ffi::DataType::U8, vec![nbytes as i64])
         };
 
-        // Create DLPack wrapper and capsule directly (faster than going through __dlpack__)
         let wrapper = DlpackGpuWrapper {
             ptr,
             shape: dlpack_shape,
@@ -277,8 +272,9 @@ impl Loader {
             device_index,
         };
 
-        let managed_tensor = SafeManagedTensor::new(wrapper)
-            .map_err(|e| SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e)))?;
+        let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
+            SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e))
+        })?;
 
         let capsule = managed_tensor_to_capsule(py, managed_tensor)?;
 
@@ -312,9 +308,7 @@ impl Loader {
     ///
     /// Always creates a uint8 array via __array_interface__, then uses view() + reshape()
     /// for zero-copy dtype reinterpretation. This unified path works for all dtypes.
-    /// For zero-sized tensors, falls back to copy-based approach (null pointers).
-    ///
-    /// Uses fetch_view() for true zero-copy mmap access when available.
+    #[allow(clippy::too_many_arguments)]
     fn fetch_cpu_tensor(
         &self,
         py: Python<'_>,
@@ -325,37 +319,27 @@ impl Loader {
         framework: &Framework,
         device: &Device,
     ) -> PyResult<PyObject> {
-        // Check if tensor is zero-sized (any dimension is 0)
-        let is_zero_sized = shape.iter().any(|&d| d == 0);
+        let buffer = self
+            .core
+            .fetch_view(start, end)
+            .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
 
-        if is_zero_sized {
-            // Zero-sized tensors have null pointers - use copy-based path
-            let data = self.core.fetch_to_vec(start, end).map_err(|e| {
-                SafetensorError::new_err(format!("Loader fetch error: {e}"))
-            })?;
-            let array: PyObject = PyByteArray::new(py, &data).into_any().into();
+        // NOTE: empty tensors (`shape.contains(&0)`) are initialized with null pointers, calling
+        // `.to_vec` on the underlying buffer and wrapping in byte array to avoid passing null
+        // pointer to numpy which isn't supported.
+        if buffer.as_ptr().is_null() {
+            let array: PyObject = PyByteArray::new(py, &buffer.to_vec()).into_any().into();
             return create_tensor(framework, dtype, shape, array, device);
         }
-
-        // Try zero-copy fetch_view first (true mmap zero-copy)
-        // Falls back to fetch() with copy if view is not available
-        let buffer = self.core.fetch_view(start, end).or_else(|_| {
-            // fetch_view not available (e.g., non-mmap backend), fall back to fetch
-            self.fetch_buffer(start, end)
-        }).map_err(|e| {
-            SafetensorError::new_err(format!("Loader fetch error: {e}"))
-        })?;
 
         let asarray = NUMPY_ASARRAY
             .get()
             .ok_or_else(|| SafetensorError::new_err("numpy module not initialized"))?
             .bind(py);
 
-        // Unified path: uint8 array via __array_interface__, then view() + reshape()
         let cpu_buffer = Py::new(py, CpuBuffer::new(buffer))?;
         let raw_array = asarray.call1((cpu_buffer.bind(py),))?;
 
-        // Pass to framework-specific handler with dtype info for view-casting
         create_tensor_from_numpy(framework, &raw_array, device, cpu_buffer, dtype, shape)
     }
 
@@ -364,15 +348,19 @@ impl Loader {
         self.core.device()
     }
 
-    /// Get the CUDA device index (if applicable).
+    /// Get the CUDA device index
     #[allow(dead_code)]
     fn cuda_index(&self) -> Option<usize> {
-        self.cuda_index
+        if let LoaderDevice::Cuda(idx) = self.core.device() {
+            Some(idx)
+        } else {
+            None
+        }
     }
 }
 
 /// Convert Python Device to loader Device.
-/// PyTorch CUDA devices get direct GPU loading via __cuda_array_interface__.
+/// PyTorch CUDA devices get direct GPU loading via DLPack.
 /// For other frameworks/devices, use CPU and let the framework handle device transfer.
 fn device_to_loader(device: &Device, framework: &Framework) -> LoaderDevice {
     match (device, framework) {
@@ -868,9 +856,8 @@ impl Open {
         })?;
 
         // Create high-performance loader (CUDA device already set above if needed)
-        let loader = create_loader(&filename, &device, &framework).map_err(|e| {
-            SafetensorError::new_err(format!("Failed to create loader: {e}"))
-        })?;
+        let loader = create_loader(&filename, &device, &framework)
+            .map_err(|e| SafetensorError::new_err(format!("Failed to create loader: {e}")))?;
 
         Ok(Self {
             metadata,
@@ -951,14 +938,15 @@ impl Open {
             info.shape.to_vec()
         };
 
-        // For PyTorch + CUDA loader, use zero-copy path via __cuda_array_interface__
+        // For PyTorch + CUDA loader, use zero-copy path via DLPack
         // NOTE: We check the loader's device, not self.device, because the loader
         // may be configured for CPU even when target device is CUDA (e.g., cuda:1
         // falls back to CPU loader since hmll only supports cuda:0 direct loading)
         if self.framework == Framework::Pytorch
             && matches!(self.loader.device(), LoaderDevice::Cuda(_))
         {
-            return self.loader
+            return self
+                .loader
                 .fetch_cuda_tensor(py, start, end, info.dtype, &shape);
         }
 
@@ -1265,9 +1253,10 @@ impl PySafeSlice {
         // Fetch the tensor data using loader (zero-copy via buffer protocol)
         let start = self.info.data_offsets.0 + self.offset;
         let end = self.info.data_offsets.1 + self.offset;
-        let buffer = self.loader.fetch_buffer(start, end).map_err(|e| {
-            SafetensorError::new_err(format!("Loader fetch error: {e}"))
-        })?;
+        let buffer = self
+            .loader
+            .fetch_buffer(start, end)
+            .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
 
         let data = buffer
             .as_slice()
@@ -1275,9 +1264,8 @@ impl PySafeSlice {
 
         let shape = self.info.shape.clone();
 
-        let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data).map_err(
-            |e| SafetensorError::new_err(format!("Error preparing tensor view: {e}")),
-        )?;
+        let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
+            .map_err(|e| SafetensorError::new_err(format!("Error preparing tensor view: {e}")))?;
         let slices: Vec<TensorIndexer> = slices
             .into_iter()
             .zip(shape)
@@ -1486,8 +1474,10 @@ fn create_tensor_from_numpy(
                 // torch.from_numpy(uint8_array).view(torch_dtype).reshape(shape)
                 let uint8_tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((array,))?;
                 let torch_dtype = get_pydtype(torch, dtype, false)?;
-                let typed_tensor = uint8_tensor.call_method1(intern!(py, "view"), (torch_dtype,))?;
-                let tensor = typed_tensor.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                let typed_tensor =
+                    uint8_tensor.call_method1(intern!(py, "view"), (torch_dtype,))?;
+                let tensor =
+                    typed_tensor.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
                 // Attach the CpuBuffer to keep memory alive
                 tensor.setattr(intern!(py, "_safetensors_buffer"), cpu_buffer)?;
@@ -1514,7 +1504,8 @@ fn create_tensor_from_numpy(
                 // First view-cast in numpy, then convert to JAX (which copies)
                 let target_dtype = get_pydtype(numpy, dtype, true)?;
                 let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                let shaped_array =
+                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "jax"))?;
@@ -1531,7 +1522,8 @@ fn create_tensor_from_numpy(
                 // First view-cast in numpy, then convert to TensorFlow (which copies)
                 let target_dtype = get_pydtype(numpy, dtype, true)?;
                 let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                let shaped_array =
+                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "tensorflow"))?;
@@ -1547,7 +1539,8 @@ fn create_tensor_from_numpy(
                 // First view-cast in numpy, then convert to MLX (which copies)
                 let target_dtype = get_pydtype(numpy, dtype, true)?;
                 let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                let shaped_array =
+                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "mlx"))?;
@@ -1563,7 +1556,8 @@ fn create_tensor_from_numpy(
                 // First view-cast in numpy, then convert to Paddle
                 let target_dtype = get_pydtype(numpy, dtype, true)?;
                 let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array = typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                let shaped_array =
+                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
                 let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
                     let module = PyModule::import(py, intern!(py, "paddle"))?;
@@ -1799,24 +1793,4 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_parse() {
-        let torch_version = "1.1.1";
-        let version = Version::from_string(torch_version).unwrap();
-        assert_eq!(version, Version::new(1, 1, 1));
-
-        let torch_version = "2.0.0a0+gitd1123c9";
-        let version = Version::from_string(torch_version).unwrap();
-        assert_eq!(version, Version::new(2, 0, 0));
-
-        let torch_version = "something";
-        let version = Version::from_string(torch_version);
-        assert!(version.is_err());
-    }
 }

@@ -444,7 +444,9 @@ impl<'data> SafeTensors<'data> {
     /// # Ok::<(), safetensors::SafeTensorError>(())
     /// ```
     #[cfg(feature = "std")]
-    pub fn read_metadata_from_file<P: AsRef<Path>>(path: P) -> Result<(usize, Metadata), SafeTensorError> {
+    pub fn read_metadata_from_file<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(usize, Metadata), SafeTensorError> {
         use std::io::Read;
 
         let mut file = std::fs::File::open(path).map_err(SafeTensorError::IoError)?;

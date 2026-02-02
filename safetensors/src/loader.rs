@@ -64,6 +64,15 @@ impl Device {
     }
 }
 
+impl std::fmt::Display for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cpu => write!(f, "cpu"),
+            Self::Cuda(idx) => write!(f, "cuda:{idx}"),
+        }
+    }
+}
+
 /// Loader backend selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Backend {
@@ -217,8 +226,7 @@ impl Loader {
         // We transmute the lifetime to 'static because the source won't be
         // moved or dropped while the loader exists.
         let sources_slice: &[hmll::Source] = std::slice::from_ref(source.as_ref());
-        let static_sources: &'static [hmll::Source] =
-            unsafe { std::mem::transmute(sources_slice) };
+        let static_sources: &'static [hmll::Source] = unsafe { std::mem::transmute(sources_slice) };
 
         let loader = hmll::WeightLoader::new(static_sources, device.to_hmll(), backend.to_hmll())
             .map_err(|e| LoaderError::InitError(format!("{e}")))?;
