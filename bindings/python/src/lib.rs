@@ -65,17 +65,21 @@ fn managed_tensor_to_capsule(
 }
 
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
-static TORCH_AS_TENSOR: OnceLock<Py<PyAny>> = OnceLock::new();
 static TORCH_FROM_DLPACK: OnceLock<Py<PyAny>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
-static NUMPY_ASARRAY: OnceLock<Py<PyAny>> = OnceLock::new();
+static NUMPY_FROM_DLPACK: OnceLock<Py<PyAny>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static JAX_FROM_DLPACK: OnceLock<Py<PyAny>> = OnceLock::new();
 static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static MLX_FROM_DLPACK: OnceLock<Py<PyAny>> = OnceLock::new();
 static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
+static PADDLE_FROM_DLPACK: OnceLock<Py<PyAny>> = OnceLock::new();
 
-/// A CPU buffer wrapper that exposes `__array_interface__` for zero-copy
-/// tensor creation with NumPy, PyTorch, and other frameworks.
+/// A CPU buffer wrapper that exposes DLPack protocol for zero-copy tensor creation.
+///
+/// Implements `__dlpack__` and `__dlpack_device__` for the DLPack protocol, enabling
+/// zero-copy tensor sharing with PyTorch, NumPy, JAX, TensorFlow, MLX, and Paddle.
 ///
 /// Always exposes data as uint8 - callers use view() + reshape() for dtype conversion.
 /// This simplifies the code path and works uniformly for all dtypes including exotic ones.
@@ -97,39 +101,69 @@ impl CpuBuffer {
 
 #[pymethods]
 impl CpuBuffer {
-    /// Returns the NumPy array interface dict for zero-copy interop.
-    ///
-    /// Always returns uint8 dtype - callers use view() + reshape() for conversion.
-    /// See: https://numpy.org/doc/stable/reference/arrays.interface.html
-    #[getter]
-    fn __array_interface__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new(py);
-
-        // Shape as 1D array of bytes
-        let shape_tuple = pyo3::types::PyTuple::new(py, [self.nbytes])?;
-        dict.set_item("shape", shape_tuple)?;
-
-        // Always uint8
-        dict.set_item("typestr", "|u1")?;
-
-        // Data pointer and read-only flag: (ptr, readonly)
-        let ptr = self.buffer.as_ptr() as usize;
-        let data_tuple = (ptr, false).into_pyobject(py)?;
-        dict.set_item("data", data_tuple)?;
-
-        // Version (3 is the current version)
-        dict.set_item("version", 3)?;
-
-        // Optional: strides (None means C-contiguous)
-        dict.set_item("strides", py.None())?;
-
-        Ok(dict.into())
+    /// Returns the DLPack device tuple (device_type, device_id).
+    /// CPU device is type 1 (kDLCPU), device_id 0.
+    fn __dlpack_device__(&self) -> (u32, i32) {
+        (1, 0) // kDLCPU = 1
     }
 
-    /// Returns the size in bytes.
-    #[getter]
-    fn nbytes(&self) -> usize {
-        self.nbytes
+    /// Returns a DLPack capsule for zero-copy tensor sharing.
+    /// Exports as 1D uint8 array - callers use view() + reshape() for dtype conversion.
+    ///
+    /// The `stream` parameter is accepted for DLPack protocol compliance but ignored
+    /// for CPU buffers (no synchronization needed).
+    ///
+    /// # Panics
+    /// Panics if buffer is empty (caller should handle empty tensors separately).
+    #[pyo3(signature = (*, stream=None))]
+    fn __dlpack__(&self, py: Python<'_>, stream: Option<isize>) -> PyResult<PyObject> {
+        let _ = stream; // CPU buffers don't need stream synchronization
+        debug_assert!(
+            !self.buffer.as_ptr().is_null() && self.nbytes > 0,
+            "Empty buffers should be handled by caller"
+        );
+
+        let wrapper = DlpackCpuWrapper {
+            ptr: self.buffer.as_ptr() as *mut std::ffi::c_void,
+            nbytes: self.nbytes,
+        };
+
+        let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
+            SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e))
+        })?;
+
+        managed_tensor_to_capsule(py, managed_tensor)
+    }
+}
+
+/// Wrapper for creating DLPack tensor from CPU memory.
+/// Exposes data as 1D uint8 array for uniform handling of all dtypes.
+struct DlpackCpuWrapper {
+    ptr: *mut std::ffi::c_void,
+    nbytes: usize,
+}
+
+impl TensorLike<RowMajorCompactLayout> for DlpackCpuWrapper {
+    type Error = std::convert::Infallible;
+
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.ptr
+    }
+
+    fn memory_layout(&self) -> RowMajorCompactLayout {
+        RowMajorCompactLayout::new(vec![self.nbytes as i64])
+    }
+
+    fn device(&self) -> Result<dlpack_ffi::Device, Self::Error> {
+        Ok(dlpack_ffi::Device::CPU)
+    }
+
+    fn data_type(&self) -> Result<dlpack_ffi::DataType, Self::Error> {
+        Ok(dlpack_ffi::DataType::U8)
+    }
+
+    fn byte_offset(&self) -> u64 {
+        0
     }
 }
 
@@ -227,9 +261,8 @@ impl Loader {
 
     /// Fetch a range of bytes and create a PyTorch CUDA tensor with ZERO COPY.
     ///
-    /// This loads data directly to GPU, then creates a PyTorch tensor
-    /// that wraps the GPU memory via DLPack protocol (6x faster than
-    /// __cuda_array_interface__). For exotic dtypes (F8, F4), exports
+    /// Loads data directly to GPU, then creates a PyTorch tensor that wraps
+    /// the GPU memory via DLPack protocol. For exotic dtypes (F8, F4), exports
     /// as uint8 via DLPack then view-casts to the target dtype.
     ///
     /// A GpuBufferHolder is attached to the tensor to keep the GPU memory alive.
@@ -304,10 +337,10 @@ impl Loader {
         Ok(tensor.into())
     }
 
-    /// Fetch a range of bytes and create a CPU tensor using zero-copy.
+    /// Fetch a range of bytes and create a CPU tensor using zero-copy via DLPack.
     ///
-    /// Always creates a uint8 array via __array_interface__, then uses view() + reshape()
-    /// for zero-copy dtype reinterpretation. This unified path works for all dtypes.
+    /// Creates tensors directly via DLPack protocol for potential zero-copy across frameworks.
+    /// Falls back to PyByteArray for empty tensors (null pointers not supported by DLPack).
     #[allow(clippy::too_many_arguments)]
     fn fetch_cpu_tensor(
         &self,
@@ -324,23 +357,15 @@ impl Loader {
             .fetch_view(start, end)
             .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
 
-        // NOTE: empty tensors (`shape.contains(&0)`) are initialized with null pointers, calling
-        // `.to_vec` on the underlying buffer and wrapping in byte array to avoid passing null
-        // pointer to numpy which isn't supported.
+        // Empty tensors have null pointers - fall back to PyByteArray
+        // (DLPack doesn't support null pointers)
         if buffer.as_ptr().is_null() {
             let array: PyObject = PyByteArray::new(py, &buffer.to_vec()).into_any().into();
             return create_tensor(framework, dtype, shape, array, device);
         }
 
-        let asarray = NUMPY_ASARRAY
-            .get()
-            .ok_or_else(|| SafetensorError::new_err("numpy module not initialized"))?
-            .bind(py);
-
         let cpu_buffer = Py::new(py, CpuBuffer::new(buffer))?;
-        let raw_array = asarray.call1((cpu_buffer.bind(py),))?;
-
-        create_tensor_from_numpy(framework, &raw_array, device, cpu_buffer, dtype, shape)
+        create_tensor_from_dlpack(framework, cpu_buffer, device, dtype, shape)
     }
 
     /// Get the loader device.
@@ -817,26 +842,19 @@ impl Open {
 
         let offset = n + 8;
         Python::with_gil(|py| -> PyResult<()> {
-            // Always initialize numpy - needed for zero-copy path via __array_interface__
+            // Initialize numpy - needed for DLPack path and fallback
             let numpy = PyModule::import(py, intern!(py, "numpy"))?;
-            // Cache numpy.asarray for faster access
-            let asarray = numpy.getattr(intern!(py, "asarray"))?;
-            NUMPY_ASARRAY.get_or_init_py_attached(py, || asarray.unbind());
+            let np_from_dlpack = numpy.getattr(intern!(py, "from_dlpack"))?;
+            NUMPY_FROM_DLPACK.get_or_init_py_attached(py, || np_from_dlpack.unbind());
             NUMPY_MODULE.get_or_init_py_attached(py, || numpy.into());
 
-            // Also initialize framework-specific modules
+            // Initialize framework-specific modules and cache from_dlpack
             match framework {
                 Framework::Pytorch => {
                     let module = PyModule::import(py, intern!(py, "torch"))?;
-                    // Cache torch.as_tensor for faster access (avoids getattr per tensor)
-                    let as_tensor = module.getattr(intern!(py, "as_tensor"))?;
-                    TORCH_AS_TENSOR.get_or_init_py_attached(py, || as_tensor.unbind());
-                    // Cache torch.from_dlpack for DLPack-based tensor creation (6x faster)
                     let from_dlpack = module.getattr(intern!(py, "from_dlpack"))?;
                     TORCH_FROM_DLPACK.get_or_init_py_attached(py, || from_dlpack.unbind());
                     // Set CUDA device once here BEFORE storing the module
-                    // hmll uses the current CUDA context, so this is much more
-                    // efficient than setting it per-tensor fetch
                     if let Device::Cuda(idx) = device {
                         module
                             .getattr(intern!(py, "cuda"))?
@@ -845,11 +863,34 @@ impl Open {
                     }
                     TORCH_MODULE.get_or_init_py_attached(py, || module.into());
                 }
-                Framework::Paddle => {
-                    let module = PyModule::import(py, intern!(py, "paddle"))?;
-                    PADDLE_MODULE.get_or_init_py_attached(py, || module.into());
+                Framework::Flax => {
+                    let jax = PyModule::import(py, intern!(py, "jax"))?;
+                    let from_dlpack = jax
+                        .getattr(intern!(py, "numpy"))?
+                        .getattr(intern!(py, "from_dlpack"))?;
+                    JAX_FROM_DLPACK.get_or_init_py_attached(py, || from_dlpack.unbind());
+                    FLAX_MODULE.get_or_init_py_attached(py, || jax.into());
                 }
-                _ => {} // numpy already initialized above
+                Framework::Tensorflow => {
+                    // TensorFlow uses numpy intermediate (no zero-copy DLPack support)
+                    let tf = PyModule::import(py, intern!(py, "tensorflow"))?;
+                    TENSORFLOW_MODULE.get_or_init_py_attached(py, || tf.into());
+                }
+                Framework::Mlx => {
+                    let mlx = PyModule::import(py, intern!(py, "mlx"))?;
+                    let from_dlpack = mlx
+                        .getattr(intern!(py, "core"))?
+                        .getattr(intern!(py, "from_dlpack"))?;
+                    MLX_FROM_DLPACK.get_or_init_py_attached(py, || from_dlpack.unbind());
+                    MLX_MODULE.get_or_init_py_attached(py, || mlx.into());
+                }
+                Framework::Paddle => {
+                    let paddle = PyModule::import(py, intern!(py, "paddle"))?;
+                    let from_dlpack = paddle.getattr(intern!(py, "from_dlpack"))?;
+                    PADDLE_FROM_DLPACK.get_or_init_py_attached(py, || from_dlpack.unbind());
+                    PADDLE_MODULE.get_or_init_py_attached(py, || paddle.into());
+                }
+                Framework::Numpy => {} // already initialized above
             };
 
             Ok(())
@@ -1250,7 +1291,10 @@ impl PySafeSlice {
             }
         };
 
-        // Fetch the tensor data using loader (zero-copy via buffer protocol)
+        // TODO: Currently loads full tensor then slices. Could be optimized to load only
+        // the required byte ranges by: (1) computing slice ranges upfront using SliceIterator
+        // logic without data, (2) adding fetchv support to hmll Rust wrapper, (3) loading
+        // only the needed ranges. This would reduce I/O for sparse slice patterns.
         let start = self.info.data_offsets.0 + self.offset;
         let end = self.info.data_offsets.1 + self.offset;
         let buffer = self
@@ -1318,11 +1362,15 @@ fn get_module<'a>(
     Ok(module)
 }
 
+/// Create a tensor from a PyByteArray using frombuffer.
+///
+/// This is the fallback path used for empty tensors (where DLPack can't be used
+/// due to null pointers) and for the legacy slicing path.
 fn create_tensor<'a>(
     framework: &'a Framework,
     dtype: Dtype,
     shape: &'a [usize],
-    array: PyObject,
+    array: Py<PyAny>,
     device: &'a Device,
 ) -> PyResult<PyObject> {
     Python::with_gil(|py| -> PyResult<PyObject> {
@@ -1452,27 +1500,33 @@ fn create_tensor<'a>(
     })
 }
 
-/// Create a tensor from a uint8 numpy array using zero-copy view + reshape.
+/// Create a tensor from a CpuBuffer via DLPack protocol.
 ///
-/// The array is always uint8 (raw bytes from CpuBuffer). We use view() + reshape()
-/// for zero-copy dtype reinterpretation. This unified path works for all dtypes.
+/// Uses framework-specific from_dlpack() for potential zero-copy tensor creation.
+/// The CpuBuffer exposes data as uint8 via DLPack, then we use view() + reshape()
+/// for dtype reinterpretation.
 ///
 /// The cpu_buffer is attached to the tensor to ensure memory stays alive.
-fn create_tensor_from_numpy(
+fn create_tensor_from_dlpack(
     framework: &Framework,
-    array: &PyBound<'_, PyAny>,
-    device: &Device,
     cpu_buffer: Py<CpuBuffer>,
+    device: &Device,
     dtype: Dtype,
     shape: &[usize],
 ) -> PyResult<PyObject> {
     Python::with_gil(|py| -> PyResult<PyObject> {
+        let buffer_obj = cpu_buffer.bind(py);
+
         let tensor: PyBound<'_, PyAny> = match framework {
             Framework::Pytorch => {
-                let torch = get_module(py, &TORCH_MODULE)?;
+                // torch.from_dlpack(cpu_buffer).view(dtype).reshape(shape)
+                let from_dlpack = TORCH_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+                    .bind(py);
+                let uint8_tensor = from_dlpack.call1((buffer_obj,))?;
 
-                // torch.from_numpy(uint8_array).view(torch_dtype).reshape(shape)
-                let uint8_tensor = torch.getattr(intern!(py, "from_numpy"))?.call1((array,))?;
+                let torch = get_module(py, &TORCH_MODULE)?;
                 let torch_dtype = get_pydtype(torch, dtype, false)?;
                 let typed_tensor =
                     uint8_tensor.call_method1(intern!(py, "view"), (torch_dtype,))?;
@@ -1492,90 +1546,190 @@ fn create_tensor_from_numpy(
                 }
             }
             Framework::Numpy => {
+                // np.from_dlpack(cpu_buffer).view(dtype).reshape(shape)
+                let from_dlpack = NUMPY_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                let uint8_array = from_dlpack.call1((buffer_obj,))?;
+
                 let numpy = get_module(py, &NUMPY_MODULE)?;
-                // numpy view() + reshape() is zero-copy
                 let target_dtype = get_pydtype(numpy, dtype, true)?;
-                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                let typed_array = uint8_array.call_method1(intern!(py, "view"), (target_dtype,))?;
                 typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
-                // Note: numpy keeps reference via array.base chain
+                // Note: numpy keeps reference via DLPack mechanism
             }
             Framework::Flax => {
-                let numpy = get_module(py, &NUMPY_MODULE)?;
-                // First view-cast in numpy, then convert to JAX (which copies)
-                let target_dtype = get_pydtype(numpy, dtype, true)?;
-                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array =
-                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                // jax.numpy.from_dlpack(cpu_buffer).view(dtype).reshape(shape)
+                let from_dlpack = JAX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| {
+                        SafetensorError::new_err("jax.numpy.from_dlpack not initialized")
+                    })?
+                    .bind(py);
+                let uint8_array = from_dlpack.call1((buffer_obj,))?;
 
-                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "jax"))?;
-                    Ok(FLAX_MODULE.get_or_init_py_attached(py, || module.into()))
-                })?
-                .bind(py);
-                module
-                    .getattr(intern!(py, "numpy"))?
-                    .getattr(intern!(py, "array"))?
-                    .call1((shaped_array,))?
+                // JAX arrays need numpy-style dtype for view
+                let jax = FLAX_MODULE
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("jax module not initialized"))?
+                    .bind(py);
+                let jax_dtype = get_jax_dtype(jax, dtype)?;
+                let typed_array = uint8_array.call_method1(intern!(py, "view"), (jax_dtype,))?;
+                typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
             }
             Framework::Tensorflow => {
+                // TensorFlow doesn't support zero-copy view-casting, so use numpy as intermediate
+                let np_from_dlpack = NUMPY_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                let uint8_array = np_from_dlpack.call1((buffer_obj,))?;
+
                 let numpy = get_module(py, &NUMPY_MODULE)?;
-                // First view-cast in numpy, then convert to TensorFlow (which copies)
-                let target_dtype = get_pydtype(numpy, dtype, true)?;
-                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
+                let np_dtype = get_pydtype(numpy, dtype, true)?;
+                let typed_array = uint8_array.call_method1(intern!(py, "view"), (np_dtype,))?;
                 let shaped_array =
                     typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
 
-                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "tensorflow"))?;
-                    Ok(TENSORFLOW_MODULE.get_or_init_py_attached(py, || module.into()))
-                })?
-                .bind(py);
-                module
-                    .getattr(intern!(py, "convert_to_tensor"))?
-                    .call1((shaped_array,))?
+                // Convert numpy array to TensorFlow tensor (copies data)
+                let tf = TENSORFLOW_MODULE
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("tensorflow module not initialized"))?
+                    .bind(py);
+                tf.getattr(intern!(py, "constant"))?.call1((shaped_array,))?
             }
             Framework::Mlx => {
-                let numpy = get_module(py, &NUMPY_MODULE)?;
-                // First view-cast in numpy, then convert to MLX (which copies)
-                let target_dtype = get_pydtype(numpy, dtype, true)?;
-                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array =
-                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                // mx.from_dlpack(cpu_buffer).view(dtype).reshape(shape)
+                let from_dlpack = MLX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| {
+                        SafetensorError::new_err("mlx.core.from_dlpack not initialized")
+                    })?
+                    .bind(py);
+                let uint8_array = from_dlpack.call1((buffer_obj,))?;
 
-                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "mlx"))?;
-                    Ok(MLX_MODULE.get_or_init_py_attached(py, || module.into()))
-                })?
-                .bind(py);
-                module
-                    .getattr(intern!(py, "core"))?
-                    .call_method1("array", (shaped_array,))?
+                let mlx = MLX_MODULE
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("mlx module not initialized"))?
+                    .bind(py);
+                let mlx_dtype = get_mlx_dtype(mlx, dtype)?;
+                let typed_array = uint8_array.call_method1(intern!(py, "view"), (mlx_dtype,))?;
+                typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
             }
             Framework::Paddle => {
-                let numpy = get_module(py, &NUMPY_MODULE)?;
-                // First view-cast in numpy, then convert to Paddle
-                let target_dtype = get_pydtype(numpy, dtype, true)?;
-                let typed_array = array.call_method1(intern!(py, "view"), (target_dtype,))?;
-                let shaped_array =
-                    typed_array.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+                // paddle.from_dlpack(cpu_buffer).view(dtype).reshape(shape)
+                let from_dlpack = PADDLE_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("paddle.from_dlpack not initialized"))?
+                    .bind(py);
+                let uint8_tensor = from_dlpack.call1((buffer_obj,))?;
 
-                let module = Python::with_gil(|py| -> PyResult<&Py<PyModule>> {
-                    let module = PyModule::import(py, intern!(py, "paddle"))?;
-                    Ok(PADDLE_MODULE.get_or_init_py_attached(py, || module.into()))
-                })?
-                .bind(py);
-                let device_obj: PyObject = if let Device::Cuda(index) = device {
-                    format!("gpu:{index}").into_pyobject(py)?.into()
+                let paddle = PADDLE_MODULE
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("paddle module not initialized"))?
+                    .bind(py);
+                let paddle_dtype = get_paddle_dtype(paddle, dtype)?;
+
+                // Paddle uses cast instead of view for dtype conversion
+                let typed_tensor =
+                    uint8_tensor.call_method1(intern!(py, "cast"), (paddle_dtype,))?;
+                let tensor =
+                    typed_tensor.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?;
+
+                // Move to target device if needed
+                if let Device::Cuda(index) = device {
+                    let device_str = format!("gpu:{index}");
+                    tensor.call_method1(intern!(py, "cuda"), (device_str,))?
                 } else {
-                    device.clone().into_pyobject(py)?.into()
-                };
-                let kwargs = [(intern!(py, "place"), device_obj)].into_py_dict(py)?;
-                module
-                    .getattr(intern!(py, "to_tensor"))?
-                    .call((shaped_array,), Some(&kwargs))?
+                    tensor
+                }
             }
         };
         Ok(tensor.into())
+    })
+}
+
+/// Get JAX dtype from safetensors Dtype.
+fn get_jax_dtype(jax: &PyBound<'_, PyModule>, dtype: Dtype) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        let jnp = jax.getattr(intern!(py, "numpy"))?;
+        let dtype_obj: PyObject = match dtype {
+            Dtype::F64 => jnp.getattr(intern!(py, "float64"))?.into(),
+            Dtype::F32 => jnp.getattr(intern!(py, "float32"))?.into(),
+            Dtype::BF16 => jnp.getattr(intern!(py, "bfloat16"))?.into(),
+            Dtype::F16 => jnp.getattr(intern!(py, "float16"))?.into(),
+            Dtype::U64 => jnp.getattr(intern!(py, "uint64"))?.into(),
+            Dtype::I64 => jnp.getattr(intern!(py, "int64"))?.into(),
+            Dtype::U32 => jnp.getattr(intern!(py, "uint32"))?.into(),
+            Dtype::I32 => jnp.getattr(intern!(py, "int32"))?.into(),
+            Dtype::U16 => jnp.getattr(intern!(py, "uint16"))?.into(),
+            Dtype::I16 => jnp.getattr(intern!(py, "int16"))?.into(),
+            Dtype::U8 => jnp.getattr(intern!(py, "uint8"))?.into(),
+            Dtype::I8 => jnp.getattr(intern!(py, "int8"))?.into(),
+            Dtype::BOOL => jnp.getattr(intern!(py, "bool_"))?.into(),
+            Dtype::C64 => jnp.getattr(intern!(py, "complex64"))?.into(),
+            dtype => {
+                return Err(SafetensorError::new_err(format!(
+                    "Dtype not supported in JAX: {dtype:?}"
+                )))
+            }
+        };
+        Ok(dtype_obj)
+    })
+}
+
+/// Get MLX dtype from safetensors Dtype.
+fn get_mlx_dtype(mlx: &PyBound<'_, PyModule>, dtype: Dtype) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        let core = mlx.getattr(intern!(py, "core"))?;
+        let dtype_obj: PyObject = match dtype {
+            Dtype::F32 => core.getattr(intern!(py, "float32"))?.into(),
+            Dtype::BF16 => core.getattr(intern!(py, "bfloat16"))?.into(),
+            Dtype::F16 => core.getattr(intern!(py, "float16"))?.into(),
+            Dtype::U64 => core.getattr(intern!(py, "uint64"))?.into(),
+            Dtype::I64 => core.getattr(intern!(py, "int64"))?.into(),
+            Dtype::U32 => core.getattr(intern!(py, "uint32"))?.into(),
+            Dtype::I32 => core.getattr(intern!(py, "int32"))?.into(),
+            Dtype::U16 => core.getattr(intern!(py, "uint16"))?.into(),
+            Dtype::I16 => core.getattr(intern!(py, "int16"))?.into(),
+            Dtype::U8 => core.getattr(intern!(py, "uint8"))?.into(),
+            Dtype::I8 => core.getattr(intern!(py, "int8"))?.into(),
+            Dtype::BOOL => core.getattr(intern!(py, "bool_"))?.into(),
+            dtype => {
+                return Err(SafetensorError::new_err(format!(
+                    "Dtype not supported in MLX: {dtype:?}"
+                )))
+            }
+        };
+        Ok(dtype_obj)
+    })
+}
+
+/// Get Paddle dtype from safetensors Dtype.
+fn get_paddle_dtype(paddle: &PyBound<'_, PyModule>, dtype: Dtype) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        let dtype_obj: PyObject = match dtype {
+            Dtype::F64 => paddle.getattr(intern!(py, "float64"))?.into(),
+            Dtype::F32 => paddle.getattr(intern!(py, "float32"))?.into(),
+            Dtype::BF16 => paddle.getattr(intern!(py, "bfloat16"))?.into(),
+            Dtype::F16 => paddle.getattr(intern!(py, "float16"))?.into(),
+            Dtype::U64 => paddle.getattr(intern!(py, "uint64"))?.into(),
+            Dtype::I64 => paddle.getattr(intern!(py, "int64"))?.into(),
+            Dtype::U32 => paddle.getattr(intern!(py, "uint32"))?.into(),
+            Dtype::I32 => paddle.getattr(intern!(py, "int32"))?.into(),
+            Dtype::U16 => paddle.getattr(intern!(py, "uint16"))?.into(),
+            Dtype::I16 => paddle.getattr(intern!(py, "int16"))?.into(),
+            Dtype::U8 => paddle.getattr(intern!(py, "uint8"))?.into(),
+            Dtype::I8 => paddle.getattr(intern!(py, "int8"))?.into(),
+            Dtype::BOOL => paddle.getattr(intern!(py, "bool"))?.into(),
+            dtype => {
+                return Err(SafetensorError::new_err(format!(
+                    "Dtype not supported in Paddle: {dtype:?}"
+                )))
+            }
+        };
+        Ok(dtype_obj)
     })
 }
 
