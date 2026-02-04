@@ -111,8 +111,6 @@ pub enum LoaderError {
     FetchError(String),
     /// Invalid range specified.
     InvalidRange,
-    /// I/O error.
-    IoError(std::io::Error),
 }
 
 impl std::fmt::Display for LoaderError {
@@ -122,19 +120,11 @@ impl std::fmt::Display for LoaderError {
             LoaderError::InitError(msg) => write!(f, "failed to initialize loader: {msg}"),
             LoaderError::FetchError(msg) => write!(f, "failed to fetch data: {msg}"),
             LoaderError::InvalidRange => write!(f, "invalid byte range"),
-            LoaderError::IoError(e) => write!(f, "I/O error: {e}"),
         }
     }
 }
 
-impl std::error::Error for LoaderError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            LoaderError::IoError(e) => Some(e),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for LoaderError {}
 
 impl From<hmll::Error> for LoaderError {
     fn from(err: hmll::Error) -> Self {
@@ -142,19 +132,8 @@ impl From<hmll::Error> for LoaderError {
     }
 }
 
-impl From<std::io::Error> for LoaderError {
-    fn from(err: std::io::Error) -> Self {
-        LoaderError::IoError(err)
-    }
-}
-
 /// Result type for loader operations.
 pub type Result<T> = std::result::Result<T, LoaderError>;
-
-/// Internal wrapper for WeightLoader with 'static lifetime.
-struct LoaderInner {
-    loader: hmll::WeightLoader<'static>,
-}
 
 /// A high-performance loader for safetensors files.
 ///
@@ -185,9 +164,11 @@ pub struct Loader {
     #[allow(dead_code)]
     source: Box<hmll::Source>,
     /// The actual loader, behind a Mutex for interior mutability.
-    inner: Mutex<LoaderInner>,
+    inner: Mutex<hmll::WeightLoader<'static>>,
     /// Target device.
     device: Device,
+    /// Cached file size (avoids locking mutex).
+    file_size: usize,
 }
 
 impl Loader {
@@ -222,6 +203,7 @@ impl Loader {
             hmll::Source::open(path.as_ref())
                 .map_err(|e| LoaderError::OpenError(format!("{e}")))?,
         );
+        let file_size = source.size();
 
         // SAFETY: The source is boxed and will live as long as Loader.
         // We transmute the lifetime to 'static because the source won't be
@@ -234,8 +216,9 @@ impl Loader {
 
         Ok(Self {
             source,
-            inner: Mutex::new(LoaderInner { loader }),
+            inner: Mutex::new(loader),
             device,
+            file_size,
         })
     }
 
@@ -269,7 +252,7 @@ impl Loader {
         }
 
         let mut guard = self.inner.lock().unwrap();
-        let buffer = guard.loader.fetch(start..end, 0)?;
+        let buffer = guard.fetch(start..end, 0)?;
         Ok(buffer)
     }
 
@@ -315,7 +298,7 @@ impl Loader {
         }
 
         let mut guard = self.inner.lock().unwrap();
-        let buffer = guard.loader.fetch_view(start..end, 0)?;
+        let buffer = guard.fetch_view(start..end, 0)?;
         Ok(buffer)
     }
 
@@ -341,13 +324,9 @@ impl Loader {
     }
 
     /// Get the size of the source file in bytes.
+    #[inline]
     pub fn file_size(&self) -> usize {
-        let guard = self.inner.lock().unwrap();
-        guard
-            .loader
-            .source_info(0)
-            .map(|info| info.size)
-            .unwrap_or(0)
+        self.file_size
     }
 }
 
@@ -360,49 +339,6 @@ unsafe impl Send for Loader {}
 // - All mutable access goes through the Mutex
 // - The Mutex provides proper synchronization
 unsafe impl Sync for Loader {}
-
-/// Builder for creating loaders with custom configuration.
-///
-/// # Example
-///
-/// ```no_run
-/// use safetensors::loader::{LoaderBuilder, Device, Backend};
-///
-/// let loader = LoaderBuilder::new()
-///     .device(Device::Cpu)
-///     .backend(Backend::Mmap)
-///     .open("model.safetensors")?;
-/// # Ok::<(), safetensors::loader::LoaderError>(())
-/// ```
-#[derive(Debug, Clone, Default)]
-pub struct LoaderBuilder {
-    device: Device,
-    backend: Backend,
-}
-
-impl LoaderBuilder {
-    /// Create a new loader builder with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the target device.
-    pub fn device(mut self, device: Device) -> Self {
-        self.device = device;
-        self
-    }
-
-    /// Set the loader backend.
-    pub fn backend(mut self, backend: Backend) -> Self {
-        self.backend = backend;
-        self
-    }
-
-    /// Open a file with the configured settings.
-    pub fn open<P: AsRef<Path>>(self, path: P) -> Result<Loader> {
-        Loader::with_backend(path, self.device, self.backend)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -487,17 +423,4 @@ mod tests {
         assert_eq!(vec, content.to_vec());
     }
 
-    #[test]
-    fn test_loader_builder() {
-        let content = b"Builder test";
-        let temp_file = create_test_file(content);
-
-        let loader = LoaderBuilder::new()
-            .device(Device::Cpu)
-            .backend(Backend::Mmap)
-            .open(temp_file.path())
-            .expect("Failed to open with builder");
-
-        assert_eq!(loader.device(), Device::Cpu);
-    }
 }

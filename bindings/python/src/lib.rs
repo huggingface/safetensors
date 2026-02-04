@@ -88,17 +88,13 @@ struct CpuBuffer {
     /// The underlying buffer wrapped in Arc for shared ownership with DLPack.
     /// This allows the DLPack wrapper to keep the buffer alive independently.
     buffer: Arc<LoaderBuffer>,
-    /// Size in bytes (exposed as 1D uint8 array)
-    nbytes: usize,
 }
 
 impl CpuBuffer {
     /// Create a new CpuBuffer from an hmll LoaderBuffer.
     fn new(buffer: LoaderBuffer) -> Self {
-        let nbytes = buffer.len();
         Self {
             buffer: Arc::new(buffer),
-            nbytes,
         }
     }
 }
@@ -122,8 +118,9 @@ impl CpuBuffer {
     #[pyo3(signature = (*, stream=None))]
     fn __dlpack__(&self, py: Python<'_>, stream: Option<isize>) -> PyResult<PyObject> {
         let _ = stream; // CPU buffers don't need stream synchronization
+        let nbytes = self.buffer.len();
         debug_assert!(
-            !self.buffer.as_ptr().is_null() && self.nbytes > 0,
+            !self.buffer.as_ptr().is_null() && nbytes > 0,
             "Empty buffers should be handled by caller"
         );
 
@@ -133,7 +130,7 @@ impl CpuBuffer {
         // framework's tensor is garbage collected.
         let wrapper = DlpackCpuWrapper {
             ptr: self.buffer.as_ptr() as *mut std::ffi::c_void,
-            nbytes: self.nbytes,
+            nbytes,
             _buffer: Arc::clone(&self.buffer),
         };
 
@@ -244,184 +241,115 @@ fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
     })
 }
 
-/// High-performance loader for safetensors files.
+/// Fetch a range of bytes and create a PyTorch CUDA tensor with ZERO COPY.
 ///
-/// This is a thin wrapper around the core Loader that adds Python-specific
-/// functionality like CUDA tensor creation via DLPack protocol.
-struct Loader {
-    /// The core loader (handles file access, device targeting, synchronization)
-    core: CoreLoader,
+/// Loads data directly to GPU, then creates a PyTorch tensor that wraps
+/// the GPU memory via DLPack protocol. For exotic dtypes (F8, F4), exports
+/// as uint8 via DLPack then view-casts to the target dtype.
+///
+/// A GpuBufferHolder is attached to the tensor to keep the GPU memory alive.
+fn fetch_cuda_tensor(
+    loader: &CoreLoader,
+    py: Python<'_>,
+    start: usize,
+    end: usize,
+    dtype: Dtype,
+    shape: &[usize],
+) -> PyResult<PyObject> {
+    let current_device = loader.device();
+    let device_index = if let LoaderDevice::Cuda(idx) = current_device {
+        idx
+    } else {
+        return Err(SafetensorError::new_err(format!(
+            "Loader not configured for CUDA: {current_device}"
+        )));
+    };
+
+    let buffer = loader
+        .fetch(start, end)
+        .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
+
+    let nbytes = buffer.len();
+    let ptr = buffer.as_ptr() as *mut std::ffi::c_void;
+
+    let (dlpack_dtype, dlpack_shape) = if let Some(dt) = dtype_to_dlpack(dtype) {
+        let shape_i64: Vec<i64> = shape.iter().map(|&s| s as i64).collect();
+        (dt, shape_i64)
+    } else {
+        // Export as flat uint8 array for exotic dtypes
+        (dlpack_ffi::DataType::U8, vec![nbytes as i64])
+    };
+
+    let wrapper = DlpackGpuWrapper {
+        ptr,
+        shape: dlpack_shape,
+        dtype: dlpack_dtype,
+        device_index,
+    };
+
+    let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
+        SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e))
+    })?;
+
+    let capsule = managed_tensor_to_capsule(py, managed_tensor)?;
+
+    // Get cached torch.from_dlpack
+    let from_dlpack = TORCH_FROM_DLPACK
+        .get()
+        .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+        .bind(py);
+
+    // Create tensor from DLPack capsule
+    let tensor = from_dlpack.call1((capsule,))?;
+
+    // For exotic dtypes, view-cast from uint8 to target dtype and reshape
+    let tensor = if dtype_to_dlpack(dtype).is_none() {
+        let torch = get_module(py, &TORCH_MODULE)?;
+        let target_dtype = get_pydtype(torch, dtype, false)?;
+        let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
+        typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+    } else {
+        tensor
+    };
+
+    // Create lightweight holder to keep buffer alive and attach to tensor
+    let holder = Py::new(py, GpuBufferHolder { buffer })?;
+    tensor.setattr(intern!(py, "_safetensors_buffer"), holder)?;
+
+    Ok(tensor.into())
 }
 
-impl Loader {
-    /// Create a new Loader from a file path with specified device.
-    fn new(
-        path: &std::path::Path,
-        device: LoaderDevice,
-    ) -> Result<Self, safetensors::loader::LoaderError> {
-        Ok(Self {
-            core: CoreLoader::open(path, device)?,
-        })
-    }
-
-    /// Fetch a range of bytes and return the raw Buffer.
-    /// For CUDA, this buffer is on the GPU.
-    fn fetch_buffer(
-        &self,
-        start: usize,
-        end: usize,
-    ) -> Result<LoaderBuffer, safetensors::loader::LoaderError> {
-        self.core.fetch(start, end)
-    }
-
-    /// Fetch a range of bytes and create a PyTorch CUDA tensor with ZERO COPY.
-    ///
-    /// Loads data directly to GPU, then creates a PyTorch tensor that wraps
-    /// the GPU memory via DLPack protocol. For exotic dtypes (F8, F4), exports
-    /// as uint8 via DLPack then view-casts to the target dtype.
-    ///
-    /// A GpuBufferHolder is attached to the tensor to keep the GPU memory alive.
-    fn fetch_cuda_tensor(
-        &self,
-        py: Python<'_>,
-        start: usize,
-        end: usize,
-        dtype: Dtype,
-        shape: &[usize],
-    ) -> PyResult<PyObject> {
-        let current_device = self.core.device();
-        let device_index = if let LoaderDevice::Cuda(idx) = current_device {
-            idx
-        } else {
-            return Err(SafetensorError::new_err(format!(
-                "Loader not configured for CUDA: {current_device}"
-            )));
-        };
-
-        let buffer = self
-            .fetch_buffer(start, end)
-            .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
-
-        let nbytes = buffer.len();
-        let ptr = buffer.as_ptr() as *mut std::ffi::c_void;
-
-        let (dlpack_dtype, dlpack_shape) = if let Some(dt) = dtype_to_dlpack(dtype) {
-            let shape_i64: Vec<i64> = shape.iter().map(|&s| s as i64).collect();
-            (dt, shape_i64)
-        } else {
-            // Export as flat uint8 array for exotic dtypes
-            (dlpack_ffi::DataType::U8, vec![nbytes as i64])
-        };
-
-        let wrapper = DlpackGpuWrapper {
-            ptr,
-            shape: dlpack_shape,
-            dtype: dlpack_dtype,
-            device_index,
-        };
-
-        let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
-            SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e))
-        })?;
-
-        let capsule = managed_tensor_to_capsule(py, managed_tensor)?;
-
-        // Get cached torch.from_dlpack
-        let from_dlpack = TORCH_FROM_DLPACK
-            .get()
-            .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
-            .bind(py);
-
-        // Create tensor from DLPack capsule
-        let tensor = from_dlpack.call1((capsule,))?;
-
-        // For exotic dtypes, view-cast from uint8 to target dtype and reshape
-        let tensor = if dtype_to_dlpack(dtype).is_none() {
-            let torch = get_module(py, &TORCH_MODULE)?;
-            let target_dtype = get_pydtype(torch, dtype, false)?;
-            let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
-            typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
-        } else {
-            tensor
-        };
-
-        // Create lightweight holder to keep buffer alive and attach to tensor
-        let holder = Py::new(py, GpuBufferHolder { buffer })?;
-        tensor.setattr(intern!(py, "_safetensors_buffer"), holder)?;
-
-        Ok(tensor.into())
-    }
-
-    /// Fetch a range of bytes and create a CPU tensor using zero-copy via DLPack.
-    ///
-    /// Creates tensors directly via DLPack protocol for potential zero-copy across frameworks.
-    /// Falls back to PyByteArray for empty tensors (null pointers not supported by DLPack).
-    #[allow(clippy::too_many_arguments)]
-    fn fetch_cpu_tensor(
-        &self,
-        py: Python<'_>,
-        start: usize,
-        end: usize,
-        dtype: Dtype,
-        shape: &[usize],
-        framework: &Framework,
-        device: &Device,
-    ) -> PyResult<PyObject> {
-        let buffer = self
-            .core
-            .fetch_view(start, end)
-            .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
-
-        // Empty tensors have null pointers - fall back to PyByteArray
-        // (DLPack doesn't support null pointers)
-        if buffer.as_ptr().is_null() {
-            let vec = buffer
-                .to_vec()
-                .map_err(|e| SafetensorError::new_err(format!("Buffer conversion error: {e}")))?;
-            let array: PyObject = PyByteArray::new(py, &vec).into_any().into();
-            return create_tensor(framework, dtype, shape, array, device);
-        }
-
-        let cpu_buffer = Py::new(py, CpuBuffer::new(buffer))?;
-        create_tensor_from_dlpack(framework, cpu_buffer, device, dtype, shape)
-    }
-
-    /// Get the loader device.
-    fn device(&self) -> LoaderDevice {
-        self.core.device()
-    }
-
-    /// Get the CUDA device index
-    #[allow(dead_code)]
-    fn cuda_index(&self) -> Option<usize> {
-        if let LoaderDevice::Cuda(idx) = self.core.device() {
-            Some(idx)
-        } else {
-            None
-        }
-    }
-}
-
-/// Convert Python Device to loader Device.
-/// PyTorch CUDA devices get direct GPU loading via DLPack.
-/// For other frameworks/devices, use CPU and let the framework handle device transfer.
-fn device_to_loader(device: &Device, framework: &Framework) -> LoaderDevice {
-    match (device, framework) {
-        // PyTorch CUDA devices get direct GPU loading
-        // hmll uses the current CUDA context, so we'll set the device before operations
-        (Device::Cuda(idx), Framework::Pytorch) => LoaderDevice::Cuda(*idx),
-        _ => LoaderDevice::Cpu,
-    }
-}
-
-/// Create a Loader with the appropriate device configuration.
-fn create_loader(
-    filename: &std::path::Path,
-    device: &Device,
+/// Fetch a range of bytes and create a CPU tensor using zero-copy via DLPack.
+///
+/// Creates tensors directly via DLPack protocol for potential zero-copy across frameworks.
+/// Falls back to PyByteArray for empty tensors (null pointers not supported by DLPack).
+#[allow(clippy::too_many_arguments)]
+fn fetch_cpu_tensor(
+    loader: &CoreLoader,
+    py: Python<'_>,
+    start: usize,
+    end: usize,
+    dtype: Dtype,
+    shape: &[usize],
     framework: &Framework,
-) -> Result<Loader, safetensors::loader::LoaderError> {
-    let loader_device = device_to_loader(device, framework);
-    Loader::new(filename, loader_device)
+    device: &Device,
+) -> PyResult<PyObject> {
+    let buffer = loader
+        .fetch_view(start, end)
+        .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
+
+    // Empty tensors have null pointers - fall back to PyByteArray
+    // (DLPack doesn't support null pointers)
+    if buffer.as_ptr().is_null() {
+        let vec = buffer
+            .to_vec()
+            .map_err(|e| SafetensorError::new_err(format!("Buffer conversion error: {e}")))?;
+        let array: PyObject = PyByteArray::new(py, &vec).into_any().into();
+        return create_tensor(framework, dtype, shape, array, device);
+    }
+
+    let cpu_buffer = Py::new(py, CpuBuffer::new(buffer))?;
+    create_tensor_from_dlpack(framework, cpu_buffer, device, dtype, shape)
 }
 
 struct TensorDataPointer {
@@ -830,7 +758,7 @@ struct Open {
     offset: usize,
     framework: Framework,
     device: Device,
-    loader: Arc<Loader>,
+    loader: Arc<CoreLoader>,
 }
 
 impl Open {
@@ -915,7 +843,12 @@ impl Open {
         })?;
 
         // Create high-performance loader (CUDA device already set above if needed)
-        let loader = create_loader(&filename, &device, &framework)
+        // PyTorch CUDA devices get direct GPU loading; others use CPU
+        let loader_device = match (&device, &framework) {
+            (Device::Cuda(idx), Framework::Pytorch) => LoaderDevice::Cuda(*idx),
+            _ => LoaderDevice::Cpu,
+        };
+        let loader = CoreLoader::open(&filename, loader_device)
             .map_err(|e| SafetensorError::new_err(format!("Failed to create loader: {e}")))?;
 
         Ok(Self {
@@ -1004,13 +937,12 @@ impl Open {
         if self.framework == Framework::Pytorch
             && matches!(self.loader.device(), LoaderDevice::Cuda(_))
         {
-            return self
-                .loader
-                .fetch_cuda_tensor(py, start, end, info.dtype, &shape);
+            return fetch_cuda_tensor(&self.loader, py, start, end, info.dtype, &shape);
         }
 
         // CPU path: use zero-copy fetch_cpu_tensor
-        self.loader.fetch_cpu_tensor(
+        fetch_cpu_tensor(
+            &self.loader,
             py,
             start,
             end,
@@ -1179,7 +1111,7 @@ struct PySafeSlice {
     framework: Framework,
     offset: usize,
     device: Device,
-    loader: Arc<Loader>,
+    loader: Arc<CoreLoader>,
 }
 
 #[derive(FromPyObject)]
@@ -1276,8 +1208,7 @@ impl PySafeSlice {
 
             // Load full tensor to GPU
             let full_tensor = Python::with_gil(|py| {
-                self.loader
-                    .fetch_cuda_tensor(py, start, end, self.info.dtype, &shape)
+                fetch_cuda_tensor(&self.loader, py, start, end, self.info.dtype, &shape)
             })?;
 
             // Apply slice on GPU tensor
@@ -1317,7 +1248,7 @@ impl PySafeSlice {
         let end = self.info.data_offsets.1 + self.offset;
         let buffer = self
             .loader
-            .fetch_buffer(start, end)
+            .fetch(start, end)
             .map_err(|e| SafetensorError::new_err(format!("Loader fetch error: {e}")))?;
 
         let data = buffer
@@ -1670,167 +1601,163 @@ fn create_tensor_from_dlpack(
 
 /// Get JAX dtype from safetensors Dtype.
 fn get_jax_dtype(jax: &PyBound<'_, PyModule>, dtype: Dtype) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
-        let jnp = jax.getattr(intern!(py, "numpy"))?;
-        let dtype_obj: PyObject = match dtype {
-            Dtype::F64 => jnp.getattr(intern!(py, "float64"))?.into(),
-            Dtype::F32 => jnp.getattr(intern!(py, "float32"))?.into(),
-            Dtype::BF16 => jnp.getattr(intern!(py, "bfloat16"))?.into(),
-            Dtype::F16 => jnp.getattr(intern!(py, "float16"))?.into(),
-            Dtype::U64 => jnp.getattr(intern!(py, "uint64"))?.into(),
-            Dtype::I64 => jnp.getattr(intern!(py, "int64"))?.into(),
-            Dtype::U32 => jnp.getattr(intern!(py, "uint32"))?.into(),
-            Dtype::I32 => jnp.getattr(intern!(py, "int32"))?.into(),
-            Dtype::U16 => jnp.getattr(intern!(py, "uint16"))?.into(),
-            Dtype::I16 => jnp.getattr(intern!(py, "int16"))?.into(),
-            Dtype::U8 => jnp.getattr(intern!(py, "uint8"))?.into(),
-            Dtype::I8 => jnp.getattr(intern!(py, "int8"))?.into(),
-            Dtype::BOOL => jnp.getattr(intern!(py, "bool_"))?.into(),
-            Dtype::C64 => jnp.getattr(intern!(py, "complex64"))?.into(),
-            dtype => {
-                return Err(SafetensorError::new_err(format!(
-                    "Dtype not supported in JAX: {dtype:?}"
-                )))
-            }
-        };
-        Ok(dtype_obj)
-    })
+    let py = jax.py();
+    let jnp = jax.getattr(intern!(py, "numpy"))?;
+    let dtype_obj: PyObject = match dtype {
+        Dtype::F64 => jnp.getattr(intern!(py, "float64"))?.into(),
+        Dtype::F32 => jnp.getattr(intern!(py, "float32"))?.into(),
+        Dtype::BF16 => jnp.getattr(intern!(py, "bfloat16"))?.into(),
+        Dtype::F16 => jnp.getattr(intern!(py, "float16"))?.into(),
+        Dtype::U64 => jnp.getattr(intern!(py, "uint64"))?.into(),
+        Dtype::I64 => jnp.getattr(intern!(py, "int64"))?.into(),
+        Dtype::U32 => jnp.getattr(intern!(py, "uint32"))?.into(),
+        Dtype::I32 => jnp.getattr(intern!(py, "int32"))?.into(),
+        Dtype::U16 => jnp.getattr(intern!(py, "uint16"))?.into(),
+        Dtype::I16 => jnp.getattr(intern!(py, "int16"))?.into(),
+        Dtype::U8 => jnp.getattr(intern!(py, "uint8"))?.into(),
+        Dtype::I8 => jnp.getattr(intern!(py, "int8"))?.into(),
+        Dtype::BOOL => jnp.getattr(intern!(py, "bool_"))?.into(),
+        Dtype::C64 => jnp.getattr(intern!(py, "complex64"))?.into(),
+        dtype => {
+            return Err(SafetensorError::new_err(format!(
+                "Dtype not supported in JAX: {dtype:?}"
+            )))
+        }
+    };
+    Ok(dtype_obj)
 }
 
 /// Get MLX dtype from safetensors Dtype.
 fn get_mlx_dtype(mlx: &PyBound<'_, PyModule>, dtype: Dtype) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
-        let core = mlx.getattr(intern!(py, "core"))?;
-        let dtype_obj: PyObject = match dtype {
-            Dtype::F32 => core.getattr(intern!(py, "float32"))?.into(),
-            Dtype::BF16 => core.getattr(intern!(py, "bfloat16"))?.into(),
-            Dtype::F16 => core.getattr(intern!(py, "float16"))?.into(),
-            Dtype::U64 => core.getattr(intern!(py, "uint64"))?.into(),
-            Dtype::I64 => core.getattr(intern!(py, "int64"))?.into(),
-            Dtype::U32 => core.getattr(intern!(py, "uint32"))?.into(),
-            Dtype::I32 => core.getattr(intern!(py, "int32"))?.into(),
-            Dtype::U16 => core.getattr(intern!(py, "uint16"))?.into(),
-            Dtype::I16 => core.getattr(intern!(py, "int16"))?.into(),
-            Dtype::U8 => core.getattr(intern!(py, "uint8"))?.into(),
-            Dtype::I8 => core.getattr(intern!(py, "int8"))?.into(),
-            Dtype::BOOL => core.getattr(intern!(py, "bool_"))?.into(),
-            dtype => {
-                return Err(SafetensorError::new_err(format!(
-                    "Dtype not supported in MLX: {dtype:?}"
-                )))
-            }
-        };
-        Ok(dtype_obj)
-    })
+    let py = mlx.py();
+    let core = mlx.getattr(intern!(py, "core"))?;
+    let dtype_obj: PyObject = match dtype {
+        Dtype::F32 => core.getattr(intern!(py, "float32"))?.into(),
+        Dtype::BF16 => core.getattr(intern!(py, "bfloat16"))?.into(),
+        Dtype::F16 => core.getattr(intern!(py, "float16"))?.into(),
+        Dtype::U64 => core.getattr(intern!(py, "uint64"))?.into(),
+        Dtype::I64 => core.getattr(intern!(py, "int64"))?.into(),
+        Dtype::U32 => core.getattr(intern!(py, "uint32"))?.into(),
+        Dtype::I32 => core.getattr(intern!(py, "int32"))?.into(),
+        Dtype::U16 => core.getattr(intern!(py, "uint16"))?.into(),
+        Dtype::I16 => core.getattr(intern!(py, "int16"))?.into(),
+        Dtype::U8 => core.getattr(intern!(py, "uint8"))?.into(),
+        Dtype::I8 => core.getattr(intern!(py, "int8"))?.into(),
+        Dtype::BOOL => core.getattr(intern!(py, "bool_"))?.into(),
+        dtype => {
+            return Err(SafetensorError::new_err(format!(
+                "Dtype not supported in MLX: {dtype:?}"
+            )))
+        }
+    };
+    Ok(dtype_obj)
 }
 
 /// Get Paddle dtype from safetensors Dtype.
 fn get_paddle_dtype(paddle: &PyBound<'_, PyModule>, dtype: Dtype) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
-        let dtype_obj: PyObject = match dtype {
-            Dtype::F64 => paddle.getattr(intern!(py, "float64"))?.into(),
-            Dtype::F32 => paddle.getattr(intern!(py, "float32"))?.into(),
-            Dtype::BF16 => paddle.getattr(intern!(py, "bfloat16"))?.into(),
-            Dtype::F16 => paddle.getattr(intern!(py, "float16"))?.into(),
-            Dtype::U64 => paddle.getattr(intern!(py, "uint64"))?.into(),
-            Dtype::I64 => paddle.getattr(intern!(py, "int64"))?.into(),
-            Dtype::U32 => paddle.getattr(intern!(py, "uint32"))?.into(),
-            Dtype::I32 => paddle.getattr(intern!(py, "int32"))?.into(),
-            Dtype::U16 => paddle.getattr(intern!(py, "uint16"))?.into(),
-            Dtype::I16 => paddle.getattr(intern!(py, "int16"))?.into(),
-            Dtype::U8 => paddle.getattr(intern!(py, "uint8"))?.into(),
-            Dtype::I8 => paddle.getattr(intern!(py, "int8"))?.into(),
-            Dtype::BOOL => paddle.getattr(intern!(py, "bool"))?.into(),
-            dtype => {
-                return Err(SafetensorError::new_err(format!(
-                    "Dtype not supported in Paddle: {dtype:?}"
-                )))
-            }
-        };
-        Ok(dtype_obj)
-    })
+    let py = paddle.py();
+    let dtype_obj: PyObject = match dtype {
+        Dtype::F64 => paddle.getattr(intern!(py, "float64"))?.into(),
+        Dtype::F32 => paddle.getattr(intern!(py, "float32"))?.into(),
+        Dtype::BF16 => paddle.getattr(intern!(py, "bfloat16"))?.into(),
+        Dtype::F16 => paddle.getattr(intern!(py, "float16"))?.into(),
+        Dtype::U64 => paddle.getattr(intern!(py, "uint64"))?.into(),
+        Dtype::I64 => paddle.getattr(intern!(py, "int64"))?.into(),
+        Dtype::U32 => paddle.getattr(intern!(py, "uint32"))?.into(),
+        Dtype::I32 => paddle.getattr(intern!(py, "int32"))?.into(),
+        Dtype::U16 => paddle.getattr(intern!(py, "uint16"))?.into(),
+        Dtype::I16 => paddle.getattr(intern!(py, "int16"))?.into(),
+        Dtype::U8 => paddle.getattr(intern!(py, "uint8"))?.into(),
+        Dtype::I8 => paddle.getattr(intern!(py, "int8"))?.into(),
+        Dtype::BOOL => paddle.getattr(intern!(py, "bool"))?.into(),
+        dtype => {
+            return Err(SafetensorError::new_err(format!(
+                "Dtype not supported in Paddle: {dtype:?}"
+            )))
+        }
+    };
+    Ok(dtype_obj)
 }
 
 fn get_pydtype(module: &PyBound<'_, PyModule>, dtype: Dtype, is_numpy: bool) -> PyResult<PyObject> {
-    Python::with_gil(|py| {
-        let dtype: PyObject = match dtype {
-            Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
-            Dtype::F32 => module.getattr(intern!(py, "float32"))?.into(),
-            Dtype::BF16 => {
-                if is_numpy {
-                    module
-                        .getattr(intern!(py, "dtype"))?
-                        .call1(("bfloat16",))?
-                        .into()
-                } else {
-                    module.getattr(intern!(py, "bfloat16"))?.into()
-                }
+    let py = module.py();
+    let dtype: PyObject = match dtype {
+        Dtype::F64 => module.getattr(intern!(py, "float64"))?.into(),
+        Dtype::F32 => module.getattr(intern!(py, "float32"))?.into(),
+        Dtype::BF16 => {
+            if is_numpy {
+                module
+                    .getattr(intern!(py, "dtype"))?
+                    .call1(("bfloat16",))?
+                    .into()
+            } else {
+                module.getattr(intern!(py, "bfloat16"))?.into()
             }
-            Dtype::F16 => module.getattr(intern!(py, "float16"))?.into(),
-            Dtype::U64 => module.getattr(intern!(py, "uint64"))?.into(),
-            Dtype::I64 => module.getattr(intern!(py, "int64"))?.into(),
-            Dtype::U32 => module.getattr(intern!(py, "uint32"))?.into(),
-            Dtype::I32 => module.getattr(intern!(py, "int32"))?.into(),
-            Dtype::U16 => module.getattr(intern!(py, "uint16"))?.into(),
-            Dtype::I16 => module.getattr(intern!(py, "int16"))?.into(),
-            Dtype::U8 => module.getattr(intern!(py, "uint8"))?.into(),
-            Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
-            Dtype::BOOL => {
-                if is_numpy {
-                    py.import("builtins")?.getattr(intern!(py, "bool"))?.into()
-                } else {
-                    module.getattr(intern!(py, "bool"))?.into()
-                }
+        }
+        Dtype::F16 => module.getattr(intern!(py, "float16"))?.into(),
+        Dtype::U64 => module.getattr(intern!(py, "uint64"))?.into(),
+        Dtype::I64 => module.getattr(intern!(py, "int64"))?.into(),
+        Dtype::U32 => module.getattr(intern!(py, "uint32"))?.into(),
+        Dtype::I32 => module.getattr(intern!(py, "int32"))?.into(),
+        Dtype::U16 => module.getattr(intern!(py, "uint16"))?.into(),
+        Dtype::I16 => module.getattr(intern!(py, "int16"))?.into(),
+        Dtype::U8 => module.getattr(intern!(py, "uint8"))?.into(),
+        Dtype::I8 => module.getattr(intern!(py, "int8"))?.into(),
+        Dtype::BOOL => {
+            if is_numpy {
+                py.import("builtins")?.getattr(intern!(py, "bool"))?.into()
+            } else {
+                module.getattr(intern!(py, "bool"))?.into()
             }
-            Dtype::F8_E4M3 => {
-                if is_numpy {
-                    module
-                        .getattr(intern!(py, "dtype"))?
-                        .call1(("float8_e4m3fn",))?
-                        .into()
-                } else {
-                    module.getattr(intern!(py, "float8_e4m3fn"))?.into()
-                }
+        }
+        Dtype::F8_E4M3 => {
+            if is_numpy {
+                module
+                    .getattr(intern!(py, "dtype"))?
+                    .call1(("float8_e4m3fn",))?
+                    .into()
+            } else {
+                module.getattr(intern!(py, "float8_e4m3fn"))?.into()
             }
-            Dtype::F8_E5M2 => {
-                if is_numpy {
-                    module
-                        .getattr(intern!(py, "dtype"))?
-                        .call1(("float8_e5m2",))?
-                        .into()
-                } else {
-                    module.getattr(intern!(py, "float8_e5m2"))?.into()
-                }
+        }
+        Dtype::F8_E5M2 => {
+            if is_numpy {
+                module
+                    .getattr(intern!(py, "dtype"))?
+                    .call1(("float8_e5m2",))?
+                    .into()
+            } else {
+                module.getattr(intern!(py, "float8_e5m2"))?.into()
             }
-            Dtype::F8_E8M0 => {
-                if is_numpy {
-                    module
-                        .getattr(intern!(py, "dtype"))?
-                        .call1(("float8_e8m0fnu",))?
-                        .into()
-                } else {
-                    module.getattr(intern!(py, "float8_e8m0fnu"))?.into()
-                }
+        }
+        Dtype::F8_E8M0 => {
+            if is_numpy {
+                module
+                    .getattr(intern!(py, "dtype"))?
+                    .call1(("float8_e8m0fnu",))?
+                    .into()
+            } else {
+                module.getattr(intern!(py, "float8_e8m0fnu"))?.into()
             }
-            Dtype::F4 => {
-                if is_numpy {
-                    module
-                        .getattr(intern!(py, "dtype"))?
-                        .call1(("float4_e2m1fn_x2",))?
-                        .into()
-                } else {
-                    module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into()
-                }
+        }
+        Dtype::F4 => {
+            if is_numpy {
+                module
+                    .getattr(intern!(py, "dtype"))?
+                    .call1(("float4_e2m1fn_x2",))?
+                    .into()
+            } else {
+                module.getattr(intern!(py, "float4_e2m1fn_x2"))?.into()
             }
-            Dtype::C64 => module.getattr(intern!(py, "complex64"))?.into(),
-            dtype => {
-                return Err(SafetensorError::new_err(format!(
-                    "Dtype not understood: {dtype}"
-                )))
-            }
-        };
-        Ok(dtype)
-    })
+        }
+        Dtype::C64 => module.getattr(intern!(py, "complex64"))?.into(),
+        dtype => {
+            return Err(SafetensorError::new_err(format!(
+                "Dtype not understood: {dtype}"
+            )))
+        }
+    };
+    Ok(dtype)
 }
 
 pyo3::create_exception!(
