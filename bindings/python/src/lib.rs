@@ -241,13 +241,15 @@ fn dtype_to_dlpack(dtype: Dtype) -> Option<dlpack_ffi::DataType> {
     })
 }
 
-/// Fetch a range of bytes and create a PyTorch CUDA tensor with ZERO COPY.
+/// Fetch a range of bytes and create a CUDA tensor with ZERO COPY.
 ///
-/// Loads data directly to GPU, then creates a PyTorch tensor that wraps
+/// Loads data directly to GPU, then creates a tensor that wraps
 /// the GPU memory via DLPack protocol. For exotic dtypes (F8, F4), exports
 /// as uint8 via DLPack then view-casts to the target dtype.
 ///
 /// A GpuBufferHolder is attached to the tensor to keep the GPU memory alive.
+///
+/// Supported frameworks: PyTorch, JAX/Flax, Paddle
 fn fetch_cuda_tensor(
     loader: &CoreLoader,
     py: Python<'_>,
@@ -255,6 +257,7 @@ fn fetch_cuda_tensor(
     end: usize,
     dtype: Dtype,
     shape: &[usize],
+    framework: &Framework,
 ) -> PyResult<PyObject> {
     let current_device = loader.device();
     let device_index = if let LoaderDevice::Cuda(idx) = current_device {
@@ -293,21 +296,59 @@ fn fetch_cuda_tensor(
 
     let capsule = managed_tensor_to_capsule(py, managed_tensor)?;
 
-    // Get cached torch.from_dlpack
-    let from_dlpack = TORCH_FROM_DLPACK
-        .get()
-        .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
-        .bind(py);
-
-    // Create tensor from DLPack capsule
-    let tensor = from_dlpack.call1((capsule,))?;
+    // Create tensor from DLPack capsule using framework-specific from_dlpack
+    let tensor: PyBound<'_, PyAny> = match framework {
+        Framework::Pytorch => {
+            let from_dlpack = TORCH_FROM_DLPACK
+                .get()
+                .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+                .bind(py);
+            from_dlpack.call1((capsule,))?
+        }
+        Framework::Flax => {
+            let from_dlpack = JAX_FROM_DLPACK
+                .get()
+                .ok_or_else(|| SafetensorError::new_err("jax.numpy.from_dlpack not initialized"))?
+                .bind(py);
+            from_dlpack.call1((capsule,))?
+        }
+        Framework::Paddle => {
+            let from_dlpack = PADDLE_FROM_DLPACK
+                .get()
+                .ok_or_else(|| SafetensorError::new_err("paddle.from_dlpack not initialized"))?
+                .bind(py);
+            from_dlpack.call1((capsule,))?
+        }
+        _ => {
+            return Err(SafetensorError::new_err(format!(
+                "CUDA direct loading not supported for framework: {framework}"
+            )));
+        }
+    };
 
     // For exotic dtypes, view-cast from uint8 to target dtype and reshape
     let tensor = if dtype_to_dlpack(dtype).is_none() {
-        let torch = get_module(py, &TORCH_MODULE)?;
-        let target_dtype = get_pydtype(torch, dtype, false)?;
-        let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
-        typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+        match framework {
+            Framework::Pytorch => {
+                let torch = get_module(py, &TORCH_MODULE)?;
+                let target_dtype = get_pydtype(torch, dtype, false)?;
+                let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
+                typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Flax => {
+                // JAX doesn't support exotic dtypes like F8/F4, fall back to error
+                return Err(SafetensorError::new_err(format!(
+                    "Exotic dtype {dtype:?} not supported in JAX"
+                )));
+            }
+            Framework::Paddle => {
+                // Paddle doesn't support exotic dtypes like F8/F4, fall back to error
+                return Err(SafetensorError::new_err(format!(
+                    "Exotic dtype {dtype:?} not supported in Paddle"
+                )));
+            }
+            _ => tensor,
+        }
     } else {
         tensor
     };
@@ -843,9 +884,13 @@ impl Open {
         })?;
 
         // Create high-performance loader (CUDA device already set above if needed)
-        // PyTorch CUDA devices get direct GPU loading; others use CPU
+        // CUDA-capable frameworks: hmll loads file directly to GPU memory via DMA
+        // Other frameworks/devices: hmll loads to CPU via mmap, framework handles GPU transfer
+        // Both paths use DLPack for zero-copy tensor creation
         let loader_device = match (&device, &framework) {
-            (Device::Cuda(idx), Framework::Pytorch) => LoaderDevice::Cuda(*idx),
+            (Device::Cuda(idx), Framework::Pytorch | Framework::Flax | Framework::Paddle) => {
+                LoaderDevice::Cuda(*idx)
+            }
             _ => LoaderDevice::Cpu,
         };
         let loader = CoreLoader::open(&filename, loader_device)
@@ -930,14 +975,24 @@ impl Open {
             info.shape.to_vec()
         };
 
-        // For PyTorch + CUDA loader, use zero-copy path via DLPack
+        // For CUDA-capable frameworks with CUDA loader, use zero-copy path via DLPack
         // NOTE: We check the loader's device, not self.device, because the loader
         // may be configured for CPU even when target device is CUDA (e.g., cuda:1
         // falls back to CPU loader since hmll only supports cuda:0 direct loading)
-        if self.framework == Framework::Pytorch
-            && matches!(self.loader.device(), LoaderDevice::Cuda(_))
+        if matches!(
+            self.framework,
+            Framework::Pytorch | Framework::Flax | Framework::Paddle
+        ) && matches!(self.loader.device(), LoaderDevice::Cuda(_))
         {
-            return fetch_cuda_tensor(&self.loader, py, start, end, info.dtype, &shape);
+            return fetch_cuda_tensor(
+                &self.loader,
+                py,
+                start,
+                end,
+                info.dtype,
+                &shape,
+                &self.framework,
+            );
         }
 
         // CPU path: use zero-copy fetch_cpu_tensor
@@ -1184,19 +1239,21 @@ impl PySafeSlice {
     }
 
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<PyObject> {
-        // For PyTorch + CUDA loader, load full tensor to GPU then slice on GPU
+        // For CUDA-capable frameworks with CUDA loader, load full tensor to GPU then slice on GPU
         // (CPU-side slicing requires CPU buffer which CUDA loader can't provide)
         // NOTE: We check the loader's device, not self.device, because the loader
         // may be configured for CPU even when target device is CUDA
-        if self.framework == Framework::Pytorch
-            && matches!(self.loader.device(), LoaderDevice::Cuda(_))
+        if matches!(
+            self.framework,
+            Framework::Pytorch | Framework::Flax | Framework::Paddle
+        ) && matches!(self.loader.device(), LoaderDevice::Cuda(_))
         {
             let start = self.info.data_offsets.0 + self.offset;
             let end = self.info.data_offsets.1 + self.offset;
 
-            // Handle F4 dtype shape adjustment
+            // Handle F4 dtype shape adjustment (PyTorch only)
             let mut shape = self.info.shape.to_vec();
-            if self.info.dtype == Dtype::F4 {
+            if self.framework == Framework::Pytorch && self.info.dtype == Dtype::F4 {
                 let n = shape.len();
                 if shape[n - 1] % 2 != 0 {
                     return Err(SafetensorError::new_err(format!(
@@ -1208,7 +1265,15 @@ impl PySafeSlice {
 
             // Load full tensor to GPU
             let full_tensor = Python::with_gil(|py| {
-                fetch_cuda_tensor(&self.loader, py, start, end, self.info.dtype, &shape)
+                fetch_cuda_tensor(
+                    &self.loader,
+                    py,
+                    start,
+                    end,
+                    self.info.dtype,
+                    &shape,
+                    &self.framework,
+                )
             })?;
 
             // Apply slice on GPU tensor
