@@ -9,6 +9,11 @@ rust-version = "1.80"
 name = "safetensors_rust"
 crate-type = ["cdylib"]
 
+[features]
+default = ["io_uring"]
+# io_uring support for async I/O (Linux only)
+io_uring = ["safetensors/io_uring"]
+
 [dependencies]
 dlpark = "0.6.0"
 pyo3 = { version = "0.26", features = ["abi3", "abi3-py310"] }

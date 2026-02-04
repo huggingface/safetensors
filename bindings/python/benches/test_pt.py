@@ -119,6 +119,36 @@ def test_pt_sf_load_gpu(benchmark):
         assert torch.allclose(v, tv)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda")
+def test_pt_sf_load_gpu_io_uring(benchmark):
+    """Benchmark GPU loading with io_uring backend (Linux only).
+
+    Note: io_uring uses staging buffers + async memcpy, which has more overhead
+    than mmap's direct cudaMemcpy for sequential loading. io_uring is optimized
+    for high-concurrency async I/O patterns, not single-file sequential reads.
+    """
+    from safetensors import safe_open
+
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+
+        def load_with_io_uring():
+            tensors = {}
+            with safe_open(f.name, framework="pt", device="cuda:0", backend="io_uring") as sf:
+                for key in sf.keys():
+                    tensors[key] = sf.get_tensor(key)
+            return tensors
+
+        result = benchmark(load_with_io_uring)
+    os.unlink(f.name)
+
+    for k, v in weights.items():
+        v = v.cuda()
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
 @pytest.mark.skipif(
     not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(),
     reason="requires mps",

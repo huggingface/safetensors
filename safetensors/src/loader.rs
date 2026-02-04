@@ -83,7 +83,7 @@ pub enum Backend {
     /// Use mmap-based loading (cross-platform).
     Mmap,
     /// Use io_uring for async I/O (Linux only).
-    #[cfg(feature = "io_uring")]
+    #[cfg(all(target_os = "linux", feature = "io_uring"))]
     IoUring,
 }
 
@@ -94,7 +94,7 @@ impl Backend {
         match self {
             Backend::Auto => hmll::LoaderKind::Auto,
             Backend::Mmap => hmll::LoaderKind::Mmap,
-            #[cfg(feature = "io_uring")]
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
             Backend::IoUring => hmll::LoaderKind::IoUring,
         }
     }

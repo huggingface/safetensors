@@ -11,7 +11,9 @@ use pyo3::types::IntoPyDict;
 use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
-use safetensors::loader::{Buffer as LoaderBuffer, Device as LoaderDevice, Loader as CoreLoader};
+use safetensors::loader::{
+    Backend as LoaderBackend, Buffer as LoaderBuffer, Device as LoaderDevice, Loader as CoreLoader,
+};
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
 use safetensors::View;
@@ -794,6 +796,50 @@ impl<'py> IntoPyObject<'py> for Device {
     }
 }
 
+/// Loader backend selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Backend {
+    /// Automatically select the best backend for the platform.
+    #[default]
+    Auto,
+    /// Use mmap-based loading (cross-platform).
+    Mmap,
+    /// Use io_uring for async I/O (Linux only).
+    #[cfg(all(target_os = "linux", feature = "io_uring"))]
+    IoUring,
+}
+
+impl Backend {
+    /// Convert to loader Backend.
+    fn to_loader(self) -> LoaderBackend {
+        match self {
+            Backend::Auto => LoaderBackend::Auto,
+            Backend::Mmap => LoaderBackend::Mmap,
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
+            Backend::IoUring => LoaderBackend::IoUring,
+        }
+    }
+}
+
+impl<'source> FromPyObject<'source> for Backend {
+    fn extract_bound(ob: &PyBound<'source, PyAny>) -> PyResult<Self> {
+        let name: String = ob.extract()?;
+        match name.as_str() {
+            "auto" => Ok(Backend::Auto),
+            "mmap" => Ok(Backend::Mmap),
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
+            "io_uring" | "iouring" => Ok(Backend::IoUring),
+            #[cfg(not(all(target_os = "linux", feature = "io_uring")))]
+            "io_uring" | "iouring" => Err(SafetensorError::new_err(
+                "io_uring backend is only available on Linux with io_uring feature enabled"
+            )),
+            name => Err(SafetensorError::new_err(format!(
+                "backend {name} is invalid (valid: auto, mmap, io_uring)"
+            ))),
+        }
+    }
+}
+
 struct Open {
     metadata: Metadata,
     offset: usize,
@@ -803,7 +849,12 @@ struct Open {
 }
 
 impl Open {
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        device: Option<Device>,
+        backend: Option<Backend>,
+    ) -> PyResult<Self> {
         // Validate file exists
         if !filename.exists() {
             return Err(PyFileNotFoundError::new_err(format!(
@@ -893,7 +944,8 @@ impl Open {
             }
             _ => LoaderDevice::Cpu,
         };
-        let loader = CoreLoader::open(&filename, loader_device)
+        let loader_backend = backend.unwrap_or_default().to_loader();
+        let loader = CoreLoader::with_backend(&filename, loader_device, loader_backend)
             .map_err(|e| SafetensorError::new_err(format!("Failed to create loader: {e}")))?;
 
         Ok(Self {
@@ -1054,6 +1106,10 @@ impl Open {
 ///
 ///     device (`str`, defaults to `"cpu"`):
 ///         The device on which you want the tensors.
+///
+///     backend (`str`, *optional*):
+///         The loader backend to use. Supported values:
+///         `auto` (default), `mmap`, `io_uring` (Linux only).
 #[pyclass]
 #[allow(non_camel_case_types)]
 struct safe_open {
@@ -1073,9 +1129,14 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu)))]
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let inner = Some(Open::new(filename, framework, device)?);
+    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu), backend=None))]
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        device: Option<Device>,
+        backend: Option<Backend>,
+    ) -> PyResult<Self> {
+        let inner = Some(Open::new(filename, framework, device, backend)?);
         Ok(Self { inner })
     }
 
@@ -1851,15 +1912,20 @@ impl _safe_open_handle {
 #[pymethods]
 impl _safe_open_handle {
     #[new]
-    #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
-    fn new(f: PyObject, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    #[pyo3(signature = (f, framework, device=Some(Device::Cpu), backend=None))]
+    fn new(
+        f: PyObject,
+        framework: Framework,
+        device: Option<Device>,
+        backend: Option<Backend>,
+    ) -> PyResult<Self> {
         let filename = Python::with_gil(|py| -> PyResult<PathBuf> {
             let _ = f.getattr(py, "fileno")?;
             let filename = f.getattr(py, "name")?;
             let filename: PathBuf = filename.extract(py)?;
             Ok(filename)
         })?;
-        let inner = Some(Open::new(filename, framework, device)?);
+        let inner = Some(Open::new(filename, framework, device, backend)?);
         Ok(Self { inner })
     }
 
