@@ -16,4 +16,5 @@ serde_json = "1.0"
 
 [dependencies.safetensors]
 path = "../../safetensors"
-features = ["loader", "cuda"]
+# std is default (includes hmll loader), cuda adds GPU support
+features = ["cuda"]

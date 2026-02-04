@@ -5,7 +5,8 @@ pub mod slice;
 pub mod tensor;
 
 /// High-performance loader module using hmll.
-#[cfg(feature = "loader")]
+/// Only available with std feature (file loading requires filesystem access).
+#[cfg(feature = "std")]
 pub mod loader;
 /// serialize_to_file only valid in std
 #[cfg(feature = "std")]

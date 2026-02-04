@@ -68,6 +68,7 @@ impl std::fmt::Display for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Cpu => write!(f, "cpu"),
+            #[cfg(feature = "cuda")]
             Self::Cuda(idx) => write!(f, "cuda:{idx}"),
         }
     }
@@ -330,7 +331,7 @@ impl Loader {
     /// * `end` - End offset in bytes (exclusive)
     pub fn fetch_to_vec(&self, start: usize, end: usize) -> Result<Vec<u8>> {
         let buffer = self.fetch(start, end)?;
-        Ok(buffer.to_vec())
+        Ok(buffer.to_vec()?)
     }
 
     /// Get the target device for this loader.

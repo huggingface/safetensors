@@ -85,8 +85,9 @@ static PADDLE_FROM_DLPACK: OnceLock<Py<PyAny>> = OnceLock::new();
 /// This simplifies the code path and works uniformly for all dtypes including exotic ones.
 #[pyclass]
 struct CpuBuffer {
-    /// The underlying buffer (kept alive as long as this object exists)
-    buffer: LoaderBuffer,
+    /// The underlying buffer wrapped in Arc for shared ownership with DLPack.
+    /// This allows the DLPack wrapper to keep the buffer alive independently.
+    buffer: Arc<LoaderBuffer>,
     /// Size in bytes (exposed as 1D uint8 array)
     nbytes: usize,
 }
@@ -95,7 +96,10 @@ impl CpuBuffer {
     /// Create a new CpuBuffer from an hmll LoaderBuffer.
     fn new(buffer: LoaderBuffer) -> Self {
         let nbytes = buffer.len();
-        Self { buffer, nbytes }
+        Self {
+            buffer: Arc::new(buffer),
+            nbytes,
+        }
     }
 }
 
@@ -123,9 +127,14 @@ impl CpuBuffer {
             "Empty buffers should be handled by caller"
         );
 
+        // Clone the Arc to share ownership with the DLPack wrapper.
+        // When numpy (or other frameworks) consumes the DLPack tensor,
+        // this Arc keeps the underlying buffer memory alive until the
+        // framework's tensor is garbage collected.
         let wrapper = DlpackCpuWrapper {
             ptr: self.buffer.as_ptr() as *mut std::ffi::c_void,
             nbytes: self.nbytes,
+            _buffer: Arc::clone(&self.buffer),
         };
 
         let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
@@ -138,9 +147,15 @@ impl CpuBuffer {
 
 /// Wrapper for creating DLPack tensor from CPU memory.
 /// Exposes data as 1D uint8 array for uniform handling of all dtypes.
+/// Holds an Arc<LoaderBuffer> to keep the underlying memory alive when
+/// the DLPack tensor is consumed by frameworks like numpy.
 struct DlpackCpuWrapper {
     ptr: *mut std::ffi::c_void,
     nbytes: usize,
+    /// Keeps the buffer memory alive. When this wrapper is destroyed
+    /// (via DLPack deleter), the Arc refcount decrements, potentially
+    /// freeing the underlying mmap or owned memory.
+    _buffer: Arc<LoaderBuffer>,
 }
 
 impl TensorLike<RowMajorCompactLayout> for DlpackCpuWrapper {
@@ -360,7 +375,10 @@ impl Loader {
         // Empty tensors have null pointers - fall back to PyByteArray
         // (DLPack doesn't support null pointers)
         if buffer.as_ptr().is_null() {
-            let array: PyObject = PyByteArray::new(py, &buffer.to_vec()).into_any().into();
+            let vec = buffer
+                .to_vec()
+                .map_err(|e| SafetensorError::new_err(format!("Buffer conversion error: {e}")))?;
+            let array: PyObject = PyByteArray::new(py, &vec).into_any().into();
             return create_tensor(framework, dtype, shape, array, device);
         }
 
