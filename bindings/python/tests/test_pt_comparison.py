@@ -370,6 +370,55 @@ class LoadTestCase(unittest.TestCase):
             self.assertTrue(torch.allclose(v, tv))
             self.assertEqual(v.device, torch.device("cuda:1"))
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
+    def test_device_map_cpu_cuda(self):
+        """Test device_map with mixed CPU and CUDA devices."""
+        device_map = {
+            "test": "cpu",
+            "test2": "cuda:0",
+            "test3": "cpu",
+            "_default": "cpu",
+        }
+        with safe_open(self.sf_filename, framework="pt", device=device_map) as f:
+            t1 = f.get_tensor("test")
+            t2 = f.get_tensor("test2")
+            t3 = f.get_tensor("test3")
+            self.assertEqual(t1.device, torch.device("cpu"))
+            self.assertEqual(t2.device, torch.device("cuda:0"))
+            self.assertEqual(t3.device, torch.device("cpu"))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
+    def test_device_map_iter_tensors(self):
+        """Test device_map with iter_tensors."""
+        device_map = {
+            "test": "cpu",
+            "test2": "cuda:0",
+            "test3": "cpu",
+            "_default": "cpu",
+        }
+        with safe_open(self.sf_filename, framework="pt", device=device_map) as f:
+            tensors = dict(f.iter_tensors())
+            self.assertEqual(tensors["test"].device, torch.device("cpu"))
+            self.assertEqual(tensors["test2"].device, torch.device("cuda:0"))
+            self.assertEqual(tensors["test3"].device, torch.device("cpu"))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Cuda is not available")
+    def test_device_map_single_cuda(self):
+        """Test device_map where all tensors go to single CUDA device (optimized path)."""
+        device_map = {
+            "test": "cuda:0",
+            "test2": "cuda:0",
+            "test3": "cuda:0",
+            "_default": "cuda:0",
+        }
+        with safe_open(self.sf_filename, framework="pt", device=device_map) as f:
+            t1 = f.get_tensor("test")
+            t2 = f.get_tensor("test2")
+            t3 = f.get_tensor("test3")
+            self.assertEqual(t1.device, torch.device("cuda:0"))
+            self.assertEqual(t2.device, torch.device("cuda:0"))
+            self.assertEqual(t3.device, torch.device("cuda:0"))
+
 
 class SliceTestCase(unittest.TestCase):
     def setUp(self):

@@ -8,6 +8,12 @@ pub mod tensor;
 /// Only available with std feature (file loading requires filesystem access).
 #[cfg(feature = "std")]
 pub mod loader;
+
+/// Index file support for sharded models.
+/// Parses `model.safetensors.index.json` files used by HuggingFace transformers.
+#[cfg(feature = "std")]
+pub mod index;
+
 /// serialize_to_file only valid in std
 #[cfg(feature = "std")]
 pub use tensor::serialize_to_file;

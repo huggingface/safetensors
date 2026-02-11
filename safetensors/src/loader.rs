@@ -100,6 +100,172 @@ impl Backend {
     }
 }
 
+/// Device mapping for multi-device tensor loading.
+///
+/// `DeviceMap` determines which device each tensor should be loaded to.
+/// This enables distributing large models across multiple GPUs.
+///
+/// # Example
+///
+/// ```
+/// use safetensors::loader::{Device, DeviceMap};
+/// use std::collections::HashMap;
+///
+/// // Single device (default behavior)
+/// let map = DeviceMap::single(Device::Cpu);
+///
+/// // Map specific tensors to devices
+/// let mut tensor_map = HashMap::new();
+/// tensor_map.insert("lm_head.weight".to_string(), Device::Cpu);
+/// # #[cfg(feature = "cuda")]
+/// # {
+/// # tensor_map.insert("model.layers.0.weight".to_string(), Device::Cuda(0));
+/// # }
+/// let map = DeviceMap::from_map(tensor_map, Device::Cpu);
+/// ```
+#[derive(Debug, Clone)]
+pub enum DeviceMap {
+    /// All tensors go to a single device.
+    Single(Device),
+    /// Map tensor names to specific devices, with a default fallback.
+    Map {
+        /// Exact tensor name to device mapping.
+        map: std::collections::HashMap<String, Device>,
+        /// Default device for tensors not in the map.
+        default: Device,
+    },
+    /// Prefix-based mapping: tensors are matched against prefixes in order.
+    /// First matching prefix determines the device.
+    PrefixMap {
+        /// List of (prefix, device) pairs, checked in order.
+        prefixes: Vec<(String, Device)>,
+        /// Default device for tensors not matching any prefix.
+        default: Device,
+    },
+}
+
+impl Default for DeviceMap {
+    fn default() -> Self {
+        DeviceMap::Single(Device::Cpu)
+    }
+}
+
+impl DeviceMap {
+    /// Create a device map that routes all tensors to a single device.
+    #[inline]
+    pub fn single(device: Device) -> Self {
+        DeviceMap::Single(device)
+    }
+
+    /// Create a device map from an exact name mapping.
+    ///
+    /// Tensors not in the map will use the default device.
+    pub fn from_map(
+        map: std::collections::HashMap<String, Device>,
+        default: Device,
+    ) -> Self {
+        DeviceMap::Map { map, default }
+    }
+
+    /// Create a device map from prefix patterns.
+    ///
+    /// Prefixes are checked in order; the first matching prefix determines the device.
+    /// Tensors not matching any prefix will use the default device.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safetensors::loader::{Device, DeviceMap};
+    ///
+    /// # #[cfg(feature = "cuda")]
+    /// let map = DeviceMap::from_prefixes(
+    ///     vec![
+    ///         ("model.layers.0".to_string(), Device::Cuda(0)),
+    ///         ("model.layers.1".to_string(), Device::Cuda(0)),
+    ///         ("model.layers.2".to_string(), Device::Cuda(1)),
+    ///     ],
+    ///     Device::Cpu,
+    /// );
+    /// ```
+    pub fn from_prefixes(prefixes: Vec<(String, Device)>, default: Device) -> Self {
+        DeviceMap::PrefixMap { prefixes, default }
+    }
+
+    /// Resolve which device a tensor should be loaded to.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor_name` - The name of the tensor to look up
+    ///
+    /// # Returns
+    ///
+    /// The device the tensor should be loaded to.
+    pub fn resolve(&self, tensor_name: &str) -> Device {
+        match self {
+            DeviceMap::Single(device) => *device,
+            DeviceMap::Map { map, default } => {
+                map.get(tensor_name).copied().unwrap_or(*default)
+            }
+            DeviceMap::PrefixMap { prefixes, default } => {
+                for (prefix, device) in prefixes {
+                    if tensor_name.starts_with(prefix) {
+                        return *device;
+                    }
+                }
+                *default
+            }
+        }
+    }
+
+    /// Get the default device for this map.
+    pub fn default_device(&self) -> Device {
+        match self {
+            DeviceMap::Single(device) => *device,
+            DeviceMap::Map { default, .. } => *default,
+            DeviceMap::PrefixMap { default, .. } => *default,
+        }
+    }
+
+    /// Get all unique devices used in this map.
+    #[cfg(feature = "cuda")]
+    pub fn devices(&self) -> Vec<Device> {
+        use std::collections::HashSet;
+        let mut devices: HashSet<Device> = HashSet::new();
+
+        match self {
+            DeviceMap::Single(device) => {
+                devices.insert(*device);
+            }
+            DeviceMap::Map { map, default } => {
+                devices.insert(*default);
+                for device in map.values() {
+                    devices.insert(*device);
+                }
+            }
+            DeviceMap::PrefixMap { prefixes, default } => {
+                devices.insert(*default);
+                for (_, device) in prefixes {
+                    devices.insert(*device);
+                }
+            }
+        }
+
+        devices.into_iter().collect()
+    }
+
+    /// Check if this is a single-device map (no multi-GPU routing).
+    #[inline]
+    pub fn is_single(&self) -> bool {
+        matches!(self, DeviceMap::Single(_))
+    }
+}
+
+impl From<Device> for DeviceMap {
+    fn from(device: Device) -> Self {
+        DeviceMap::Single(device)
+    }
+}
+
 /// Error type for loader operations.
 #[derive(Debug)]
 pub enum LoaderError {
@@ -765,7 +931,357 @@ impl Loader {
     ) -> PrefetchIterator<'_> {
         PrefetchIterator::new(self, tensors.to_vec(), config)
     }
+
+    /// Fetch multiple tensors in a single batched operation.
+    ///
+    /// This uses `fetchv` internally, which is optimized for io_uring backends
+    /// where multiple I/O operations can be submitted and completed concurrently.
+    /// This is significantly faster than calling `fetch` in a loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensors` - Slice of tensor metadata to load
+    ///
+    /// # Returns
+    ///
+    /// A vector of `(name, Buffer)` pairs in the same order as input.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use safetensors::loader::{Loader, Device, TensorLoadInfo};
+    /// # let loader = Loader::open("model.safetensors", Device::Cpu).unwrap();
+    /// let tensors = vec![
+    ///     TensorLoadInfo::new("weight", 0, 4096),
+    ///     TensorLoadInfo::new("bias", 4096, 4608),
+    /// ];
+    ///
+    /// let results = loader.fetch_batch(&tensors)?;
+    /// for (name, buffer) in results {
+    ///     println!("Loaded {}: {} bytes", name, buffer.len());
+    /// }
+    /// # Ok::<(), safetensors::loader::LoaderError>(())
+    /// ```
+    pub fn fetch_batch(&self, tensors: &[TensorLoadInfo]) -> Result<Vec<(String, Buffer)>> {
+        if tensors.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build requests for fetchv
+        let requests: Vec<(usize, usize)> = tensors
+            .iter()
+            .map(|t| (t.start, t.size()))
+            .collect();
+
+        // Perform batched fetch
+        let mut guard = self.inner.lock().unwrap();
+        let buffers = guard.fetchv(&requests, 0)?;
+        drop(guard);
+
+        // Pair with names
+        let results: Vec<(String, Buffer)> = tensors
+            .iter()
+            .zip(buffers)
+            .map(|(info, buf)| (info.name.clone(), buf))
+            .collect();
+
+        Ok(results)
+    }
 }
+
+/// Configuration for multi-device loading.
+#[derive(Debug, Clone)]
+pub struct MultiDeviceConfig {
+    /// Batch size for fetchv operations (default: 32).
+    pub batch_size: usize,
+    /// Backend to use for file I/O.
+    pub backend: Backend,
+}
+
+impl Default for MultiDeviceConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 32,
+            backend: Backend::Auto,
+        }
+    }
+}
+
+impl MultiDeviceConfig {
+    /// Create a new multi-device configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the batch size for fetchv operations.
+    pub fn with_batch_size(mut self, size: usize) -> Self {
+        self.batch_size = size.max(1);
+        self
+    }
+
+    /// Set the backend to use.
+    pub fn with_backend(mut self, backend: Backend) -> Self {
+        self.backend = backend;
+        self
+    }
+}
+
+/// A tensor with its target device assignment.
+#[derive(Debug, Clone)]
+pub struct TensorWithDevice {
+    /// Tensor load information.
+    pub info: TensorLoadInfo,
+    /// Target device for this tensor.
+    pub device: Device,
+}
+
+impl TensorWithDevice {
+    /// Create a new tensor with device assignment.
+    pub fn new(info: TensorLoadInfo, device: Device) -> Self {
+        Self { info, device }
+    }
+}
+
+/// High-performance multi-device loader.
+///
+/// This loader efficiently handles loading tensors to multiple devices
+/// (e.g., multiple GPUs) using:
+/// - `fetchv` for batched I/O with io_uring
+/// - Per-device CUDA context management
+/// - Optimal tensor-to-device routing
+///
+/// # Example
+///
+/// ```no_run
+/// use safetensors::loader::{
+///     MultiDeviceLoader, MultiDeviceConfig, TensorWithDevice, TensorLoadInfo, Device, DeviceMap
+/// };
+/// use std::path::Path;
+///
+/// # #[cfg(feature = "cuda")]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// // Define device map: split layers across 2 GPUs
+/// let device_map = DeviceMap::from_prefixes(
+///     vec![
+///         ("model.layers.0".to_string(), Device::Cuda(0)),
+///         ("model.layers.1".to_string(), Device::Cuda(1)),
+///     ],
+///     Device::Cpu,
+/// );
+///
+/// // Create multi-device loader
+/// let config = MultiDeviceConfig::default().with_batch_size(64);
+/// let loader = MultiDeviceLoader::open("model.safetensors", device_map, config)?;
+///
+/// // Load all tensors to their target devices
+/// let tensors = vec![
+///     TensorLoadInfo::new("model.layers.0.weight", 0, 4096),
+///     TensorLoadInfo::new("model.layers.1.weight", 4096, 8192),
+/// ];
+///
+/// for result in loader.iter_tensors(&tensors) {
+///     let (name, buffer, device) = result?;
+///     println!("Loaded {} to {:?}", name, device);
+/// }
+/// # Ok(())
+/// # }
+/// # #[cfg(not(feature = "cuda"))]
+/// # fn main() {}
+/// ```
+pub struct MultiDeviceLoader {
+    /// Source file (kept alive for mmap views).
+    source: Box<hmll::Source>,
+    /// Device map for tensor routing.
+    device_map: DeviceMap,
+    /// Configuration.
+    config: MultiDeviceConfig,
+    /// File size in bytes.
+    file_size: usize,
+    /// CPU loader for reading data (io_uring optimized).
+    cpu_loader: Mutex<hmll::WeightLoader<'static>>,
+}
+
+impl MultiDeviceLoader {
+    /// Open a safetensors file for multi-device loading.
+    pub fn open<P: AsRef<Path>>(
+        path: P,
+        device_map: DeviceMap,
+        config: MultiDeviceConfig,
+    ) -> Result<Self> {
+        let source = Box::new(
+            hmll::Source::open(path.as_ref())
+                .map_err(|e| LoaderError::OpenError(format!("{e}")))?,
+        );
+        let file_size = source.size();
+
+        // Create CPU loader for file I/O (io_uring for max throughput)
+        let sources_slice: &[hmll::Source] = std::slice::from_ref(source.as_ref());
+        let static_sources: &'static [hmll::Source] = unsafe { std::mem::transmute(sources_slice) };
+
+        let cpu_loader = hmll::WeightLoader::new(
+            static_sources,
+            hmll::Device::Cpu,
+            config.backend.to_hmll(),
+        )
+        .map_err(|e| LoaderError::InitError(format!("{e}")))?;
+
+        Ok(Self {
+            source,
+            device_map,
+            config,
+            file_size,
+            cpu_loader: Mutex::new(cpu_loader),
+        })
+    }
+
+    /// Get the device map.
+    #[inline]
+    pub fn device_map(&self) -> &DeviceMap {
+        &self.device_map
+    }
+
+    /// Get file size in bytes.
+    #[inline]
+    pub fn file_size(&self) -> usize {
+        self.file_size
+    }
+
+    /// Load a single tensor to its target device.
+    pub fn load_tensor(&self, info: &TensorLoadInfo) -> Result<(Buffer, Device)> {
+        let target_device = self.device_map.resolve(&info.name);
+
+        let mut guard = self.cpu_loader.lock().unwrap();
+
+        match target_device {
+            Device::Cpu => {
+                // For CPU, use zero-copy view if possible
+                let buffer = guard.fetch_view(info.start..info.end, 0)
+                    .or_else(|_| guard.fetch(info.start..info.end, 0))?;
+                Ok((buffer, Device::Cpu))
+            }
+            #[cfg(feature = "cuda")]
+            Device::Cuda(device_idx) => {
+                // For CUDA, read to CPU then we'll transfer to GPU
+                // The Python bindings will handle the actual H2D transfer
+                // using their CUDA context
+                let buffer = guard.fetch(info.start..info.end, 0)?;
+                Ok((buffer, Device::Cuda(device_idx)))
+            }
+        }
+    }
+
+    /// Load multiple tensors in a batched operation.
+    ///
+    /// Returns `(name, buffer, target_device)` tuples.
+    pub fn load_batch(
+        &self,
+        tensors: &[TensorLoadInfo],
+    ) -> Result<Vec<(String, Buffer, Device)>> {
+        if tensors.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build requests
+        let requests: Vec<(usize, usize)> = tensors
+            .iter()
+            .map(|t| (t.start, t.size()))
+            .collect();
+
+        // Batch fetch all tensors to CPU
+        let mut guard = self.cpu_loader.lock().unwrap();
+        let buffers = guard.fetchv(&requests, 0)?;
+        drop(guard);
+
+        // Pair with names and resolve devices
+        let results: Vec<(String, Buffer, Device)> = tensors
+            .iter()
+            .zip(buffers)
+            .map(|(info, buf)| {
+                let device = self.device_map.resolve(&info.name);
+                (info.name.clone(), buf, device)
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Create an iterator over tensors that loads them to their target devices.
+    pub fn iter_tensors<'a>(
+        &'a self,
+        tensors: &'a [TensorLoadInfo],
+    ) -> MultiDeviceIterator<'a> {
+        MultiDeviceIterator::new(self, tensors)
+    }
+}
+
+/// Iterator that loads tensors to their target devices using batched I/O.
+pub struct MultiDeviceIterator<'a> {
+    loader: &'a MultiDeviceLoader,
+    tensors: &'a [TensorLoadInfo],
+    current_batch_start: usize,
+    current_batch_results: std::collections::VecDeque<(String, Buffer, Device)>,
+    total_tensors: usize,
+    returned_count: usize,
+}
+
+impl<'a> MultiDeviceIterator<'a> {
+    fn new(loader: &'a MultiDeviceLoader, tensors: &'a [TensorLoadInfo]) -> Self {
+        Self {
+            loader,
+            tensors,
+            current_batch_start: 0,
+            current_batch_results: std::collections::VecDeque::new(),
+            total_tensors: tensors.len(),
+            returned_count: 0,
+        }
+    }
+
+    fn load_next_batch(&mut self) -> Result<bool> {
+        if self.current_batch_start >= self.tensors.len() {
+            return Ok(false);
+        }
+
+        let batch_end = (self.current_batch_start + self.loader.config.batch_size)
+            .min(self.tensors.len());
+        let batch = &self.tensors[self.current_batch_start..batch_end];
+
+        let results = self.loader.load_batch(batch)?;
+        self.current_batch_results.extend(results);
+        self.current_batch_start = batch_end;
+
+        Ok(true)
+    }
+}
+
+impl<'a> Iterator for MultiDeviceIterator<'a> {
+    type Item = Result<(String, Buffer, Device)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // If we've exhausted the current batch, try to load the next one
+        if self.current_batch_results.is_empty() {
+            match self.load_next_batch() {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(e) => return Some(Err(e)),
+            }
+        }
+
+        // Return next item from current batch
+        if let Some(result) = self.current_batch_results.pop_front() {
+            self.returned_count += 1;
+            Some(Ok(result))
+        } else {
+            None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.total_tensors.saturating_sub(self.returned_count);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for MultiDeviceIterator<'a> {}
 
 #[cfg(test)]
 mod tests {

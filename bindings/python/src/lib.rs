@@ -841,11 +841,123 @@ impl<'source> FromPyObject<'source> for Backend {
     }
 }
 
+/// Device specification for safe_open.
+///
+/// Can be either:
+/// - A single device (string like "cpu", "cuda:0", or int like 0)
+/// - A dict mapping tensor names to devices for multi-GPU loading
+#[derive(Debug, Clone)]
+enum DeviceSpec {
+    /// All tensors go to a single device.
+    Single(Device),
+    /// Map tensor names to devices, with a default for unmapped tensors.
+    Map {
+        /// Tensor name to device mapping.
+        map: HashMap<String, Device>,
+        /// Default device for tensors not in the map.
+        default: Device,
+    },
+}
+
+impl Default for DeviceSpec {
+    fn default() -> Self {
+        DeviceSpec::Single(Device::Cpu)
+    }
+}
+
+impl DeviceSpec {
+    /// Resolve which device a tensor should be loaded to.
+    fn resolve(&self, tensor_name: &str) -> Device {
+        match self {
+            DeviceSpec::Single(device) => device.clone(),
+            DeviceSpec::Map { map, default } => {
+                map.get(tensor_name).cloned().unwrap_or_else(|| default.clone())
+            }
+        }
+    }
+
+    /// Get the default/primary device.
+    fn default_device(&self) -> Device {
+        match self {
+            DeviceSpec::Single(device) => device.clone(),
+            DeviceSpec::Map { default, .. } => default.clone(),
+        }
+    }
+
+    /// Check if this is a single-device spec (no multi-GPU routing).
+    fn is_single(&self) -> bool {
+        matches!(self, DeviceSpec::Single(_))
+    }
+
+    /// Check if this uses CUDA for the default device.
+    fn uses_cuda(&self) -> bool {
+        matches!(self.default_device(), Device::Cuda(_))
+    }
+
+    /// Get all unique devices used in this spec.
+    fn devices(&self) -> Vec<Device> {
+        match self {
+            DeviceSpec::Single(device) => vec![device.clone()],
+            DeviceSpec::Map { map, default } => {
+                let mut devices: Vec<Device> = map.values().cloned().collect();
+                devices.push(default.clone());
+                devices.sort_by(|a, b| format!("{a}").cmp(&format!("{b}")));
+                devices.dedup_by(|a, b| format!("{a}") == format!("{b}"));
+                devices
+            }
+        }
+    }
+
+    /// Check if this device map uses multiple different CUDA device indices.
+    ///
+    /// Returns true if there are 2+ CUDA devices with different indices,
+    /// which requires loading to CPU first for correctness.
+    fn has_multiple_cuda_devices(&self) -> bool {
+        let devices = self.devices();
+        let cuda_indices: std::collections::HashSet<usize> = devices
+            .iter()
+            .filter_map(|d| match d {
+                Device::Cuda(idx) => Some(*idx),
+                _ => None,
+            })
+            .collect();
+        cuda_indices.len() > 1
+    }
+}
+
+impl<'source> FromPyObject<'source> for DeviceSpec {
+    fn extract_bound(ob: &PyBound<'source, PyAny>) -> PyResult<Self> {
+        // Try to extract as a dict first (device map)
+        if let Ok(dict) = ob.downcast::<pyo3::types::PyDict>() {
+            let mut map = HashMap::new();
+            let mut default = Device::Cpu;
+
+            for (key, value) in dict.iter() {
+                let tensor_name: String = key.extract()?;
+                let device: Device = value.extract()?;
+
+                // Special key "_default" sets the default device
+                if tensor_name == "_default" {
+                    default = device;
+                } else {
+                    map.insert(tensor_name, device);
+                }
+            }
+
+            return Ok(DeviceSpec::Map { map, default });
+        }
+
+        // Otherwise, try single device
+        let device: Device = ob.extract()?;
+        Ok(DeviceSpec::Single(device))
+    }
+}
+
 struct Open {
     metadata: Metadata,
     offset: usize,
     framework: Framework,
-    device: Device,
+    device_spec: DeviceSpec,
     loader: Arc<CoreLoader>,
 }
 
@@ -853,7 +965,7 @@ impl Open {
     fn new(
         filename: PathBuf,
         framework: Framework,
-        device: Option<Device>,
+        device_spec: Option<DeviceSpec>,
         backend: Option<Backend>,
     ) -> PyResult<Self> {
         // Validate file exists
@@ -864,7 +976,16 @@ impl Open {
             )));
         }
 
-        let device = device.unwrap_or(Device::Cpu);
+        let device_spec = device_spec.unwrap_or_default();
+        let device = device_spec.default_device();
+
+        // For device maps, we need a framework that supports device placement
+        if !device_spec.is_single() && framework != Framework::Pytorch && framework != Framework::Paddle {
+            return Err(SafetensorError::new_err(format!(
+                "Device maps are only supported for PyTorch and Paddle frameworks, got {framework}",
+            )));
+        }
+
         if device != Device::Cpu
             && framework != Framework::Pytorch
             && framework != Framework::Paddle
@@ -939,11 +1060,20 @@ impl Open {
         // CUDA-capable frameworks: hmll loads file directly to GPU memory via DMA
         // Other frameworks/devices: hmll loads to CPU via mmap, framework handles GPU transfer
         // Both paths use DLPack for zero-copy tensor creation
-        let loader_device = match (&device, &framework) {
-            (Device::Cuda(idx), Framework::Pytorch | Framework::Flax | Framework::Paddle) => {
-                LoaderDevice::Cuda(*idx)
+        //
+        // For device maps with multiple CUDA devices (e.g., cuda:0 and cuda:1),
+        // we must load to CPU first, then let the framework handle the transfer
+        // to the correct device. This is because hmll can only load to one device.
+        let loader_device = if device_spec.has_multiple_cuda_devices() {
+            // Multi-GPU device map: load to CPU, framework moves to target devices
+            LoaderDevice::Cpu
+        } else {
+            match (&device, &framework) {
+                (Device::Cuda(idx), Framework::Pytorch | Framework::Flax | Framework::Paddle) => {
+                    LoaderDevice::Cuda(*idx)
+                }
+                _ => LoaderDevice::Cpu,
             }
-            _ => LoaderDevice::Cpu,
         };
         let loader_backend = backend.unwrap_or_default().to_loader();
         let loader = CoreLoader::with_backend(&filename, loader_device, loader_backend)
@@ -953,7 +1083,7 @@ impl Open {
             metadata,
             offset,
             framework,
-            device,
+            device_spec,
             loader: Arc::new(loader),
         })
     }
@@ -1049,6 +1179,8 @@ impl Open {
         }
 
         // CPU path: use zero-copy fetch_cpu_tensor
+        // For device maps, resolve the target device for this specific tensor
+        let target_device = self.device_spec.resolve(name);
         fetch_cpu_tensor(
             &self.loader,
             py,
@@ -1057,7 +1189,7 @@ impl Open {
             info.dtype,
             &shape,
             &self.framework,
-            &self.device,
+            &target_device,
         )
     }
 
@@ -1080,11 +1212,13 @@ impl Open {
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
         if let Some(info) = self.metadata.info(name) {
+            // Resolve device for this specific tensor
+            let device = self.device_spec.resolve(name);
             Ok(PySafeSlice {
                 info: info.clone(),
                 framework: self.framework.clone(),
                 offset: self.offset,
-                device: self.device.clone(),
+                device,
                 loader: self.loader.clone(),
             })
         } else {
@@ -1130,11 +1264,11 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu), backend=None))]
+    #[pyo3(signature = (filename, framework, device=None, backend=None))]
     fn new(
         filename: PathBuf,
         framework: Framework,
-        device: Option<Device>,
+        device: Option<DeviceSpec>,
         backend: Option<Backend>,
     ) -> PyResult<Self> {
         let inner = Some(Open::new(filename, framework, device, backend)?);
@@ -1240,6 +1374,34 @@ impl safe_open {
         PyTensorIterator::new(inner, prefetch)
     }
 
+    /// Returns an iterator that loads tensors in batches using io_uring.
+    ///
+    /// This is significantly faster than `iter_tensors` because it uses
+    /// vectorized I/O (io_uring on Linux) to load multiple tensors concurrently.
+    /// Use this when you want maximum throughput for loading.
+    ///
+    /// Args:
+    ///     batch_size (`int`, defaults to `32`):
+    ///         Number of tensors to load in each batch.
+    ///
+    /// Returns:
+    ///     Iterator yielding `(name, tensor)` pairs.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// # Use batched loading for maximum throughput
+    /// with safe_open("model.safetensors", framework="pt", device="cuda") as f:
+    ///     for name, tensor in f.iter_tensors_batched(batch_size=64):
+    ///         model_state[name] = tensor
+    /// ```
+    #[pyo3(signature = (batch_size=32))]
+    pub fn iter_tensors_batched(&self, batch_size: usize) -> PyResult<PyBatchedTensorIterator> {
+        let inner = self.inner()?;
+        PyBatchedTensorIterator::new(inner, batch_size)
+    }
+
     /// Start the context manager
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
         slf
@@ -1261,8 +1423,8 @@ struct PyTensorIterator {
     inner: Option<OwnedPrefetchIterator>,
     /// Framework for tensor creation
     framework: Framework,
-    /// Target device
-    device: Device,
+    /// Device specification (single or map)
+    device_spec: DeviceSpec,
     /// Tensor metadata for dtype/shape lookup
     metadata: Metadata,
 }
@@ -1290,7 +1452,7 @@ impl PyTensorIterator {
         Ok(Self {
             inner: Some(inner),
             framework: open.framework.clone(),
-            device: open.device.clone(),
+            device_spec: open.device_spec.clone(),
             metadata: open.metadata.clone(),
         })
     }
@@ -1322,24 +1484,29 @@ impl PyTensorIterator {
             info.shape.to_vec()
         };
 
+        // Resolve target device for this tensor
+        let target_device = self.device_spec.resolve(name);
+
         // For CUDA buffers, use DLPack
-        if matches!(self.device, Device::Cuda(_)) {
-            return self.cuda_buffer_to_tensor(py, buffer, info.dtype, &shape);
+        if matches!(target_device, Device::Cuda(_)) {
+            return self.cuda_buffer_to_tensor(py, name, buffer, info.dtype, &shape);
         }
 
         // For CPU buffers, use zero-copy DLPack
-        self.cpu_buffer_to_tensor(py, buffer, info.dtype, &shape)
+        self.cpu_buffer_to_tensor(py, name, buffer, info.dtype, &shape)
     }
 
     /// Convert a CUDA buffer to a tensor.
     fn cuda_buffer_to_tensor(
         &self,
         py: Python<'_>,
+        name: &str,
         buffer: LoaderBuffer,
         dtype: Dtype,
         shape: &[usize],
     ) -> PyResult<PyObject> {
-        let device_index = match self.device {
+        let target_device = self.device_spec.resolve(name);
+        let device_index = match target_device {
             Device::Cuda(idx) => idx,
             _ => return Err(SafetensorError::new_err("Not a CUDA device")),
         };
@@ -1424,11 +1591,13 @@ impl PyTensorIterator {
     fn cpu_buffer_to_tensor(
         &self,
         py: Python<'_>,
+        name: &str,
         buffer: LoaderBuffer,
         dtype: Dtype,
         shape: &[usize],
     ) -> PyResult<PyObject> {
         let nbytes = buffer.len();
+        let target_device = self.device_spec.resolve(name);
 
         // Handle empty tensors
         if nbytes == 0 || buffer.as_ptr().is_null() {
@@ -1438,7 +1607,7 @@ impl PyTensorIterator {
                 dtype,
                 shape,
                 bytes.unbind().into_any(),
-                &self.device,
+                &target_device,
             );
         }
 
@@ -1502,7 +1671,7 @@ impl PyTensorIterator {
                     dtype,
                     shape,
                     py_bytes.unbind().into_any(),
-                    &self.device,
+                    &target_device,
                 );
             }
         };
@@ -1548,6 +1717,21 @@ impl PyTensorIterator {
         // Keep buffer alive
         tensor.setattr(intern!(py, "_safetensors_buffer"), py_buffer)?;
 
+        // Move tensor to target device if needed (for multi-GPU device maps)
+        let tensor = if target_device != Device::Cpu {
+            match self.framework {
+                Framework::Pytorch | Framework::Paddle => {
+                    // tensor.to(device) - creates a copy on the target device
+                    let device_str = format!("{target_device}");
+                    tensor.call_method1(intern!(py, "to"), (device_str,))?
+                }
+                // Other frameworks handle device placement differently
+                _ => tensor,
+            }
+        } else {
+            tensor
+        };
+
         Ok(tensor.into())
     }
 }
@@ -1578,6 +1762,381 @@ impl PyTensorIterator {
 
     fn __len__(&self) -> usize {
         self.inner.as_ref().map(|i| i.remaining()).unwrap_or(0)
+    }
+}
+
+/// High-performance batched tensor iterator using io_uring.
+///
+/// This iterator uses vectorized I/O (fetchv) to load multiple tensors
+/// in a single system call, providing significantly better throughput
+/// than loading tensors one at a time.
+#[pyclass(unsendable)]
+struct PyBatchedTensorIterator {
+    /// Loader reference
+    loader: Arc<CoreLoader>,
+    /// Framework for tensor creation
+    framework: Framework,
+    /// Device specification (single or map)
+    device_spec: DeviceSpec,
+    /// Tensor metadata for dtype/shape lookup
+    metadata: Metadata,
+    /// Offset into file for tensor data
+    offset: usize,
+    /// Tensor load info list
+    tensors: Vec<TensorLoadInfo>,
+    /// Current position in tensors
+    current_index: usize,
+    /// Batch size
+    batch_size: usize,
+    /// Current batch of loaded buffers
+    current_batch: std::collections::VecDeque<(String, LoaderBuffer)>,
+}
+
+impl PyBatchedTensorIterator {
+    fn new(open: &Open, batch_size: usize) -> PyResult<Self> {
+        // Build TensorLoadInfo for all tensors
+        let tensor_names = open.metadata.offset_keys();
+        let tensors: Vec<TensorLoadInfo> = tensor_names
+            .iter()
+            .map(|name| {
+                let info = open.metadata.info(name).unwrap();
+                TensorLoadInfo::new(
+                    name.clone(),
+                    info.data_offsets.0 + open.offset,
+                    info.data_offsets.1 + open.offset,
+                )
+            })
+            .collect();
+
+        Ok(Self {
+            loader: open.loader.clone(),
+            framework: open.framework.clone(),
+            device_spec: open.device_spec.clone(),
+            metadata: open.metadata.clone(),
+            offset: open.offset,
+            tensors,
+            current_index: 0,
+            batch_size: batch_size.max(1),
+            current_batch: std::collections::VecDeque::new(),
+        })
+    }
+
+    fn load_next_batch(&mut self) -> PyResult<bool> {
+        if self.current_index >= self.tensors.len() {
+            return Ok(false);
+        }
+
+        let batch_end = (self.current_index + self.batch_size).min(self.tensors.len());
+        let batch = &self.tensors[self.current_index..batch_end];
+
+        // Use fetch_batch for vectorized I/O
+        let results = self.loader.fetch_batch(batch)
+            .map_err(|e| SafetensorError::new_err(format!("Batch load error: {e}")))?;
+
+        self.current_batch.extend(results);
+        self.current_index = batch_end;
+
+        Ok(true)
+    }
+
+    fn buffer_to_tensor(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        buffer: LoaderBuffer,
+    ) -> PyResult<PyObject> {
+        let info = self.metadata.info(name).ok_or_else(|| {
+            SafetensorError::new_err(format!("Tensor not found: {name}"))
+        })?;
+
+        // Handle F4 dtype shape adjustment for PyTorch
+        let shape = if self.framework == Framework::Pytorch && info.dtype == Dtype::F4 {
+            let mut shape = info.shape.to_vec();
+            let n = shape.len();
+            if shape[n - 1] % 2 != 0 {
+                return Err(SafetensorError::new_err(format!(
+                    "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {:?}",
+                    shape
+                )));
+            }
+            shape[n - 1] /= 2;
+            shape
+        } else {
+            info.shape.to_vec()
+        };
+
+        // Resolve target device for this tensor
+        let target_device = self.device_spec.resolve(name);
+
+        // For CUDA buffers from CUDA loader, use DLPack directly
+        if matches!(self.loader.device(), LoaderDevice::Cuda(_)) && matches!(target_device, Device::Cuda(_)) {
+            return self.cuda_buffer_to_tensor(py, name, buffer, info.dtype, &shape);
+        }
+
+        // For CPU buffers, use zero-copy DLPack then move to target device
+        self.cpu_buffer_to_tensor(py, name, buffer, info.dtype, &shape)
+    }
+
+    fn cuda_buffer_to_tensor(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        buffer: LoaderBuffer,
+        dtype: Dtype,
+        shape: &[usize],
+    ) -> PyResult<PyObject> {
+        let target_device = self.device_spec.resolve(name);
+        let device_index = match target_device {
+            Device::Cuda(idx) => idx,
+            _ => return Err(SafetensorError::new_err("Not a CUDA device")),
+        };
+
+        let nbytes = buffer.len();
+        let ptr = buffer.as_ptr() as *mut std::ffi::c_void;
+
+        let (dlpack_dtype, dlpack_shape) = if let Some(dt) = dtype_to_dlpack(dtype) {
+            let shape_i64: Vec<i64> = shape.iter().map(|&s| s as i64).collect();
+            (dt, shape_i64)
+        } else {
+            (dlpack_ffi::DataType::U8, vec![nbytes as i64])
+        };
+
+        // Create DLPack-compatible wrapper
+        let wrapper = DlpackGpuWrapper {
+            ptr,
+            shape: dlpack_shape,
+            dtype: dlpack_dtype,
+            device_index,
+        };
+
+        let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
+            SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e))
+        })?;
+
+        let capsule = managed_tensor_to_capsule(py, managed_tensor)?;
+
+        let tensor: PyBound<'_, PyAny> = match self.framework {
+            Framework::Pytorch => {
+                let from_dlpack = TORCH_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Flax => {
+                let from_dlpack = JAX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("jax.numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Paddle => {
+                let from_dlpack = PADDLE_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("paddle.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            _ => {
+                return Err(SafetensorError::new_err(format!(
+                    "CUDA not supported for framework: {:?}",
+                    self.framework
+                )));
+            }
+        };
+
+        // For exotic dtypes, view-cast and reshape
+        let tensor = if dtype_to_dlpack(dtype).is_none() {
+            match self.framework {
+                Framework::Pytorch => {
+                    let torch = get_module(py, &TORCH_MODULE)?;
+                    let target_dtype = get_pydtype(torch, dtype, false)?;
+                    let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
+                    typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+                }
+                _ => tensor,
+            }
+        } else {
+            tensor
+        };
+
+        // Keep buffer alive
+        let holder = Py::new(py, GpuBufferHolder { buffer })?;
+        tensor.setattr(intern!(py, "_safetensors_buffer"), holder)?;
+
+        Ok(tensor.into())
+    }
+
+    fn cpu_buffer_to_tensor(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        buffer: LoaderBuffer,
+        dtype: Dtype,
+        shape: &[usize],
+    ) -> PyResult<PyObject> {
+        let nbytes = buffer.len();
+        let target_device = self.device_spec.resolve(name);
+
+        // Handle empty tensors
+        if nbytes == 0 || buffer.as_ptr().is_null() {
+            let bytes = PyByteArray::new(py, &[]);
+            return create_tensor(
+                &self.framework,
+                dtype,
+                shape,
+                bytes.unbind().into_any(),
+                &target_device,
+            );
+        }
+
+        // Wrap buffer in CpuBuffer for DLPack zero-copy
+        let cpu_buffer = CpuBuffer::new(buffer);
+        let py_buffer = Py::new(py, cpu_buffer)?;
+        let bound_buffer = py_buffer.bind(py);
+
+        // Get DLPack capsule
+        let capsule = bound_buffer.call_method0(intern!(py, "__dlpack__"))?;
+
+        // Create tensor from DLPack
+        let tensor: PyBound<'_, PyAny> = match self.framework {
+            Framework::Pytorch => {
+                let from_dlpack = TORCH_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Numpy => {
+                let from_dlpack = NUMPY_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Flax => {
+                let from_dlpack = JAX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("jax.numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Mlx => {
+                let from_dlpack = MLX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("mlx.core.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Paddle => {
+                let from_dlpack = PADDLE_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("paddle.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Tensorflow => {
+                // TensorFlow doesn't support from_dlpack well, fall back
+                let bytes_vec: Vec<u8> = {
+                    let buf_ref = bound_buffer.borrow();
+                    buf_ref.buffer.as_slice().ok_or_else(|| {
+                        SafetensorError::new_err("Buffer not on CPU")
+                    })?.to_vec()
+                };
+                let py_bytes = PyByteArray::new(py, &bytes_vec);
+                return create_tensor(
+                    &self.framework,
+                    dtype,
+                    shape,
+                    py_bytes.unbind().into_any(),
+                    &target_device,
+                );
+            }
+        };
+
+        // View as proper dtype (from u8) and reshape
+        let tensor = match self.framework {
+            Framework::Pytorch => {
+                let torch = get_module(py, &TORCH_MODULE)?;
+                let target_dtype = get_pydtype(torch, dtype, false)?;
+                let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
+                typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Numpy => {
+                let np = get_module(py, &NUMPY_MODULE)?;
+                let target_dtype = get_pydtype(np, dtype, true)?;
+                tensor
+                    .call_method1(intern!(py, "view"), (target_dtype,))?
+                    .call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Flax => {
+                let jax = get_module(py, &FLAX_MODULE)?;
+                let target_dtype = get_jax_dtype(jax, dtype)?;
+                tensor
+                    .call_method1(intern!(py, "view"), (target_dtype,))?
+                    .call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Mlx => {
+                let mlx = get_module(py, &MLX_MODULE)?;
+                let target_dtype = get_mlx_dtype(&mlx, dtype)?;
+                tensor
+                    .call_method1(intern!(py, "view"), (target_dtype,))?
+                    .call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Paddle => {
+                let paddle = get_module(py, &PADDLE_MODULE)?;
+                let target_dtype = get_paddle_dtype(&paddle, dtype)?;
+                let casted = paddle.call_method1(intern!(py, "cast"), (tensor, target_dtype))?;
+                paddle.call_method1(intern!(py, "reshape"), (casted, shape.to_vec()))?
+            }
+            Framework::Tensorflow => unreachable!(),
+        };
+
+        // Keep buffer alive
+        tensor.setattr(intern!(py, "_safetensors_buffer"), py_buffer)?;
+
+        // Move tensor to target device if needed (for multi-GPU device maps)
+        let tensor = if target_device != Device::Cpu {
+            match self.framework {
+                Framework::Pytorch | Framework::Paddle => {
+                    let device_str = format!("{target_device}");
+                    tensor.call_method1(intern!(py, "to"), (device_str,))?
+                }
+                _ => tensor,
+            }
+        } else {
+            tensor
+        };
+
+        Ok(tensor.into())
+    }
+}
+
+#[pymethods]
+impl PyBatchedTensorIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<(String, PyObject)>> {
+        // If current batch is empty, load the next one
+        if self.current_batch.is_empty() {
+            if !self.load_next_batch()? {
+                return Ok(None);
+            }
+        }
+
+        // Get next item from batch
+        if let Some((name, buffer)) = self.current_batch.pop_front() {
+            let tensor = self.buffer_to_tensor(py, &name, buffer)?;
+            Ok(Some((name, tensor)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        self.tensors.len().saturating_sub(self.current_index) + self.current_batch.len()
     }
 }
 
@@ -2285,7 +2844,9 @@ impl _safe_open_handle {
             let filename: PathBuf = filename.extract(py)?;
             Ok(filename)
         })?;
-        let inner = Some(Open::new(filename, framework, device, backend)?);
+        // Convert single device to DeviceSpec
+        let device_spec = device.map(DeviceSpec::Single);
+        let inner = Some(Open::new(filename, framework, device_spec, backend)?);
         Ok(Self { inner })
     }
 
