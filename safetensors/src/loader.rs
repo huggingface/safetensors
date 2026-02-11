@@ -340,6 +340,433 @@ unsafe impl Send for Loader {}
 // - The Mutex provides proper synchronization
 unsafe impl Sync for Loader {}
 
+/// Configuration for the prefetch iterator.
+#[derive(Debug, Clone)]
+pub struct PrefetchConfig {
+    /// Number of tensors to prefetch ahead (default: 4).
+    pub prefetch_count: usize,
+}
+
+impl Default for PrefetchConfig {
+    fn default() -> Self {
+        Self { prefetch_count: 4 }
+    }
+}
+
+impl PrefetchConfig {
+    /// Create a new prefetch configuration.
+    pub fn new(prefetch_count: usize) -> Self {
+        Self {
+            prefetch_count: prefetch_count.max(1),
+        }
+    }
+}
+
+/// Information about a tensor to be loaded.
+#[derive(Debug, Clone)]
+pub struct TensorLoadInfo {
+    /// Name of the tensor.
+    pub name: String,
+    /// Start offset in the file.
+    pub start: usize,
+    /// End offset in the file (exclusive).
+    pub end: usize,
+}
+
+impl TensorLoadInfo {
+    /// Create new tensor load info.
+    pub fn new(name: impl Into<String>, start: usize, end: usize) -> Self {
+        Self {
+            name: name.into(),
+            start,
+            end,
+        }
+    }
+
+    /// Size of the tensor in bytes.
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+}
+
+/// An iterator that prefetches tensors ahead of consumption.
+///
+/// This iterator yields `(name, buffer)` pairs while prefetching subsequent
+/// tensors in the background. This allows overlapping I/O with user processing
+/// (e.g., quantization).
+///
+/// For CUDA devices, this uses async GPU allocation and memcpy with per-slot
+/// streams and events, enabling true overlap between I/O and compute.
+///
+/// For CPU devices, this uses zero-copy mmap views (already optimal).
+///
+/// # Example
+///
+/// ```no_run
+/// use safetensors::loader::{Loader, Device, PrefetchConfig, TensorLoadInfo};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let loader = Loader::open("model.safetensors", Device::Cpu)?;
+///
+/// // Define tensors to load (normally from safetensors metadata)
+/// let tensors = vec![
+///     TensorLoadInfo::new("layer1.weight", 0, 1024),
+///     TensorLoadInfo::new("layer1.bias", 1024, 1536),
+///     // ... more tensors
+/// ];
+///
+/// // Create prefetch iterator
+/// let config = PrefetchConfig::new(4);
+/// for result in loader.iter_prefetch(&tensors, config) {
+///     let (name, buffer) = result?;
+///     // Process tensor (e.g., quantize) while next tensors load
+///     println!("Loaded {}: {} bytes", name, buffer.len());
+/// }
+/// # Ok(())
+/// # }
+/// ```
+pub struct PrefetchIterator<'a> {
+    loader: &'a Loader,
+    tensors: Vec<TensorLoadInfo>,
+    current_index: usize,
+    #[cfg(feature = "cuda")]
+    next_to_schedule: usize,
+    #[cfg(feature = "cuda")]
+    mmap_ptr: Option<*const std::ffi::c_void>,
+    #[cfg(feature = "cuda")]
+    prefetch_ctx: Option<hmll::PrefetchContext>,
+}
+
+impl<'a> PrefetchIterator<'a> {
+    /// Create a new prefetch iterator.
+    pub fn new(loader: &'a Loader, tensors: Vec<TensorLoadInfo>, config: PrefetchConfig) -> Self {
+        #[cfg(feature = "cuda")]
+        let num_slots = config.prefetch_count.min(tensors.len()).max(1);
+        #[cfg(not(feature = "cuda"))]
+        let _ = config; // Suppress unused warning
+
+        #[cfg(feature = "cuda")]
+        let mmap_ptr = {
+            let guard = loader.inner.lock().unwrap();
+            guard.source_content_ptr(0)
+        };
+
+        #[cfg(feature = "cuda")]
+        let prefetch_ctx = match loader.device {
+            Device::Cuda(device_id) => {
+                hmll::PrefetchContext::new(num_slots, hmll::Device::Cuda, device_id as i32).ok()
+            }
+            Device::Cpu => None,
+        };
+
+        let mut iter = Self {
+            loader,
+            tensors,
+            current_index: 0,
+            #[cfg(feature = "cuda")]
+            next_to_schedule: 0,
+            #[cfg(feature = "cuda")]
+            mmap_ptr,
+            #[cfg(feature = "cuda")]
+            prefetch_ctx,
+        };
+
+        iter.fill_slots();
+        iter
+    }
+
+    fn fill_slots(&mut self) {
+        #[cfg(feature = "cuda")]
+        if let Some(ref mut ctx) = self.prefetch_ctx {
+            while self.next_to_schedule < self.tensors.len() {
+                if ctx.find_available_slot().is_none() {
+                    break;
+                }
+
+                let tensor_index = self.next_to_schedule;
+                let info = &self.tensors[tensor_index];
+
+                if let Some(mmap_base) = self.mmap_ptr {
+                    let src_ptr =
+                        unsafe { (mmap_base as *const u8).add(info.start) as *const std::ffi::c_void };
+
+                    if ctx.start_load(src_ptr, info.size(), tensor_index).is_ok() {
+                        self.next_to_schedule += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        // CPU: mmap views are created on-demand, no prefetch needed
+    }
+
+    /// Take the next tensor from the iterator.
+    fn take_next(&mut self) -> Option<Result<(String, Buffer)>> {
+        if self.current_index >= self.tensors.len() {
+            return None;
+        }
+
+        let tensor_index = self.current_index;
+        let info = self.tensors[tensor_index].clone();
+        let name = info.name.clone();
+
+        let buffer = self.get_tensor_buffer(tensor_index, &info);
+
+        self.current_index += 1;
+
+        // Refill slots with next tensors
+        self.fill_slots();
+
+        Some(buffer.map(|b| (name, b)))
+    }
+
+    #[allow(unused_variables)]
+    fn get_tensor_buffer(&mut self, tensor_index: usize, info: &TensorLoadInfo) -> Result<Buffer> {
+        #[cfg(feature = "cuda")]
+        if let Some(ref mut ctx) = self.prefetch_ctx {
+            if let Some(slot) = ctx.find_tensor(tensor_index) {
+                // Tensor is in a slot, take the buffer (waits if still loading)
+                return ctx.take_buffer(slot).map_err(|e| LoaderError::FetchError(e.to_string()));
+            }
+
+            // Tensor not prefetched, do synchronous load
+            // This can happen if prefetch slots were exhausted
+            if let Some(mmap_base) = self.mmap_ptr {
+                let src_ptr =
+                    unsafe { (mmap_base as *const u8).add(info.start) as *const std::ffi::c_void };
+                let size = info.size();
+
+                // Start load and immediately wait
+                if let Ok(slot) = ctx.start_load(src_ptr, size, tensor_index) {
+                    return ctx.take_buffer(slot).map_err(|e| LoaderError::FetchError(e.to_string()));
+                }
+            }
+
+            // Fallback to regular fetch
+            return self.loader.fetch(info.start, info.end);
+        }
+
+        // CPU path: use zero-copy mmap view
+        self.loader.fetch_view(info.start, info.end)
+    }
+}
+
+impl<'a> Iterator for PrefetchIterator<'a> {
+    type Item = Result<(String, Buffer)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.take_next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.tensors.len().saturating_sub(self.current_index);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for PrefetchIterator<'a> {}
+
+/// An owned prefetch iterator that holds an Arc to the loader.
+///
+/// This variant is useful when you need to store the iterator in a struct
+/// that outlives the loader reference (e.g., Python bindings).
+///
+/// For most Rust use cases, prefer `PrefetchIterator` which uses a reference.
+pub struct OwnedPrefetchIterator {
+    loader: std::sync::Arc<Loader>,
+    tensors: Vec<TensorLoadInfo>,
+    current_index: usize,
+    #[cfg(feature = "cuda")]
+    next_to_schedule: usize,
+    #[cfg(feature = "cuda")]
+    mmap_ptr: Option<*const std::ffi::c_void>,
+    #[cfg(feature = "cuda")]
+    prefetch_ctx: Option<hmll::PrefetchContext>,
+}
+
+// SAFETY: OwnedPrefetchIterator can be moved between threads.
+// - `mmap_ptr` is a read-only pointer into memory kept alive by `Arc<Loader>`
+// - `PrefetchContext` is Send (see hmll::PrefetchContext safety comment)
+// - All methods require `&mut self`, ensuring exclusive access
+// - No `Sync` impl means the iterator cannot be shared across threads
+unsafe impl Send for OwnedPrefetchIterator {}
+
+impl OwnedPrefetchIterator {
+    /// Create a new owned prefetch iterator.
+    pub fn new(
+        loader: std::sync::Arc<Loader>,
+        tensors: Vec<TensorLoadInfo>,
+        config: PrefetchConfig,
+    ) -> Self {
+        #[cfg(feature = "cuda")]
+        let num_slots = config.prefetch_count.min(tensors.len()).max(1);
+        #[cfg(not(feature = "cuda"))]
+        let _ = config;
+
+        #[cfg(feature = "cuda")]
+        let mmap_ptr = {
+            let guard = loader.inner.lock().unwrap();
+            guard.source_content_ptr(0)
+        };
+
+        #[cfg(feature = "cuda")]
+        let prefetch_ctx = match loader.device {
+            Device::Cuda(device_id) => {
+                hmll::PrefetchContext::new(num_slots, hmll::Device::Cuda, device_id as i32).ok()
+            }
+            Device::Cpu => None,
+        };
+
+        let mut iter = Self {
+            loader,
+            tensors,
+            current_index: 0,
+            #[cfg(feature = "cuda")]
+            next_to_schedule: 0,
+            #[cfg(feature = "cuda")]
+            mmap_ptr,
+            #[cfg(feature = "cuda")]
+            prefetch_ctx,
+        };
+
+        iter.fill_slots();
+        iter
+    }
+
+    fn fill_slots(&mut self) {
+        #[cfg(feature = "cuda")]
+        if let Some(ref mut ctx) = self.prefetch_ctx {
+            while self.next_to_schedule < self.tensors.len() {
+                if ctx.find_available_slot().is_none() {
+                    break;
+                }
+
+                let tensor_index = self.next_to_schedule;
+                let info = &self.tensors[tensor_index];
+
+                if let Some(mmap_base) = self.mmap_ptr {
+                    let src_ptr =
+                        unsafe { (mmap_base as *const u8).add(info.start) as *const std::ffi::c_void };
+
+                    if ctx.start_load(src_ptr, info.size(), tensor_index).is_ok() {
+                        self.next_to_schedule += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        // CPU: mmap views are created on-demand
+    }
+
+    #[allow(unused_variables)]
+    fn get_tensor_buffer(&mut self, tensor_index: usize, info: &TensorLoadInfo) -> Result<Buffer> {
+        #[cfg(feature = "cuda")]
+        if let Some(ref mut ctx) = self.prefetch_ctx {
+            if let Some(slot) = ctx.find_tensor(tensor_index) {
+                return ctx.take_buffer(slot).map_err(|e| LoaderError::FetchError(e.to_string()));
+            }
+
+            // Fallback: tensor not in prefetch queue, load synchronously
+            if let Some(mmap_base) = self.mmap_ptr {
+                let src_ptr =
+                    unsafe { (mmap_base as *const u8).add(info.start) as *const std::ffi::c_void };
+
+                if let Ok(slot) = ctx.start_load(src_ptr, info.size(), tensor_index) {
+                    return ctx.take_buffer(slot).map_err(|e| LoaderError::FetchError(e.to_string()));
+                }
+            }
+
+            // Fallback to regular fetch
+            return self.loader.fetch(info.start, info.end);
+        }
+
+        // CPU path: use zero-copy mmap view
+        self.loader.fetch_view(info.start, info.end)
+    }
+
+    /// Get the number of remaining tensors.
+    pub fn remaining(&self) -> usize {
+        self.tensors.len().saturating_sub(self.current_index)
+    }
+
+    /// Get the total number of tensors.
+    pub fn total(&self) -> usize {
+        self.tensors.len()
+    }
+}
+
+impl Iterator for OwnedPrefetchIterator {
+    type Item = Result<(String, Buffer)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index >= self.tensors.len() {
+            return None;
+        }
+
+        let tensor_index = self.current_index;
+        let info = self.tensors[tensor_index].clone();
+        let name = info.name.clone();
+
+        let buffer = self.get_tensor_buffer(tensor_index, &info);
+
+        self.current_index += 1;
+
+        // Refill slots with next tensors
+        self.fill_slots();
+
+        Some(buffer.map(|b| (name, b)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.remaining();
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for OwnedPrefetchIterator {}
+
+impl Loader {
+    /// Create a prefetch iterator over the given tensors.
+    ///
+    /// This iterator loads tensors sequentially while prefetching ahead,
+    /// allowing user-side processing to overlap with I/O.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensors` - Tensor metadata (name, start offset, end offset)
+    /// * `config` - Prefetch configuration
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use safetensors::loader::{Loader, Device, PrefetchConfig, TensorLoadInfo};
+    /// # let loader = Loader::open("model.safetensors", Device::Cpu).unwrap();
+    /// let tensors = vec![
+    ///     TensorLoadInfo::new("weight", 0, 4096),
+    ///     TensorLoadInfo::new("bias", 4096, 4608),
+    /// ];
+    ///
+    /// for result in loader.iter_prefetch(&tensors, PrefetchConfig::default()) {
+    ///     let (name, buffer) = result.unwrap();
+    ///     println!("Loaded {}", name);
+    /// }
+    /// ```
+    pub fn iter_prefetch(
+        &self,
+        tensors: &[TensorLoadInfo],
+        config: PrefetchConfig,
+    ) -> PrefetchIterator<'_> {
+        PrefetchIterator::new(self, tensors.to_vec(), config)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,4 +850,140 @@ mod tests {
         assert_eq!(vec, content.to_vec());
     }
 
+    #[test]
+    fn test_prefetch_iterator_basic() {
+        let content = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let temp_file = create_test_file(content);
+
+        let loader = Loader::open(temp_file.path(), Device::Cpu).expect("Failed to open");
+
+        let tensors = vec![
+            TensorLoadInfo::new("first", 0, 10),
+            TensorLoadInfo::new("second", 10, 20),
+            TensorLoadInfo::new("third", 20, 30),
+        ];
+
+        let results: Vec<_> = loader
+            .iter_prefetch(&tensors, PrefetchConfig::default())
+            .collect();
+
+        assert_eq!(results.len(), 3);
+
+        let (name, buf) = results[0].as_ref().unwrap();
+        assert_eq!(name, "first");
+        assert_eq!(buf.as_slice().unwrap(), b"0123456789");
+
+        let (name, buf) = results[1].as_ref().unwrap();
+        assert_eq!(name, "second");
+        assert_eq!(buf.as_slice().unwrap(), b"ABCDEFGHIJ");
+
+        let (name, buf) = results[2].as_ref().unwrap();
+        assert_eq!(name, "third");
+        assert_eq!(buf.as_slice().unwrap(), b"KLMNOPQRST");
+    }
+
+    #[test]
+    fn test_prefetch_iterator_single_tensor() {
+        let content = b"Single tensor content";
+        let temp_file = create_test_file(content);
+
+        let loader = Loader::open(temp_file.path(), Device::Cpu).expect("Failed to open");
+
+        let tensors = vec![TensorLoadInfo::new("only", 0, content.len())];
+
+        let results: Vec<_> = loader
+            .iter_prefetch(&tensors, PrefetchConfig::new(4))
+            .collect();
+
+        assert_eq!(results.len(), 1);
+        let (name, buf) = results[0].as_ref().unwrap();
+        assert_eq!(name, "only");
+        assert_eq!(buf.as_slice().unwrap(), content);
+    }
+
+    #[test]
+    fn test_prefetch_iterator_empty() {
+        let content = b"Some content";
+        let temp_file = create_test_file(content);
+
+        let loader = Loader::open(temp_file.path(), Device::Cpu).expect("Failed to open");
+
+        let tensors: Vec<TensorLoadInfo> = vec![];
+
+        let results: Vec<_> = loader
+            .iter_prefetch(&tensors, PrefetchConfig::default())
+            .collect();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_prefetch_iterator_large_prefetch_count() {
+        let content = b"AB";
+        let temp_file = create_test_file(content);
+
+        let loader = Loader::open(temp_file.path(), Device::Cpu).expect("Failed to open");
+
+        // More prefetch slots than tensors
+        let tensors = vec![
+            TensorLoadInfo::new("a", 0, 1),
+            TensorLoadInfo::new("b", 1, 2),
+        ];
+
+        let results: Vec<_> = loader
+            .iter_prefetch(&tensors, PrefetchConfig::new(100))
+            .collect();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_prefetch_iterator_size_hint() {
+        let content = b"0123456789";
+        let temp_file = create_test_file(content);
+
+        let loader = Loader::open(temp_file.path(), Device::Cpu).expect("Failed to open");
+
+        let tensors = vec![
+            TensorLoadInfo::new("a", 0, 3),
+            TensorLoadInfo::new("b", 3, 6),
+            TensorLoadInfo::new("c", 6, 10),
+        ];
+
+        let mut iter = loader.iter_prefetch(&tensors, PrefetchConfig::default());
+
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+
+        iter.next();
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.size_hint(), (2, Some(2)));
+
+        iter.next();
+        iter.next();
+        assert_eq!(iter.len(), 0);
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_tensor_load_info() {
+        let info = TensorLoadInfo::new("test", 100, 500);
+        assert_eq!(info.name, "test");
+        assert_eq!(info.start, 100);
+        assert_eq!(info.end, 500);
+        assert_eq!(info.size(), 400);
+    }
+
+    #[test]
+    fn test_prefetch_config() {
+        let config = PrefetchConfig::default();
+        assert_eq!(config.prefetch_count, 4);
+
+        let config = PrefetchConfig::new(8);
+        assert_eq!(config.prefetch_count, 8);
+
+        // Should clamp to 1
+        let config = PrefetchConfig::new(0);
+        assert_eq!(config.prefetch_count, 1);
+    }
 }

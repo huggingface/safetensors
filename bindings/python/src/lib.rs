@@ -13,6 +13,7 @@ use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::loader::{
     Backend as LoaderBackend, Buffer as LoaderBuffer, Device as LoaderDevice, Loader as CoreLoader,
+    OwnedPrefetchIterator, PrefetchConfig, TensorLoadInfo,
 };
 use safetensors::slice::TensorIndexer;
 use safetensors::tensor::{Dtype, Metadata, SafeTensors, TensorInfo, TensorView};
@@ -1210,6 +1211,35 @@ impl safe_open {
         self.inner()?.get_slice(name)
     }
 
+    /// Returns an iterator over tensors with async prefetching.
+    ///
+    /// This iterator prefetches tensors ahead of time, allowing I/O to overlap
+    /// with tensor processing (e.g., quantization). For CUDA devices, this uses
+    /// async GPU memory allocation and transfers.
+    ///
+    /// Args:
+    ///     prefetch (`int`, defaults to `4`):
+    ///         Number of tensors to prefetch ahead.
+    ///
+    /// Returns:
+    ///     Iterator yielding `(name, tensor)` pairs.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device="cuda") as f:
+    ///     for name, tensor in f.iter_tensors(prefetch=4):
+    ///         # tensor is on GPU, next tensors loading in background
+    ///         quantized = quantize(tensor)
+    ///         model_state[name] = quantized
+    /// ```
+    #[pyo3(signature = (prefetch=4))]
+    pub fn iter_tensors(&self, prefetch: usize) -> PyResult<PyTensorIterator> {
+        let inner = self.inner()?;
+        PyTensorIterator::new(inner, prefetch)
+    }
+
     /// Start the context manager
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
         slf
@@ -1218,6 +1248,336 @@ impl safe_open {
     /// Exits the context manager
     pub fn __exit__(&mut self, _exc_type: PyObject, _exc_value: PyObject, _traceback: PyObject) {
         self.inner = None;
+    }
+}
+
+/// Iterator over tensors with async prefetching.
+///
+/// This iterator uses the Rust OwnedPrefetchIterator internally, which provides
+/// async GPU memory allocation and transfers for CUDA devices.
+#[pyclass(unsendable)]
+struct PyTensorIterator {
+    /// The underlying Rust iterator
+    inner: Option<OwnedPrefetchIterator>,
+    /// Framework for tensor creation
+    framework: Framework,
+    /// Target device
+    device: Device,
+    /// Tensor metadata for dtype/shape lookup
+    metadata: Metadata,
+}
+
+impl PyTensorIterator {
+    fn new(open: &Open, prefetch: usize) -> PyResult<Self> {
+        // Build TensorLoadInfo for all tensors
+        let tensor_names = open.metadata.offset_keys();
+        let tensors: Vec<TensorLoadInfo> = tensor_names
+            .iter()
+            .map(|name| {
+                let info = open.metadata.info(name).unwrap();
+                TensorLoadInfo::new(
+                    name.clone(),
+                    info.data_offsets.0 + open.offset,
+                    info.data_offsets.1 + open.offset,
+                )
+            })
+            .collect();
+
+        // Create the Rust prefetch iterator
+        let config = PrefetchConfig::new(prefetch);
+        let inner = OwnedPrefetchIterator::new(open.loader.clone(), tensors, config);
+
+        Ok(Self {
+            inner: Some(inner),
+            framework: open.framework.clone(),
+            device: open.device.clone(),
+            metadata: open.metadata.clone(),
+        })
+    }
+
+    /// Convert a buffer to a tensor using the appropriate framework.
+    fn buffer_to_tensor(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        buffer: LoaderBuffer,
+    ) -> PyResult<PyObject> {
+        let info = self.metadata.info(name).ok_or_else(|| {
+            SafetensorError::new_err(format!("Tensor not found: {name}"))
+        })?;
+
+        // Handle F4 dtype shape adjustment for PyTorch
+        let shape = if self.framework == Framework::Pytorch && info.dtype == Dtype::F4 {
+            let mut shape = info.shape.to_vec();
+            let n = shape.len();
+            if shape[n - 1] % 2 != 0 {
+                return Err(SafetensorError::new_err(format!(
+                    "f4_x2 dtype requires that the last dim be divisible by 2 in torch: got {:?}",
+                    shape
+                )));
+            }
+            shape[n - 1] /= 2;
+            shape
+        } else {
+            info.shape.to_vec()
+        };
+
+        // For CUDA buffers, use DLPack
+        if matches!(self.device, Device::Cuda(_)) {
+            return self.cuda_buffer_to_tensor(py, buffer, info.dtype, &shape);
+        }
+
+        // For CPU buffers, use zero-copy DLPack
+        self.cpu_buffer_to_tensor(py, buffer, info.dtype, &shape)
+    }
+
+    /// Convert a CUDA buffer to a tensor.
+    fn cuda_buffer_to_tensor(
+        &self,
+        py: Python<'_>,
+        buffer: LoaderBuffer,
+        dtype: Dtype,
+        shape: &[usize],
+    ) -> PyResult<PyObject> {
+        let device_index = match self.device {
+            Device::Cuda(idx) => idx,
+            _ => return Err(SafetensorError::new_err("Not a CUDA device")),
+        };
+
+        let nbytes = buffer.len();
+        let ptr = buffer.as_ptr() as *mut std::ffi::c_void;
+
+        let (dlpack_dtype, dlpack_shape) = if let Some(dt) = dtype_to_dlpack(dtype) {
+            let shape_i64: Vec<i64> = shape.iter().map(|&s| s as i64).collect();
+            (dt, shape_i64)
+        } else {
+            (dlpack_ffi::DataType::U8, vec![nbytes as i64])
+        };
+
+        let wrapper = DlpackGpuWrapper {
+            ptr,
+            shape: dlpack_shape,
+            dtype: dlpack_dtype,
+            device_index,
+        };
+
+        let managed_tensor = SafeManagedTensor::new(wrapper).map_err(|e| {
+            SafetensorError::new_err(format!("Failed to create DLPack tensor: {:?}", e))
+        })?;
+
+        let capsule = managed_tensor_to_capsule(py, managed_tensor)?;
+
+        // Create tensor from DLPack
+        let tensor: PyBound<'_, PyAny> = match self.framework {
+            Framework::Pytorch => {
+                let from_dlpack = TORCH_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Flax => {
+                let from_dlpack = JAX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("jax.numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Paddle => {
+                let from_dlpack = PADDLE_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("paddle.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            _ => {
+                return Err(SafetensorError::new_err(format!(
+                    "CUDA not supported for framework: {:?}",
+                    self.framework
+                )));
+            }
+        };
+
+        // For exotic dtypes, view-cast and reshape
+        let tensor = if dtype_to_dlpack(dtype).is_none() {
+            match self.framework {
+                Framework::Pytorch => {
+                    let torch = get_module(py, &TORCH_MODULE)?;
+                    let target_dtype = get_pydtype(torch, dtype, false)?;
+                    let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
+                    typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+                }
+                _ => tensor,
+            }
+        } else {
+            tensor
+        };
+
+        // Keep buffer alive
+        let holder = Py::new(py, GpuBufferHolder { buffer })?;
+        tensor.setattr(intern!(py, "_safetensors_buffer"), holder)?;
+
+        Ok(tensor.into())
+    }
+
+    /// Convert a CPU buffer to a tensor using DLPack.
+    fn cpu_buffer_to_tensor(
+        &self,
+        py: Python<'_>,
+        buffer: LoaderBuffer,
+        dtype: Dtype,
+        shape: &[usize],
+    ) -> PyResult<PyObject> {
+        let nbytes = buffer.len();
+
+        // Handle empty tensors
+        if nbytes == 0 || buffer.as_ptr().is_null() {
+            let bytes = PyByteArray::new(py, &[]);
+            return create_tensor(
+                &self.framework,
+                dtype,
+                shape,
+                bytes.unbind().into_any(),
+                &self.device,
+            );
+        }
+
+        // Wrap buffer in CpuBuffer for DLPack zero-copy
+        let cpu_buffer = CpuBuffer::new(buffer);
+        let py_buffer = Py::new(py, cpu_buffer)?;
+        let bound_buffer = py_buffer.bind(py);
+
+        // Get DLPack capsule
+        let capsule = bound_buffer.call_method0(intern!(py, "__dlpack__"))?;
+
+        // Create tensor from DLPack
+        let tensor: PyBound<'_, PyAny> = match self.framework {
+            Framework::Pytorch => {
+                let from_dlpack = TORCH_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("torch.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Numpy => {
+                let from_dlpack = NUMPY_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Flax => {
+                let from_dlpack = JAX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("jax.numpy.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Mlx => {
+                let from_dlpack = MLX_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("mlx.core.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Paddle => {
+                let from_dlpack = PADDLE_FROM_DLPACK
+                    .get()
+                    .ok_or_else(|| SafetensorError::new_err("paddle.from_dlpack not initialized"))?
+                    .bind(py);
+                from_dlpack.call1((capsule,))?
+            }
+            Framework::Tensorflow => {
+                // TensorFlow doesn't support from_dlpack well, fall back
+                // Need to copy the bytes since we can't hold the borrow across the call
+                let bytes_vec: Vec<u8> = {
+                    let buf_ref = bound_buffer.borrow();
+                    buf_ref.buffer.as_slice().ok_or_else(|| {
+                        SafetensorError::new_err("Buffer not on CPU")
+                    })?.to_vec()
+                };
+                let py_bytes = PyByteArray::new(py, &bytes_vec);
+                return create_tensor(
+                    &self.framework,
+                    dtype,
+                    shape,
+                    py_bytes.unbind().into_any(),
+                    &self.device,
+                );
+            }
+        };
+
+        // View as proper dtype (from u8) and reshape
+        let tensor = match self.framework {
+            Framework::Pytorch => {
+                let torch = get_module(py, &TORCH_MODULE)?;
+                let target_dtype = get_pydtype(torch, dtype, false)?;
+                let typed = tensor.call_method1(intern!(py, "view"), (target_dtype,))?;
+                typed.call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Numpy => {
+                let np = get_module(py, &NUMPY_MODULE)?;
+                let target_dtype = get_pydtype(np, dtype, true)?;
+                tensor
+                    .call_method1(intern!(py, "view"), (target_dtype,))?
+                    .call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Flax => {
+                let jax = get_module(py, &FLAX_MODULE)?;
+                let target_dtype = get_jax_dtype(jax, dtype)?;
+                tensor
+                    .call_method1(intern!(py, "view"), (target_dtype,))?
+                    .call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Mlx => {
+                let mlx = get_module(py, &MLX_MODULE)?;
+                let target_dtype = get_mlx_dtype(&mlx, dtype)?;
+                tensor
+                    .call_method1(intern!(py, "view"), (target_dtype,))?
+                    .call_method1(intern!(py, "reshape"), (shape.to_vec(),))?
+            }
+            Framework::Paddle => {
+                let paddle = get_module(py, &PADDLE_MODULE)?;
+                let target_dtype = get_paddle_dtype(&paddle, dtype)?;
+                let casted = paddle.call_method1(intern!(py, "cast"), (tensor, target_dtype))?;
+                paddle.call_method1(intern!(py, "reshape"), (casted, shape.to_vec()))?
+            }
+            Framework::Tensorflow => unreachable!(),
+        };
+
+        // Keep buffer alive
+        tensor.setattr(intern!(py, "_safetensors_buffer"), py_buffer)?;
+
+        Ok(tensor.into())
+    }
+}
+
+#[pymethods]
+impl PyTensorIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python<'_>) -> PyResult<Option<(String, PyObject)>> {
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            SafetensorError::new_err("Iterator exhausted")
+        })?;
+
+        match inner.next() {
+            Some(Ok((name, buffer))) => {
+                let tensor = self.buffer_to_tensor(py, &name, buffer)?;
+                Ok(Some((name, tensor)))
+            }
+            Some(Err(e)) => Err(SafetensorError::new_err(format!("Load error: {e}"))),
+            None => {
+                self.inner = None;
+                Ok(None)
+            }
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.as_ref().map(|i| i.remaining()).unwrap_or(0)
     }
 }
 
@@ -2020,6 +2380,7 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_safe_open_handle>()?;
     m.add_class::<CpuBuffer>()?;
     m.add_class::<GpuBufferHolder>()?;
+    m.add_class::<PyTensorIterator>()?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
