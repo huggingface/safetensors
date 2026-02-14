@@ -10,14 +10,20 @@ name = "safetensors_rust"
 crate-type = ["cdylib"]
 
 [features]
-default = ["io_uring"]
+default = ["io_uring", "cufile"]
 # io_uring support for async I/O (Linux only)
-io_uring = ["safetensors/io_uring"]
+io_uring = ["safetensors/io_uring", "io-uring", "libc"]
+# cuFile/GDS support for direct NVMe->GPU DMA (Linux + CUDA)
+cufile = ["safetensors/cufile"]
 
 [dependencies]
 dlpark = "0.6.0"
 pyo3 = { version = "0.26", features = ["abi3", "abi3-py310"] }
 serde_json = "1.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "0.7", optional = true }
+libc = { version = "0.2", optional = true }
 
 [dependencies.safetensors]
 path = "../../safetensors"

@@ -4,7 +4,7 @@
 pub mod slice;
 pub mod tensor;
 
-/// High-performance loader module using hmll.
+/// High-performance loader module for safetensors files.
 /// Only available with std feature (file loading requires filesystem access).
 #[cfg(feature = "std")]
 pub mod loader;

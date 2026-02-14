@@ -362,6 +362,11 @@ class LoadTestCase(unittest.TestCase):
 
     @unittest.skipIf(torch.cuda.device_count() < 2, "Only 1 device available")
     def test_deserialization_safe_device_1(self):
+        # Some GPUs may be visible but unavailable (e.g., NVLink/fabric issues)
+        try:
+            torch.zeros(1, device="cuda:1")
+        except Exception:
+            self.skipTest("cuda:1 is not usable")
         load_file(self.sf_filename, device=1)
         weights = load_file(self.sf_filename, device="cuda:1")
         tweights = torch.load(self.pt_filename, map_location="cuda:1")
@@ -377,7 +382,7 @@ class LoadTestCase(unittest.TestCase):
             "test": "cpu",
             "test2": "cuda:0",
             "test3": "cpu",
-            "_default": "cpu",
+            "": "cpu",
         }
         with safe_open(self.sf_filename, framework="pt", device=device_map) as f:
             t1 = f.get_tensor("test")
@@ -394,7 +399,7 @@ class LoadTestCase(unittest.TestCase):
             "test": "cpu",
             "test2": "cuda:0",
             "test3": "cpu",
-            "_default": "cpu",
+            "": "cpu",
         }
         with safe_open(self.sf_filename, framework="pt", device=device_map) as f:
             tensors = dict(f.iter_tensors())
@@ -409,7 +414,7 @@ class LoadTestCase(unittest.TestCase):
             "test": "cuda:0",
             "test2": "cuda:0",
             "test3": "cuda:0",
-            "_default": "cuda:0",
+            "": "cuda:0",
         }
         with safe_open(self.sf_filename, framework="pt", device=device_map) as f:
             t1 = f.get_tensor("test")
@@ -483,3 +488,453 @@ class SliceTestCase(unittest.TestCase):
         with safe_open(local, framework="pt") as f:
             metadata = f.metadata()
         self.assertEqual(metadata, {"Something": "more"})
+
+
+class DeviceMapTestCase(unittest.TestCase):
+    """Tests for the device_map dict format passed to safe_open().
+
+    Our device_map uses **exact tensor names** as keys, mapping each tensor
+    to a target device. This differs from transformers' device_map which uses
+    **module prefixes** (e.g., "model.layers.0" → 0) and from transformers'
+    tp_plan which uses **wildcard patterns** (e.g., "layers.*.self_attn.q_proj"
+    → "colwise").
+
+    The special key "" sets the fallback device for unmapped tensors.
+    """
+
+    def setUp(self):
+        # Create tensors with hierarchical names mimicking a real model
+        self.tensors = {
+            "model.layers.0.self_attn.q_proj.weight": torch.randn(64, 64),
+            "model.layers.0.self_attn.k_proj.weight": torch.randn(64, 64),
+            "model.layers.0.mlp.gate_proj.weight": torch.randn(64, 64),
+            "model.layers.1.self_attn.q_proj.weight": torch.randn(64, 64),
+            "model.layers.1.self_attn.k_proj.weight": torch.randn(64, 64),
+            "model.layers.1.mlp.gate_proj.weight": torch.randn(64, 64),
+            "model.embed_tokens.weight": torch.randn(100, 64),
+            "lm_head.weight": torch.randn(100, 64),
+        }
+        self.filename = "./tests/data/device_map_test.safetensors"
+        save_file(self.tensors, self.filename)
+
+    def test_device_map_exact_names_cpu(self):
+        """Exact tensor name mapping works on CPU."""
+        device_map = {
+            "model.layers.0.self_attn.q_proj.weight": "cpu",
+            "model.layers.0.self_attn.k_proj.weight": "cpu",
+            "model.layers.0.mlp.gate_proj.weight": "cpu",
+            "model.layers.1.self_attn.q_proj.weight": "cpu",
+            "model.layers.1.self_attn.k_proj.weight": "cpu",
+            "model.layers.1.mlp.gate_proj.weight": "cpu",
+            "model.embed_tokens.weight": "cpu",
+            "lm_head.weight": "cpu",
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            for name in self.tensors:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cpu"))
+                self.assertTrue(torch.allclose(t, self.tensors[name]))
+
+    def test_device_map_default_key(self):
+        """The empty-string key provides a fallback for unmapped tensors."""
+        # Only map one tensor explicitly, rest go to ""
+        device_map = {
+            "model.embed_tokens.weight": "cpu",
+            "": "cpu",
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            for name in self.tensors:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cpu"))
+                self.assertTrue(torch.allclose(t, self.tensors[name]))
+
+    def test_device_map_default_is_cpu_when_omitted(self):
+        """When "" is not specified, unmapped tensors go to CPU."""
+        device_map = {
+            "model.embed_tokens.weight": "cpu",
+            # no "" key — should default to CPU
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            for name in self.tensors:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cpu"))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_device_map_mixed_cpu_cuda(self):
+        """Mixed CPU/CUDA placement with exact tensor names."""
+        device_map = {
+            "model.layers.0.self_attn.q_proj.weight": "cuda:0",
+            "model.layers.0.self_attn.k_proj.weight": "cuda:0",
+            "model.layers.0.mlp.gate_proj.weight": "cuda:0",
+            "model.embed_tokens.weight": "cuda:0",
+            "": "cpu",  # layers.1.* and lm_head go to CPU
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            # Explicitly mapped to cuda:0
+            t = f.get_tensor("model.layers.0.self_attn.q_proj.weight")
+            self.assertEqual(t.device, torch.device("cuda:0"))
+            # Falls through to "" (cpu)
+            t = f.get_tensor("model.layers.1.self_attn.q_proj.weight")
+            self.assertEqual(t.device, torch.device("cpu"))
+            t = f.get_tensor("lm_head.weight")
+            self.assertEqual(t.device, torch.device("cpu"))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_device_map_values_correctness(self):
+        """Tensor values are preserved through device_map loading."""
+        device_map = {
+            "model.layers.0.self_attn.q_proj.weight": "cuda:0",
+            "": "cpu",
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            gpu_tensor = f.get_tensor("model.layers.0.self_attn.q_proj.weight")
+            cpu_tensor = f.get_tensor("model.layers.1.self_attn.q_proj.weight")
+            self.assertTrue(torch.allclose(
+                gpu_tensor.cpu(), self.tensors["model.layers.0.self_attn.q_proj.weight"]
+            ))
+            self.assertTrue(torch.allclose(
+                cpu_tensor, self.tensors["model.layers.1.self_attn.q_proj.weight"]
+            ))
+
+    def test_device_map_prefix_matching(self):
+        """Device map supports module-prefix matching (transformers-style).
+
+        When an exact tensor name match is not found, the resolver walks up
+        the module tree. So "model.layers.0" matches all tensors under that
+        module, like "model.layers.0.self_attn.q_proj.weight".
+        """
+        prefix_map = {
+            "model.layers.0": "cpu",
+            "model.layers.1": "cpu",
+            "model.embed_tokens": "cpu",
+            "lm_head": "cpu",
+            "": "cpu",
+        }
+        with safe_open(self.filename, framework="pt", device=prefix_map) as f:
+            for name in self.tensors:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cpu"))
+                self.assertTrue(torch.allclose(t, self.tensors[name]))
+
+    def test_device_map_accepts_string_and_integer_values(self):
+        """Dict device values accept both strings and integers.
+
+        Both `device="cuda:0"` and `device=0` work in dict values.
+        Integer values are treated as CUDA device indices.
+        """
+        # String device values work
+        device_map = {
+            "model.embed_tokens.weight": "cpu",
+            "": "cpu",
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            t = f.get_tensor("model.embed_tokens.weight")
+            self.assertEqual(t.device, torch.device("cpu"))
+
+    @unittest.skipIf(torch.cuda.device_count() < 2, "Need 2+ GPUs")
+    def test_device_map_multi_gpu_scatter(self):
+        """Multi-GPU scatter: tensors land on correct devices.
+
+        When 2+ CUDA devices appear in the device_map, the scatter subsystem
+        reads each file once and distributes byte ranges to target GPUs.
+        """
+        try:
+            torch.zeros(1, device="cuda:1")
+        except Exception:
+            self.skipTest("cuda:1 is not usable")
+
+        device_map = {
+            "model.layers.0.self_attn.q_proj.weight": "cuda:0",
+            "model.layers.0.self_attn.k_proj.weight": "cuda:0",
+            "model.layers.0.mlp.gate_proj.weight": "cuda:0",
+            "model.embed_tokens.weight": "cuda:0",
+            "model.layers.1.self_attn.q_proj.weight": "cuda:1",
+            "model.layers.1.self_attn.k_proj.weight": "cuda:1",
+            "model.layers.1.mlp.gate_proj.weight": "cuda:1",
+            "lm_head.weight": "cuda:1",
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            for name, expected_device in device_map.items():
+                if name == "":
+                    continue
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device(expected_device))
+                self.assertTrue(torch.allclose(t.cpu(), self.tensors[name]))
+
+    def test_transformers_device_map_expansion(self):
+        """Document how to convert a transformers-style device_map to ours.
+
+        Transformers uses module-prefix → device mappings:
+            {"model.layers.0": 0, "model.layers.1": 1, "model.embed_tokens": 0}
+
+        We need exact tensor names. This test shows the conversion pattern.
+        """
+        # Transformers-style prefix device_map
+        hf_device_map = {
+            "model.layers.0": "cpu",
+            "model.layers.1": "cpu",
+            "model.embed_tokens": "cpu",
+            "lm_head": "cpu",
+        }
+
+        # Expand to per-tensor exact-name format
+        tensor_names = list(self.tensors.keys())
+        our_device_map = {}
+        for tensor_name in tensor_names:
+            parts = tensor_name.split(".")
+            while parts:
+                prefix = ".".join(parts)
+                if prefix in hf_device_map:
+                    our_device_map[tensor_name] = hf_device_map[prefix]
+                    break
+                parts.pop()
+
+        # Every tensor should be resolved
+        self.assertEqual(len(our_device_map), len(tensor_names))
+
+        # Verify the expanded map works
+        with safe_open(self.filename, framework="pt", device=our_device_map) as f:
+            for name in tensor_names:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cpu"))
+                self.assertTrue(torch.allclose(t, self.tensors[name]))
+
+    def test_device_map_empty_string_default(self):
+        """Empty string "" works as default key (transformers convention)."""
+        device_map = {
+            "model.embed_tokens": "cpu",
+            "": "cpu",  # catch-all default
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            for name in self.tensors:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cpu"))
+                self.assertTrue(torch.allclose(t, self.tensors[name]))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_device_map_integer_values(self):
+        """Integer device values in dict are treated as CUDA devices."""
+        device_map = {
+            "": 0,  # integer → cuda:0
+        }
+        with safe_open(self.filename, framework="pt", device=device_map) as f:
+            for name in self.tensors:
+                t = f.get_tensor(name)
+                self.assertEqual(t.device, torch.device("cuda:0"))
+                self.assertTrue(torch.allclose(t.cpu(), self.tensors[name]))
+
+
+class TpTestCase(unittest.TestCase):
+    """Tests for tensor parallelism support in safe_open.
+
+    Our TP implementation accepts a transformers-style tp_plan dict mapping
+    wildcard patterns to slicing strategies ("colwise", "rowwise"), plus
+    tp_rank and tp_world_size parameters. Tensors matching the plan are
+    automatically sliced during I/O — colwise tensors get contiguous byte
+    ranges (single NVMe read), rowwise tensors are loaded fully then narrowed.
+    """
+
+    def setUp(self):
+        # Create tensors with known values so we can verify exact slices
+        self.tensors = {
+            "model.layers.0.self_attn.q_proj.weight": torch.arange(
+                64 * 32, dtype=torch.float32
+            ).reshape(64, 32),
+            "model.layers.0.self_attn.q_proj.bias": torch.arange(
+                64, dtype=torch.float32
+            ),
+            "model.layers.0.self_attn.o_proj.weight": torch.arange(
+                32 * 64, dtype=torch.float32
+            ).reshape(32, 64),
+            "model.layers.0.self_attn.o_proj.bias": torch.arange(
+                32, dtype=torch.float32
+            ),
+            "model.embed_tokens.weight": torch.arange(
+                100 * 32, dtype=torch.float32
+            ).reshape(100, 32),
+        }
+        self.filename = "./tests/data/tp_test.safetensors"
+        save_file(self.tensors, self.filename)
+        self.tp_plan = {
+            "model.layers.*.self_attn.q_proj": "colwise",
+            "model.layers.*.self_attn.o_proj": "rowwise",
+        }
+
+    def test_tp_colwise_2d_rank0(self):
+        """Colwise slices dim -2: rank 0 gets first half of rows."""
+        with safe_open(
+            self.filename, framework="pt",
+            tp_plan=self.tp_plan, tp_rank=0, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.q_proj.weight")
+            expected = self.tensors["model.layers.0.self_attn.q_proj.weight"][:32, :]
+            self.assertEqual(t.shape, (32, 32))
+            self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_colwise_2d_rank1(self):
+        """Colwise slices dim -2: rank 1 gets second half of rows."""
+        with safe_open(
+            self.filename, framework="pt",
+            tp_plan=self.tp_plan, tp_rank=1, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.q_proj.weight")
+            expected = self.tensors["model.layers.0.self_attn.q_proj.weight"][32:64, :]
+            self.assertEqual(t.shape, (32, 32))
+            self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_colwise_1d_rank0(self):
+        """Colwise on 1D (bias) slices dim -1: rank 0 gets first half."""
+        with safe_open(
+            self.filename, framework="pt",
+            tp_plan=self.tp_plan, tp_rank=0, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.q_proj.bias")
+            expected = self.tensors["model.layers.0.self_attn.q_proj.bias"][:32]
+            self.assertEqual(t.shape, (32,))
+            self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_colwise_1d_rank1(self):
+        """Colwise on 1D (bias) slices dim -1: rank 1 gets second half."""
+        with safe_open(
+            self.filename, framework="pt",
+            tp_plan=self.tp_plan, tp_rank=1, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.q_proj.bias")
+            expected = self.tensors["model.layers.0.self_attn.q_proj.bias"][32:64]
+            self.assertEqual(t.shape, (32,))
+            self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_rowwise_2d_rank0(self):
+        """Rowwise slices dim -1: rank 0 gets first half of columns."""
+        with safe_open(
+            self.filename, framework="pt",
+            tp_plan=self.tp_plan, tp_rank=0, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.o_proj.weight")
+            expected = self.tensors["model.layers.0.self_attn.o_proj.weight"][:, :32]
+            self.assertEqual(t.shape, (32, 32))
+            self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_rowwise_2d_rank1(self):
+        """Rowwise slices dim -1: rank 1 gets second half of columns."""
+        with safe_open(
+            self.filename, framework="pt",
+            tp_plan=self.tp_plan, tp_rank=1, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.o_proj.weight")
+            expected = self.tensors["model.layers.0.self_attn.o_proj.weight"][:, 32:64]
+            self.assertEqual(t.shape, (32, 32))
+            self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_rowwise_1d_replicated(self):
+        """Rowwise on 1D (bias) is replicated — same for all ranks."""
+        for rank in [0, 1]:
+            with safe_open(
+                self.filename, framework="pt",
+                tp_plan=self.tp_plan, tp_rank=rank, tp_world_size=2,
+            ) as f:
+                t = f.get_tensor("model.layers.0.self_attn.o_proj.bias")
+                expected = self.tensors["model.layers.0.self_attn.o_proj.bias"]
+                self.assertEqual(t.shape, expected.shape)
+                self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_passthrough(self):
+        """Tensors not in tp_plan are returned unchanged for all ranks."""
+        for rank in [0, 1]:
+            with safe_open(
+                self.filename, framework="pt",
+                tp_plan=self.tp_plan, tp_rank=rank, tp_world_size=2,
+            ) as f:
+                t = f.get_tensor("model.embed_tokens.weight")
+                expected = self.tensors["model.embed_tokens.weight"]
+                self.assertEqual(t.shape, expected.shape)
+                self.assertTrue(torch.allclose(t, expected))
+
+    def test_tp_uneven_split(self):
+        """Uneven tensor dimension: ceil division distributes remainder."""
+        tensors = {"w": torch.arange(65 * 32, dtype=torch.float32).reshape(65, 32)}
+        filename = "./tests/data/tp_uneven.safetensors"
+        save_file(tensors, filename)
+        tp_plan = {"w": "colwise"}
+
+        # Rank 0 gets ceil(65/2) = 33 rows
+        with safe_open(
+            filename, framework="pt",
+            tp_plan=tp_plan, tp_rank=0, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("w")
+            self.assertEqual(t.shape, (33, 32))
+            self.assertTrue(torch.allclose(t, tensors["w"][:33, :]))
+
+        # Rank 1 gets 65 - 33 = 32 rows
+        with safe_open(
+            filename, framework="pt",
+            tp_plan=tp_plan, tp_rank=1, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("w")
+            self.assertEqual(t.shape, (32, 32))
+            self.assertTrue(torch.allclose(t, tensors["w"][33:65, :]))
+
+    def test_tp_validation_errors(self):
+        """TP parameter validation."""
+        # tp_plan without tp_rank
+        with self.assertRaises(Exception):
+            safe_open(
+                self.filename, framework="pt",
+                tp_plan=self.tp_plan, tp_world_size=2,
+            )
+
+        # tp_plan without tp_world_size
+        with self.assertRaises(Exception):
+            safe_open(
+                self.filename, framework="pt",
+                tp_plan=self.tp_plan, tp_rank=0,
+            )
+
+        # tp_rank >= tp_world_size
+        with self.assertRaises(Exception):
+            safe_open(
+                self.filename, framework="pt",
+                tp_plan=self.tp_plan, tp_rank=2, tp_world_size=2,
+            )
+
+        # tp_world_size < 2
+        with self.assertRaises(Exception):
+            safe_open(
+                self.filename, framework="pt",
+                tp_plan=self.tp_plan, tp_rank=0, tp_world_size=1,
+            )
+
+        # Invalid strategy string
+        with self.assertRaises(Exception):
+            safe_open(
+                self.filename, framework="pt",
+                tp_plan={"w": "invalid_strategy"}, tp_rank=0, tp_world_size=2,
+            )
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_tp_colwise_gpu(self):
+        """Colwise TP slice on GPU preserves values."""
+        with safe_open(
+            self.filename, framework="pt", device="cuda:0",
+            tp_plan=self.tp_plan, tp_rank=0, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.q_proj.weight")
+            self.assertEqual(t.device, torch.device("cuda:0"))
+            self.assertEqual(t.shape, (32, 32))
+            expected = self.tensors["model.layers.0.self_attn.q_proj.weight"][:32, :]
+            self.assertTrue(torch.allclose(t.cpu(), expected))
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_tp_rowwise_gpu(self):
+        """Rowwise TP narrow on GPU produces correct contiguous tensor."""
+        with safe_open(
+            self.filename, framework="pt", device="cuda:0",
+            tp_plan=self.tp_plan, tp_rank=0, tp_world_size=2,
+        ) as f:
+            t = f.get_tensor("model.layers.0.self_attn.o_proj.weight")
+            self.assertEqual(t.device, torch.device("cuda:0"))
+            self.assertEqual(t.shape, (32, 32))
+            self.assertTrue(t.is_contiguous())
+            expected = self.tensors["model.layers.0.self_attn.o_proj.weight"][:, :32]
+            self.assertTrue(torch.allclose(t.cpu(), expected))
