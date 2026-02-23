@@ -28,6 +28,7 @@ serde = { version = "1.0", default-features = false, features = [
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.16", features = ["serde"] }
+hmll = { path = "/admin/home/luc/hmll/lib/rust/hmll", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
@@ -42,6 +43,7 @@ default = ["std"]
 std = ["serde/default", "serde_json/default"]
 # Kept for backward compatibility - no-op since alloc is always available
 alloc = []
+hmll = ["dep:hmll"]
 
 [[bench]]
 name = "benchmark"
