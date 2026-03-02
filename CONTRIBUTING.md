@@ -272,6 +272,8 @@ When you're ready to submit your contribution:
    - Summarize **what** you changed and **why**.
    - Link any related issues (e.g., `Closes #123` or `Fixes #456`).
    - Mention any areas of the code you're uncertain about or that you'd like reviewers to pay special attention to.
+   - We accept PRs that are made with the help of an AI model, but would appreciate if you
+     fill out the AI model-related fields in the description.
 
 7. **Sign your commits** if your organization requires it (optional otherwise). All commits merged into `main` should have a clean history.
 
