@@ -1,7 +1,12 @@
-//! module for loading sharded models. We call a shard a single safetensors file that contains a
+//! module for loading sharded models. We call a source a single safetensors file that contains a
 //! subset of the tensors comprising a model.
 
-use std::{fmt::Display, fs::File, io::BufReader, path::Path};
+use std::{
+    fmt::Display,
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 
 use hashbrown::HashMap;
 use serde::Deserialize;
@@ -56,8 +61,8 @@ pub struct Index {
 }
 
 impl Index {
-    /// Get the shard file path for a given tensor name
-    pub fn get_tensor_shard(&self, tensor_name: &str) -> Option<&String> {
+    /// Get the source file path for a given tensor name
+    pub fn get_tensor_source(&self, tensor_name: &str) -> Option<&String> {
         self.weight_map.get(tensor_name)
     }
 
@@ -69,6 +74,18 @@ impl Index {
     /// Get metadata value for the given key
     pub fn get_metadata(&self, key: &str) -> Option<&String> {
         self.metadata.extra.get(key)
+    }
+
+    /// Get list of unique source files in the index file
+    pub fn unique_source_files(&self, parent_path: Option<impl AsRef<Path>>) -> Vec<PathBuf> {
+        let mut paths: Vec<String> = self.weight_map.values().cloned().collect();
+        paths.sort_unstable();
+        paths.dedup();
+
+        match parent_path {
+            Some(parent) => paths.iter().map(|p| parent.as_ref().join(p)).collect(),
+            None => paths.iter().map(PathBuf::from).collect(),
+        }
     }
 }
 

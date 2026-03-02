@@ -13,6 +13,9 @@ pub mod device_map;
 #[cfg(feature = "std")]
 pub mod index;
 
+#[cfg(feature = "hmll")]
+pub mod loader;
+
 pub mod shard_plan;
 
 #[cfg(not(feature = "std"))]

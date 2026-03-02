@@ -28,7 +28,7 @@ serde = { version = "1.0", default-features = false, features = [
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.16", features = ["serde"] }
-hmll = { path = "/admin/home/luc/hmll/lib/rust/hmll", optional = true }
+hmll = { path = "/home/ubuntu/hmll/lib/rust/hmll", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
@@ -37,6 +37,7 @@ libc = "0.2"
 criterion = "0.6"
 memmap2 = "0.9"
 proptest = "1.7"
+tempfile = "3"
 
 [features]
 default = ["std"]
