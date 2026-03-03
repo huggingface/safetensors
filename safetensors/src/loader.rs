@@ -172,7 +172,7 @@ impl TensorLoader {
                 match slice {
                     ShardSlice::Contiguous { start, end, .. } => {
                         let abs_start = source_offset + tensor_start + start;
-                        let abs_end = source_offset + tensor_end + end;
+                        let abs_end = source_offset + tensor_start + end;
                         (abs_start, abs_end, Some(slice))
                     }
                     ShardSlice::NarrowAfterLoad { .. } | ShardSlice::FullCopy => {
@@ -230,7 +230,7 @@ impl TensorLoader {
                     match slice {
                         ShardSlice::Contiguous { start, end, .. } => {
                             let abs_start = source_offset + tensor_start + start;
-                            let abs_end = source_offset + tensor_end + end;
+                            let abs_end = source_offset + tensor_start + end;
                             (abs_start, abs_end, Some(slice))
                         }
                         ShardSlice::NarrowAfterLoad { .. } | ShardSlice::FullCopy => {
@@ -327,7 +327,6 @@ mod tests {
         assert_eq!(loader.source_offsets.len(), 2);
         assert_eq!(loader.tensor_index.len(), 2);
 
-        // Verify source indices
         let (idx_a, _) = loader.tensor_index.get("tensor_a").unwrap();
         let (idx_b, _) = loader.tensor_index.get("tensor_b").unwrap();
         assert_eq!(*idx_a, 0);
@@ -430,7 +429,6 @@ mod tests {
     fn test_open_index() {
         let dir = tempdir().expect("Failed to create temp dir");
 
-        // Create two safetensors files
         let data1: Vec<u8> = (0..16).collect();
         let data2: Vec<u8> = (100..132).collect();
 
@@ -457,7 +455,6 @@ mod tests {
         )
         .unwrap();
 
-        // Create index.json
         let index_path = dir.path().join("model.safetensors.index.json");
         let index_content = r#"{
             "metadata": {"total_size": 48},
@@ -531,7 +528,6 @@ mod tests {
         let results = loader.fetch_tensors(&["weight", "bias", "scale"]).unwrap();
         assert_eq!(results.len(), 3);
 
-        // Results may be out of order, so collect into a map
         let result_map: HashMap<&str, &FetchResult> = results
             .iter()
             .map(|(name, result)| (name.as_str(), result))
@@ -594,7 +590,6 @@ mod tests {
 
     #[test]
     fn test_fetch_tensors_partial_from_multiple_files() {
-        // Test fetching subset of tensors from a multi-file model
         let data1: Vec<u8> = (0..16).collect();
         let data2: Vec<u8> = (20..36).collect();
         let data3: Vec<u8> = (100..132).collect();
@@ -613,7 +608,6 @@ mod tests {
         let mut loader =
             TensorLoader::open(&[file1.path(), file2.path()], hmll::Device::Cpu).unwrap();
 
-        // Only fetch layer1.weight and layer2.weight (skip layer1.bias)
         let results = loader
             .fetch_tensors(&["layer1.weight", "layer2.weight"])
             .unwrap();
@@ -635,7 +629,6 @@ mod tests {
     fn test_open_index_fetch_tensors() {
         let dir = tempdir().expect("Failed to create temp dir");
 
-        // Create three safetensors files
         let data1: Vec<u8> = (0..16).collect();
         let data2: Vec<u8> = (50..66).collect();
         let data3: Vec<u8> = (100..132).collect();
@@ -674,7 +667,6 @@ mod tests {
         )
         .unwrap();
 
-        // Create index.json
         let index_path = dir.path().join("model.safetensors.index.json");
         let index_content = r#"{
             "metadata": {"total_size": 64},
@@ -690,7 +682,6 @@ mod tests {
 
         assert_eq!(loader.tensor_index.len(), 3);
 
-        // Batch fetch all tensors
         let results = loader
             .fetch_tensors(&["layer1.weight", "layer2.weight", "layer3.weight"])
             .unwrap();
@@ -712,5 +703,237 @@ mod tests {
         assert_eq!(result1.buffer.as_slice().unwrap(), data1.as_slice());
         assert_eq!(result2.buffer.as_slice().unwrap(), data2.as_slice());
         assert_eq!(result3.buffer.as_slice().unwrap(), data3.as_slice());
+    }
+
+    #[test]
+    fn test_with_shard_plan() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        let data = vec![0u8; 64]; // 16 f32s = 4x4 matrix
+        let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data)]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([("weight".to_string(), ShardStrategy::Colwise)]),
+            2,
+        );
+
+        let loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 0);
+
+        assert!(loader.shard_ctx.is_some());
+    }
+
+    #[test]
+    fn test_fetch_tensor_colwise_shard_rank0() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        // 4x4 matrix of f32 (64 bytes), each row is 16 bytes
+        // Row 0: [0,1,2,3], Row 1: [4,5,6,7], Row 2: [8,9,10,11], Row 3: [12,13,14,15]
+        let data: Vec<u8> = (0..64).collect();
+        let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data.clone())]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([("weight".to_string(), ShardStrategy::Colwise)]),
+            2, // world_size
+        );
+
+        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 0); // rank 0
+
+        let result = loader.fetch_tensor("weight").unwrap();
+
+        // Colwise shards dim -2 (rows for 2D). Rank 0 gets first half: rows 0-1
+        assert!(result.shard_slice.is_some());
+        match result.shard_slice.unwrap() {
+            ShardSlice::Contiguous { shape, .. } => {
+                assert_eq!(shape, vec![2, 4]); // 2 rows, 4 cols
+            }
+            _ => panic!("Expected Contiguous shard slice"),
+        }
+
+        // Should only fetch first 32 bytes (rows 0 and 1)
+        assert_eq!(result.buffer.len(), 32);
+        assert_eq!(result.buffer.as_slice().unwrap(), &data[0..32]);
+    }
+
+    #[test]
+    fn test_fetch_tensor_colwise_shard_rank1() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        let data: Vec<u8> = (0..64).collect();
+        let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data.clone())]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([("weight".to_string(), ShardStrategy::Colwise)]),
+            2,
+        );
+
+        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 1); // rank 1
+
+        let result = loader.fetch_tensor("weight").unwrap();
+
+        // Rank 1 gets second half: rows 2-3
+        match result.shard_slice.as_ref().unwrap() {
+            ShardSlice::Contiguous { shape, .. } => {
+                assert_eq!(*shape, vec![2, 4]);
+            }
+            _ => panic!("Expected Contiguous shard slice"),
+        }
+
+        assert_eq!(result.buffer.len(), 32);
+        assert_eq!(result.buffer.as_slice().unwrap(), &data[32..64]);
+    }
+
+    #[test]
+    fn test_fetch_tensor_rowwise_shard() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        let data: Vec<u8> = (0..64).collect();
+        let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data.clone())]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([("weight".to_string(), ShardStrategy::Rowwise)]),
+            2,
+        );
+
+        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 0);
+
+        let result = loader.fetch_tensor("weight").unwrap();
+
+        // Rowwise requires full tensor load then narrow
+        match result.shard_slice.as_ref().unwrap() {
+            ShardSlice::NarrowAfterLoad {
+                shape,
+                dim,
+                start,
+                len,
+            } => {
+                assert_eq!(*shape, vec![4, 2]); // 4 rows, 2 cols after narrow
+                assert_eq!(*dim, 1); // narrow on last dim
+                assert_eq!(*start, 0);
+                assert_eq!(*len, 2);
+            }
+            _ => panic!("Expected NarrowAfterLoad shard slice"),
+        }
+
+        // Full tensor is loaded
+        assert_eq!(result.buffer.len(), 64);
+        assert_eq!(result.buffer.as_slice().unwrap(), data.as_slice());
+    }
+
+    #[test]
+    fn test_fetch_tensor_replicate() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        let data: Vec<u8> = (0..16).collect();
+        let file = create_test_safetensor(vec![("bias", Dtype::F32, vec![4], data.clone())]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([("bias".to_string(), ShardStrategy::Replicate)]),
+            2,
+        );
+
+        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 0);
+
+        let result = loader.fetch_tensor("bias").unwrap();
+
+        // Replicate = full copy
+        match result.shard_slice.as_ref().unwrap() {
+            ShardSlice::FullCopy => {}
+            _ => panic!("Expected FullCopy shard slice"),
+        }
+
+        assert_eq!(result.buffer.len(), 16);
+        assert_eq!(result.buffer.as_slice().unwrap(), data.as_slice());
+    }
+
+    #[test]
+    fn test_fetch_tensors_mixed_strategies() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        let weight_data: Vec<u8> = (0..64).collect(); // 4x4 f32
+        let bias_data: Vec<u8> = (100..116).collect(); // 4 f32
+
+        let file = create_test_safetensor(vec![
+            ("layer.weight", Dtype::F32, vec![4, 4], weight_data.clone()),
+            ("layer.bias", Dtype::F32, vec![4], bias_data.clone()),
+        ]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([
+                ("layer.weight".to_string(), ShardStrategy::Colwise),
+                ("layer.bias".to_string(), ShardStrategy::Replicate),
+            ]),
+            2,
+        );
+
+        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 0);
+
+        let results = loader
+            .fetch_tensors(&["layer.weight", "layer.bias"])
+            .unwrap();
+
+        let result_map: HashMap<&str, &FetchResult> = results
+            .iter()
+            .map(|(name, result)| (name.as_str(), result))
+            .collect();
+
+        // Weight should be colwise sharded (first 2 rows)
+        let weight_result = result_map.get("layer.weight").unwrap();
+        assert!(matches!(
+            weight_result.shard_slice,
+            Some(ShardSlice::Contiguous { .. })
+        ));
+        assert_eq!(weight_result.buffer.len(), 32);
+
+        // Bias should be replicated (full copy)
+        let bias_result = result_map.get("layer.bias").unwrap();
+        assert!(matches!(
+            bias_result.shard_slice,
+            Some(ShardSlice::FullCopy)
+        ));
+        assert_eq!(bias_result.buffer.as_slice().unwrap(), bias_data.as_slice());
+    }
+
+    #[test]
+    fn test_fetch_tensor_1d_colwise() {
+        use crate::shard_plan::{ShardPlan, ShardStrategy};
+
+        // 1D tensor: 8 f32s = 32 bytes
+        let data: Vec<u8> = (0..32).collect();
+        let file = create_test_safetensor(vec![("vec", Dtype::F32, vec![8], data.clone())]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([("vec".to_string(), ShardStrategy::Colwise)]),
+            2,
+        );
+
+        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 0);
+
+        let result = loader.fetch_tensor("vec").unwrap();
+
+        // 1D colwise = contiguous slice
+        match result.shard_slice.as_ref().unwrap() {
+            ShardSlice::Contiguous { shape, .. } => {
+                assert_eq!(*shape, vec![4]); // half the elements
+            }
+            _ => panic!("Expected Contiguous for 1D colwise"),
+        }
+
+        // First half: 16 bytes
+        assert_eq!(result.buffer.len(), 16);
+        assert_eq!(result.buffer.as_slice().unwrap(), &data[0..16]);
     }
 }
