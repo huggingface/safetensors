@@ -1,4 +1,4 @@
-//! module for loading sharded models. We call a source a single safetensors file that contains a
+//! module for loading multi-file models. We call a source a single safetensors file that contains a
 //! subset of the tensors comprising a model.
 
 use std::{
@@ -53,7 +53,7 @@ pub struct IndexMetadata {
     extra: HashMap<String, String>,
 }
 
-/// Struct representing the index file for sharded models
+/// Struct representing the index file for multi-file models
 #[derive(Deserialize)]
 pub struct Index {
     metadata: IndexMetadata,

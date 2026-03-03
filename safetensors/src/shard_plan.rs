@@ -69,6 +69,7 @@ fn name_to_pattern(name: &str) -> String {
 
 /// Represents the byte range and shape of a shard for a given tensor, computed from the sharding
 /// strategy
+#[derive(Debug)]
 pub enum ShardSlice {
     /// Contiguous byte range that can be loaded directly
     Contiguous {
@@ -96,6 +97,7 @@ pub enum ShardSlice {
 }
 
 /// Represents a sharding plan for distributing tensors across multiple ranks
+#[derive(Debug)]
 pub struct ShardPlan {
     patterns: HashMap<String, ShardStrategy>,
     world_size: usize,
