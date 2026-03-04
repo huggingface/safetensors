@@ -77,22 +77,30 @@ jobs:
 
       - name: Install (torch)
         if: matrix.version.arch != 'x64-freethreaded' && matrix.os != 'windows-11-arm'
+        env:
+          NUMPY_VERSION: ${{ matrix.version.numpy }}
+          TORCH_VERSION: ${{ matrix.version.torch }}
         run: |
-          pip install ${{ matrix.version.numpy }}
-          pip install ${{ matrix.version.torch }}
+          pip install "$NUMPY_VERSION"
+          pip install "$TORCH_VERSION"
         shell: bash
 
       - name: Install (torch freethreaded)
         if: matrix.version.arch == 'x64-freethreaded'
+        env:
+          TORCH_VERSION: ${{ matrix.version.torch }}
         run: |
-          pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cu126
+          pip install "$TORCH_VERSION" --index-url https://download.pytorch.org/whl/cu126
         shell: bash
 
       - name: Install (torch windows arm64)
         if: matrix.os == 'windows-11-arm'
+        env:
+          NUMPY_VERSION: ${{ matrix.version.numpy }}
+          TORCH_VERSION: ${{ matrix.version.torch }}
         run: |
-          pip install ${{ matrix.version.numpy }}
-          pip install ${{ matrix.version.torch }} --index-url https://download.pytorch.org/whl/cpu
+          pip install "$NUMPY_VERSION"
+          pip install "$TORCH_VERSION" --index-url https://download.pytorch.org/whl/cpu
         shell: bash
 
       - name: Install (hdf5 non windows)
@@ -103,11 +111,13 @@ jobs:
 
       - name: Install (tensorflow)
         if: matrix.version.arch != 'x64-freethreaded' && matrix.os != 'windows-11-arm'
+        env:
+          NUMPY_VERSION: ${{ matrix.version.numpy }}
         run: |
           pip install .[tensorflow]
           # XXX: I assume this is still the case for 3.10
           # Force reinstall of numpy, tensorflow uses numpy 2 even on 3.9
-          pip install ${{ matrix.version.numpy }}
+          pip install "$NUMPY_VERSION"
         shell: bash
 
       - name: Install (jax, flax)
