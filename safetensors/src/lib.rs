@@ -8,6 +8,16 @@ pub mod tensor;
 pub use tensor::serialize_to_file;
 pub use tensor::{serialize, Dtype, SafeTensorError, SafeTensors, View};
 
+#[cfg(feature = "std")]
+pub mod device_map;
+#[cfg(feature = "std")]
+pub mod index;
+
+#[cfg(feature = "hmll")]
+pub mod loader;
+
+pub mod shard_plan;
+
 #[cfg(not(feature = "std"))]
 #[macro_use]
 extern crate alloc;
