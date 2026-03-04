@@ -3,7 +3,7 @@
 use core::{error::Error, fmt::Display};
 use std::path::Path;
 
-use hashbrown::HashMap;
+use crate::lib::HashMap;
 
 use crate::{
     index::IndexParsingError,

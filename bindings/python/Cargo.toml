@@ -13,6 +13,11 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.25", features = ["abi3", "abi3-py38"] }
 memmap2 = "0.9"
 serde_json = "1.0"
+hmll = { path = "/home/ubuntu/luc/hmll/lib/rust/hmll", optional = true }
 
 [dependencies.safetensors]
 path = "../../safetensors"
+
+[features]
+default = []
+hmll = ["dep:hmll", "safetensors/hmll"]

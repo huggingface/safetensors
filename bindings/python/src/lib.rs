@@ -20,6 +20,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+#[cfg(feature = "hmll")]
+mod hmll;
+
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -440,8 +443,6 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
-    // TODO: HMLL integration
-    // Hmll,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -495,12 +496,8 @@ struct Open {
 }
 
 impl Open {
+    // TODO: support sharding and index.json parsing
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        if filename.is_dir() {
-            // TODO: 1. find `index.json` file
-            // 2. collect all safetensors shards
-        } else if filename.ends_with("index.json") {
-        }
         let file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",

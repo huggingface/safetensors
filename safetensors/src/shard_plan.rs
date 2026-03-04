@@ -2,7 +2,7 @@
 
 use core::{fmt::Display, str::FromStr};
 
-use hashbrown::HashMap;
+use crate::lib::HashMap;
 
 use crate::{tensor::TensorInfo, Dtype};
 
@@ -819,7 +819,7 @@ mod tests {
             ShardSlice::Contiguous { shape, start, end } => {
                 assert_eq!(shape, vec![4, 4]);
                 assert_eq!(start, 0);
-                assert_eq!(end, 4 * 4 * 1);
+                assert_eq!(end, 4 * 4);
             }
             other => panic!(
                 "Expected Contiguous, got {:?}",
