@@ -89,8 +89,9 @@ Don't hesitate to ask questions! You can:
 The safetensors repository contains a Rust core library and Python bindings (with optional support for PyTorch, NumPy, TensorFlow, JAX, and PaddlePaddle). You'll need:
 
 - **Rust** (stable toolchain) — [install via rustup](https://rustup.rs/)
-- **Python 3.8+**
+- **Python 3.10+**
 - `pip` and optionally a virtual environment manager
+- [optional] we strongly recommend installing uv for python management, but that's up to you!
 
 ```bash
 # Install Rust
@@ -144,7 +145,7 @@ pip install -e .
 maturin develop
 ```
 
-> **Tip:** After every change to the Rust code, re-run `maturin develop` (or `pip install -e .`) before running Python tests — otherwise you'll be testing stale compiled code.
+> **Tip:** After every change to the Rust code, re-run `maturin develop` (or `pip install -e .`) before running Python tests — otherwise you'll be testing stale compiled code. You can also add the `--release` flag when building with maturin for a proper "release" build, which will be faster than the dev build.
 
 #### Installing ML Framework Dependencies
 
