@@ -32,11 +32,7 @@ This project may include the following roles. Additional roles may be adopted an
 
 Information disclosed in connection with any Project activity, including but not limited to meetings, contributions, and submissions, is not confidential, regardless of any markings or statements to the contrary.
 
-## 5. Trademarks.
-
-Any names, trademarks, logos, or goodwill developed by and associated with the Project (the "Marks") are controlled by the Organization. Maintainers may only use these Marks in accordance with the Organization's trademark policy. If a Maintainer resigns or is removed, any rights the Maintainer may have in the Marks revert to the Organization.
-
-## 6. Amendments.
+## 5. Amendments.
 
 Amendments to this governance policy may be made by affirmative vote of 2/3 of all Maintainers, with approval by the Organization's Steering Committee.
 
