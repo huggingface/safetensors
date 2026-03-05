@@ -10,6 +10,7 @@ from safetensors import (
     safe_open,
     serialize,
     serialize_file,
+    serialize_file_linux_io_uring,
 )
 
 
@@ -278,6 +279,17 @@ def save(
     )
     result = bytes(serialized)
     return result
+
+
+def save_file_io_uring(
+    tensors: Dict[str, torch.Tensor],
+    filename: Union[str, os.PathLike],
+    metadata: Optional[Dict[str, str]] = None,
+):
+    keep_references_alive = []  # to avoid garbage collection of temporary numpy arrays while we write to disk
+    serialize_file_linux_io_uring(
+        _flatten_as_ptr(tensors, keep_references_alive), filename, metadata=metadata
+    )
 
 
 def save_file(
