@@ -120,6 +120,26 @@ class TorchTestCase(unittest.TestCase):
         self.assertEqual(reloaded["test2"].dtype, torch.float8_e5m2)
         self.assertEqual(reloaded["test2"].item(), -0.5)
 
+    def test_odd_dtype_fp8_fnuz(self):
+        if Version(torch.__version__) < Version("2.1"):
+            return  # torch.float8 requires 2.1
+
+        if not hasattr(torch, "float8_e4m3fnuz"):
+            return  # fnuz dtypes not available in this torch version
+
+        data = {
+            "test1": torch.tensor([0.5], dtype=torch.float8_e4m3fnuz),
+            "test2": torch.tensor([0.5], dtype=torch.float8_e5m2fnuz),
+        }
+        local = "./tests/data/out_safe_pt_mmap_small_fnuz.safetensors"
+
+        save_file(data, local)
+        reloaded = load_file(local)
+        self.assertEqual(reloaded["test1"].dtype, torch.float8_e4m3fnuz)
+        self.assertEqual(reloaded["test1"].item(), 0.5)
+        self.assertEqual(reloaded["test2"].dtype, torch.float8_e5m2fnuz)
+        self.assertEqual(reloaded["test2"].item(), 0.5)
+
     def test_odd_dtype_fp4(self):
         if Version(torch.__version__) < Version("2.8"):
             return  # torch.float4 requires 2.8
