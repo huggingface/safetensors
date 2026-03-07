@@ -292,6 +292,7 @@ def convert_generic(
     folder: str,
     filenames: Set[str],
     token: Optional[str],
+    discard_names: List[str],
 ) -> ConversionResult:
     operations = []
     errors = []
@@ -316,7 +317,7 @@ def convert_generic(
                 sf_in_repo = f"{prefix}.safetensors"
             sf_filename = os.path.join(folder, sf_in_repo)
             try:
-                convert_file(pt_filename, sf_filename, discard_names=[])
+                convert_file(pt_filename, sf_filename, discard_names=discard_names)
                 operations.append(
                     CommitOperationAdd(
                         path_in_repo=sf_in_repo, path_or_fileobj=sf_filename
@@ -338,11 +339,15 @@ def convert(
         folder = os.path.join(d, repo_folder_name(repo_id=model_id, repo_type="models"))
         os.makedirs(folder)
         new_pr = None
+        # Exception handling already happen inside this function
+        discard_names = get_discard_names(
+            model_id, revision=revision, folder=folder, token=api.token
+        )
         try:
             operations = None
             pr = previous_pr(api, model_id, pr_title, revision=revision)
-
             library_name = getattr(info, "library_name", None)
+
             if (
                 any(filename.endswith(".safetensors") for filename in filenames)
                 and not force
@@ -357,9 +362,6 @@ def convert(
                     f"Model {model_id} already has an open PR check out {url}"
                 )
             elif library_name == "transformers":
-                discard_names = get_discard_names(
-                    model_id, revision=revision, folder=folder, token=api.token
-                )
                 if "pytorch_model.bin" in filenames:
                     operations, errors = convert_single(
                         model_id,
@@ -387,6 +389,7 @@ def convert(
                     folder=folder,
                     filenames=filenames,
                     token=api.token,
+                    discard_names=discard_names,
                 )
 
             if operations:
