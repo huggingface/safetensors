@@ -32,6 +32,15 @@ hashbrown = { version = "0.16", features = ["serde"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
+# io_uring support - only for Linux on architectures with prebuilt bindings
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64")))'.dependencies]
+io-uring = "0.7"
+libc = "0.2"
+
+# libc for other Linux targets (without io-uring)
+[target.'cfg(all(target_os = "linux", not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64", target_arch = "loongarch64", target_arch = "powerpc64"))))'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 criterion = "0.6"
 memmap2 = "0.9"
@@ -46,3 +55,6 @@ alloc = []
 [[bench]]
 name = "benchmark"
 harness = false
+
+[profile.release]
+debug = true
