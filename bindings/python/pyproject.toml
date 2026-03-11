@@ -30,7 +30,7 @@ Source = 'https://github.com/huggingface/safetensors'
 
 [project.optional-dependencies]
 numpy = ["numpy>=1.24.6"]
-torch = ["packaging", "safetensors[numpy]", "torch>=2.4"]
+torch = ["safetensors[numpy]", "torch>=2.4"]
 tensorflow = ["safetensors[numpy]", "tensorflow>=2.11.0"]
 # pinning tf version 2.11.0 for doc-builder
 pinned-tf = ["safetensors[numpy]", "tensorflow==2.18.0"]
