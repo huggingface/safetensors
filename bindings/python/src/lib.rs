@@ -20,6 +20,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+#[cfg(feature = "hmll")]
+mod dlpack;
+
+#[cfg(feature = "hmll")]
+mod hmll;
+
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -440,8 +446,6 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<PyObject>),
-    // TODO: HMLL integration
-    // Hmll,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -495,12 +499,8 @@ struct Open {
 }
 
 impl Open {
+    // TODO: support sharding and index.json parsing
     fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        if filename.is_dir() {
-            // TODO: 1. find `index.json` file
-            // 2. collect all safetensors shards
-        } else if filename.ends_with("index.json") {
-        }
         let file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
@@ -1571,6 +1571,8 @@ impl _safe_open_handle {
     #[new]
     #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
     fn new(f: PyObject, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+        // XXX: 06/03/26 - just noticed this, we should either remove support for passing in file
+        // handles or actually get the file descriptor object and use that directly, if possible.
         let filename = Python::with_gil(|py| -> PyResult<PathBuf> {
             let _ = f.getattr(py, "fileno")?;
             let filename = f.getattr(py, "name")?;
@@ -1670,6 +1672,12 @@ fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_class::<safe_open>()?;
     m.add_class::<_safe_open_handle>()?;
+    #[cfg(feature = "hmll")]
+    m.add_class::<hmll::safe_open_hmll>()?;
+    #[cfg(feature = "hmll")]
+    m.add("has_hmll", true)?;
+    #[cfg(not(feature = "hmll"))]
+    m.add("has_hmll", false)?;
     m.add("SafetensorError", m.py().get_type::<SafetensorError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

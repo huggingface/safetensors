@@ -44,7 +44,7 @@ default = ["std"]
 std = ["serde/default", "serde_json/default"]
 # Kept for backward compatibility - no-op since alloc is always available
 alloc = []
-hmll = ["dep:hmll"]
+hmll = ["dep:hmll", "hmll/cuda"]
 
 [[bench]]
 name = "benchmark"

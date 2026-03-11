@@ -3,7 +3,7 @@
 use core::{error::Error, fmt::Display};
 use std::path::Path;
 
-use hashbrown::HashMap;
+use crate::lib::HashMap;
 
 use crate::{
     index::IndexParsingError,
@@ -27,6 +27,8 @@ pub enum LoaderError {
     TensorNotFound(String),
     /// Sharding error
     ShardPlan(ShardPlanError),
+    /// Tensor is filtered out by rank in shard plan
+    TensorSkipped(String),
 }
 
 impl Display for LoaderError {
@@ -44,6 +46,9 @@ impl Display for LoaderError {
                 )
             }
             LoaderError::ShardPlan(err) => write!(f, "sharding error: {}", err),
+            LoaderError::TensorSkipped(name) => {
+                write!(f, "Tensor '{}' is filtered out by rank in shard plan", name)
+            }
         }
     }
 }
@@ -74,11 +79,11 @@ impl From<ShardPlanError> for LoaderError {
     }
 }
 
-/// TODO:
 #[derive(Debug)]
-pub struct ShardContext {
-    plan: ShardPlan,
-    rank: usize,
+struct TensorEntry {
+    source_idx: usize,
+    info: TensorInfo,
+    slice: Option<ShardSlice>,
 }
 
 /// TODO:
@@ -86,8 +91,7 @@ pub struct ShardContext {
 pub struct TensorLoader {
     loader: hmll::WeightLoader,
     source_offsets: Vec<usize>,
-    tensor_index: HashMap<String, (usize, TensorInfo)>,
-    shard_ctx: Option<ShardContext>,
+    tensors: HashMap<String, TensorEntry>,
 }
 
 /// Result of fetching a tensor, including optional sharding info
@@ -112,29 +116,35 @@ impl TensorLoader {
         // XXX: we only want to use hmll for IoUring backend, so we hard code it for the moment
         let loader = hmll::WeightLoader::new(sources, device, hmll::LoaderKind::IoUring)?;
 
-        let (source_offsets, tensor_index) = paths.iter().enumerate().try_fold(
+        let (source_offsets, tensors) = paths.iter().enumerate().try_fold(
             (Vec::with_capacity(paths.len()), HashMap::new()),
-            |(mut offsets, mut tensor_index), (source_idx, path)| {
+            |(mut offsets, mut tensors), (source_idx, path)| {
                 let (header_size, metadata) = SafeTensors::read_metadata_from_file(path)?;
                 offsets.push(N_LEN + header_size);
 
                 for (name, info) in metadata.tensors() {
-                    if tensor_index
-                        .insert(name.clone(), (source_idx, info.clone()))
+                    if tensors
+                        .insert(
+                            name.clone(),
+                            TensorEntry {
+                                source_idx,
+                                info: info.clone(),
+                                slice: None,
+                            },
+                        )
                         .is_some()
                     {
                         return Err(LoaderError::DuplicateTensor(name));
                     }
                 }
-                Ok((offsets, tensor_index))
+                Ok((offsets, tensors))
             },
         )?;
 
         Ok(Self {
             loader,
             source_offsets,
-            tensor_index,
-            shard_ctx: None,
+            tensors,
         })
     }
 
@@ -151,111 +161,125 @@ impl TensorLoader {
     }
 
     /// Configure sharding for tensor parallel loading
-    pub fn with_shard_plan(mut self, plan: ShardPlan, rank: usize) -> Self {
-        self.shard_ctx = Some(ShardContext { plan, rank });
+    pub fn with_shard_plan(mut self, plan: ShardPlan, rank: usize) -> Result<Self, LoaderError> {
+        self.tensors =
+            self.tensors
+                .into_iter()
+                .try_fold(HashMap::new(), |mut acc, (name, entry)| {
+                    match plan.compute_slice(&name, &entry.info, rank)? {
+                        ShardSlice::Skip => {}
+                        slice => {
+                            acc.insert(
+                                name,
+                                TensorEntry {
+                                    slice: Some(slice),
+                                    ..entry
+                                },
+                            );
+                        }
+                    };
+                    Ok::<_, LoaderError>(acc)
+                })?;
 
-        self
+        Ok(self)
+    }
+
+    /// Get all tensor names present in loader, which will be all tensors from all sources
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.tensors.keys()
     }
 
     /// Get the tensor's data from it's source file
     pub fn fetch_tensor(&mut self, name: &str) -> Result<FetchResult, LoaderError> {
-        let (source_idx, info) = self
-            .tensor_index
+        let entry = self
+            .tensors
             .get(name)
             .ok_or_else(|| LoaderError::TensorNotFound(name.to_owned()))?;
 
-        let source_offset = self.source_offsets[*source_idx];
-        let (tensor_start, tensor_end) = info.data_offsets;
-        let (fetch_start, fetch_end, shard_slice) = match &self.shard_ctx {
-            Some(ctx) => {
-                let slice = ctx.plan.compute_slice(name, info, ctx.rank)?;
-                match slice {
-                    ShardSlice::Contiguous { start, end, .. } => {
-                        let abs_start = source_offset + tensor_start + start;
-                        let abs_end = source_offset + tensor_start + end;
-                        (abs_start, abs_end, Some(slice))
-                    }
-                    ShardSlice::NarrowAfterLoad { .. } | ShardSlice::FullCopy => {
-                        let abs_start = source_offset + tensor_start;
-                        let abs_end = source_offset + tensor_end;
-                        (abs_start, abs_end, Some(slice))
-                    }
+        let source_offset = self.source_offsets[entry.source_idx];
+        let (tensor_start, tensor_end) = entry.info.data_offsets;
+        let (fetch_start, fetch_end) = match &entry.slice {
+            Some(slice) => match slice {
+                ShardSlice::Skip => {
+                    return Err(LoaderError::TensorSkipped(name.to_owned()));
                 }
-            }
+                ShardSlice::Contiguous { start, end, .. } => {
+                    let abs_start = source_offset + tensor_start + start;
+                    let abs_end = source_offset + tensor_start + end;
+                    (abs_start, abs_end)
+                }
+                ShardSlice::NarrowAfterLoad { .. } | ShardSlice::FullCopy { .. } => {
+                    let abs_start = source_offset + tensor_start;
+                    let abs_end = source_offset + tensor_end;
+                    (abs_start, abs_end)
+                }
+            },
             None => {
                 let abs_start = source_offset + tensor_start;
                 let abs_end = source_offset + tensor_end;
-                (abs_start, abs_end, None)
+                (abs_start, abs_end)
             }
         };
 
-        let buffer = self.loader.fetch(fetch_start..fetch_end, *source_idx)?;
+        let buffer = self
+            .loader
+            .fetch(fetch_start..fetch_end, entry.source_idx)?;
 
         Ok(FetchResult {
             buffer,
-            info: info.clone(),
-            shard_slice,
+            info: entry.info.clone(),
+            shard_slice: entry.slice.clone(),
         })
     }
 
     /// Fetch tensor data in batch for performance
-    pub fn fetch_tensors(
-        &mut self,
-        names: &[&str],
-    ) -> Result<Vec<(String, FetchResult)>, LoaderError> {
-        if names.is_empty() {
-            return Ok(Vec::new());
-        }
-
+    pub fn fetch_all_tensors(&mut self) -> Result<Vec<(String, FetchResult)>, LoaderError> {
         struct FetchItem<'a> {
             name: &'a str,
             range: hmll::Range,
             info: &'a TensorInfo,
-            shard_slice: Option<ShardSlice>,
+            shard_slice: Option<&'a ShardSlice>,
         }
 
         let mut by_source: HashMap<usize, Vec<FetchItem>> = HashMap::new();
 
-        for name in names {
-            let (source_idx, info) = self
-                .tensor_index
-                .get(*name)
-                .ok_or_else(|| LoaderError::TensorNotFound((*name).to_owned()))?;
-            let source_offset = self.source_offsets[*source_idx];
-            let (tensor_start, tensor_end) = info.data_offsets;
+        for (name, entry) in self.tensors.iter() {
+            let source_offset = self.source_offsets[entry.source_idx];
+            let (tensor_start, tensor_end) = entry.info.data_offsets;
 
-            let (fetch_start, fetch_end, shard_slice) = match &self.shard_ctx {
-                Some(ctx) => {
-                    let slice = ctx.plan.compute_slice(name, info, ctx.rank)?;
-                    match slice {
-                        ShardSlice::Contiguous { start, end, .. } => {
-                            let abs_start = source_offset + tensor_start + start;
-                            let abs_end = source_offset + tensor_start + end;
-                            (abs_start, abs_end, Some(slice))
-                        }
-                        ShardSlice::NarrowAfterLoad { .. } | ShardSlice::FullCopy => {
-                            let abs_start = source_offset + tensor_start;
-                            let abs_end = source_offset + tensor_end;
-                            (abs_start, abs_end, Some(slice))
-                        }
+            let (fetch_start, fetch_end) = match &entry.slice {
+                Some(slice) => match slice {
+                    ShardSlice::Contiguous { start, end, .. } => {
+                        let abs_start = source_offset + tensor_start + start;
+                        let abs_end = source_offset + tensor_start + end;
+                        (abs_start, abs_end)
                     }
-                }
+                    ShardSlice::NarrowAfterLoad { .. } | ShardSlice::FullCopy { .. } => {
+                        let abs_start = source_offset + tensor_start;
+                        let abs_end = source_offset + tensor_end;
+                        (abs_start, abs_end)
+                    }
+                    ShardSlice::Skip => continue,
+                },
                 None => {
                     let abs_start = source_offset + tensor_start;
                     let abs_end = source_offset + tensor_end;
-                    (abs_start, abs_end, None)
+                    (abs_start, abs_end)
                 }
             };
 
-            by_source.entry(*source_idx).or_default().push(FetchItem {
-                name,
-                info,
-                range: (fetch_start..fetch_end).into(),
-                shard_slice,
-            });
+            by_source
+                .entry(entry.source_idx)
+                .or_default()
+                .push(FetchItem {
+                    name,
+                    info: &entry.info,
+                    range: (fetch_start..fetch_end).into(),
+                    shard_slice: entry.slice.as_ref(),
+                });
         }
 
-        let mut results = Vec::with_capacity(names.len());
+        let mut results = Vec::with_capacity(by_source.len());
         for (source_idx, items) in by_source {
             let ranges: Vec<hmll::Range> = items.iter().map(|item| item.range).collect();
             let buffers = self.loader.fetchv(&ranges, source_idx)?;
@@ -266,7 +290,7 @@ impl TensorLoader {
                     FetchResult {
                         buffer,
                         info: item.info.clone(),
-                        shard_slice: item.shard_slice,
+                        shard_slice: item.shard_slice.cloned(),
                     },
                 ));
             }
@@ -308,8 +332,8 @@ mod tests {
 
         let loader = loader.unwrap();
         assert_eq!(loader.source_offsets.len(), 1);
-        assert_eq!(loader.tensor_index.len(), 1);
-        assert!(loader.tensor_index.contains_key("weight"));
+        assert_eq!(loader.tensors.len(), 1);
+        assert!(loader.tensors.contains_key("weight"));
     }
 
     #[test]
@@ -325,12 +349,12 @@ mod tests {
 
         let loader = loader.unwrap();
         assert_eq!(loader.source_offsets.len(), 2);
-        assert_eq!(loader.tensor_index.len(), 2);
+        assert_eq!(loader.tensors.len(), 2);
 
-        let (idx_a, _) = loader.tensor_index.get("tensor_a").unwrap();
-        let (idx_b, _) = loader.tensor_index.get("tensor_b").unwrap();
-        assert_eq!(*idx_a, 0);
-        assert_eq!(*idx_b, 1);
+        let entry_a = loader.tensors.get("tensor_a").unwrap();
+        let entry_b = loader.tensors.get("tensor_b").unwrap();
+        assert_eq!(entry_a.source_idx, 0);
+        assert_eq!(entry_b.source_idx, 1);
     }
 
     #[test]
@@ -416,7 +440,7 @@ mod tests {
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu).unwrap();
 
-        assert_eq!(loader.tensor_index.len(), 2);
+        assert_eq!(loader.tensors.len(), 2);
 
         let result_w = loader.fetch_tensor("weight").unwrap();
         let result_b = loader.fetch_tensor("bias").unwrap();
@@ -467,7 +491,7 @@ mod tests {
 
         let mut loader = TensorLoader::open_index(&index_path, hmll::Device::Cpu).unwrap();
 
-        assert_eq!(loader.tensor_index.len(), 2);
+        assert_eq!(loader.tensors.len(), 2);
 
         let result1 = loader.fetch_tensor("layer1.weight").unwrap();
         let result2 = loader.fetch_tensor("layer2.weight").unwrap();
@@ -483,14 +507,15 @@ mod tests {
     }
 
     #[test]
-    fn test_fetch_tensors_empty() {
+    fn test_fetch_all_tensors_returns_all() {
         let data = vec![0u8; 16];
         let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![2, 2], data)]);
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu).unwrap();
 
-        let results = loader.fetch_tensors(&[]).unwrap();
-        assert!(results.is_empty());
+        let results = loader.fetch_all_tensors().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "weight");
     }
 
     #[test]
@@ -500,7 +525,7 @@ mod tests {
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu).unwrap();
 
-        let results = loader.fetch_tensors(&["weight"]).unwrap();
+        let results = loader.fetch_all_tensors().unwrap();
         assert_eq!(results.len(), 1);
 
         let (name, result) = &results[0];
@@ -525,7 +550,7 @@ mod tests {
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu).unwrap();
 
-        let results = loader.fetch_tensors(&["weight", "bias", "scale"]).unwrap();
+        let results = loader.fetch_all_tensors().unwrap();
         assert_eq!(results.len(), 3);
 
         let result_map: HashMap<&str, &FetchResult> = results
@@ -555,7 +580,7 @@ mod tests {
         let mut loader =
             TensorLoader::open(&[file1.path(), file2.path()], hmll::Device::Cpu).unwrap();
 
-        let results = loader.fetch_tensors(&["tensor_a", "tensor_b"]).unwrap();
+        let results = loader.fetch_all_tensors().unwrap();
         assert_eq!(results.len(), 2);
 
         let result_map: HashMap<&str, &FetchResult> = results
@@ -573,23 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fetch_tensors_not_found() {
-        let data = vec![0u8; 16];
-        let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![2, 2], data)]);
-
-        let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu).unwrap();
-
-        let result = loader.fetch_tensors(&["weight", "nonexistent"]);
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            LoaderError::TensorNotFound(name) => assert_eq!(name, "nonexistent"),
-            e => panic!("Expected TensorNotFound error, got {:?}", e),
-        }
-    }
-
-    #[test]
-    fn test_fetch_tensors_partial_from_multiple_files() {
+    fn test_fetch_all_tensors_from_multiple_files() {
         let data1: Vec<u8> = (0..16).collect();
         let data2: Vec<u8> = (20..36).collect();
         let data3: Vec<u8> = (100..132).collect();
@@ -608,10 +617,8 @@ mod tests {
         let mut loader =
             TensorLoader::open(&[file1.path(), file2.path()], hmll::Device::Cpu).unwrap();
 
-        let results = loader
-            .fetch_tensors(&["layer1.weight", "layer2.weight"])
-            .unwrap();
-        assert_eq!(results.len(), 2);
+        let results = loader.fetch_all_tensors().unwrap();
+        assert_eq!(results.len(), 3); // All 3 tensors
 
         let result_map: HashMap<&str, &FetchResult> = results
             .iter()
@@ -619,10 +626,12 @@ mod tests {
             .collect();
 
         let result1 = result_map.get("layer1.weight").unwrap();
-        let result2 = result_map.get("layer2.weight").unwrap();
+        let result2 = result_map.get("layer1.bias").unwrap();
+        let result3 = result_map.get("layer2.weight").unwrap();
 
         assert_eq!(result1.buffer.as_slice().unwrap(), data1.as_slice());
-        assert_eq!(result2.buffer.as_slice().unwrap(), data3.as_slice());
+        assert_eq!(result2.buffer.as_slice().unwrap(), data2.as_slice());
+        assert_eq!(result3.buffer.as_slice().unwrap(), data3.as_slice());
     }
 
     #[test]
@@ -680,11 +689,9 @@ mod tests {
 
         let mut loader = TensorLoader::open_index(&index_path, hmll::Device::Cpu).unwrap();
 
-        assert_eq!(loader.tensor_index.len(), 3);
+        assert_eq!(loader.tensors.len(), 3);
 
-        let results = loader
-            .fetch_tensors(&["layer1.weight", "layer2.weight", "layer3.weight"])
-            .unwrap();
+        let results = loader.fetch_all_tensors().unwrap();
         assert_eq!(results.len(), 3);
 
         let result_map: HashMap<&str, &FetchResult> = results
@@ -707,26 +714,32 @@ mod tests {
 
     #[test]
     fn test_with_shard_plan() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         let data = vec![0u8; 64]; // 16 f32s = 4x4 matrix
         let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data)]);
 
         let plan = ShardPlan::new(
-            HashMap::from([("weight".to_string(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "weight".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             2,
         );
 
         let loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 0);
+            .with_shard_plan(plan, 0)
+            .unwrap();
 
-        assert!(loader.shard_ctx.is_some());
+        // Verify that the tensor has a shard slice assigned
+        let entry = loader.tensors.get("weight").unwrap();
+        assert!(entry.slice.is_some());
     }
 
     #[test]
     fn test_fetch_tensor_colwise_shard_rank0() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         // 4x4 matrix of f32 (64 bytes), each row is 16 bytes
         // Row 0: [0,1,2,3], Row 1: [4,5,6,7], Row 2: [8,9,10,11], Row 3: [12,13,14,15]
@@ -734,13 +747,17 @@ mod tests {
         let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data.clone())]);
 
         let plan = ShardPlan::new(
-            HashMap::from([("weight".to_string(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "weight".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             2, // world_size
         );
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 0); // rank 0
+            .with_shard_plan(plan, 0) // rank 0
+            .unwrap();
 
         let result = loader.fetch_tensor("weight").unwrap();
 
@@ -760,19 +777,23 @@ mod tests {
 
     #[test]
     fn test_fetch_tensor_colwise_shard_rank1() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         let data: Vec<u8> = (0..64).collect();
         let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data.clone())]);
 
         let plan = ShardPlan::new(
-            HashMap::from([("weight".to_string(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "weight".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             2,
         );
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 1); // rank 1
+            .with_shard_plan(plan, 1) // rank 1
+            .unwrap();
 
         let result = loader.fetch_tensor("weight").unwrap();
 
@@ -790,19 +811,23 @@ mod tests {
 
     #[test]
     fn test_fetch_tensor_rowwise_shard() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         let data: Vec<u8> = (0..64).collect();
         let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data.clone())]);
 
         let plan = ShardPlan::new(
-            HashMap::from([("weight".to_string(), ShardStrategy::Rowwise)]),
+            HashMap::from([(
+                "weight".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+            )]),
             2,
         );
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 0);
+            .with_shard_plan(plan, 0)
+            .unwrap();
 
         let result = loader.fetch_tensor("weight").unwrap();
 
@@ -829,25 +854,29 @@ mod tests {
 
     #[test]
     fn test_fetch_tensor_replicate() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         let data: Vec<u8> = (0..16).collect();
         let file = create_test_safetensor(vec![("bias", Dtype::F32, vec![4], data.clone())]);
 
         let plan = ShardPlan::new(
-            HashMap::from([("bias".to_string(), ShardStrategy::Replicate)]),
+            HashMap::from([(
+                "bias".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Replicate, None),
+            )]),
             2,
         );
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 0);
+            .with_shard_plan(plan, 0)
+            .unwrap();
 
         let result = loader.fetch_tensor("bias").unwrap();
 
         // Replicate = full copy
         match result.shard_slice.as_ref().unwrap() {
-            ShardSlice::FullCopy => {}
+            ShardSlice::FullCopy { .. } => {}
             _ => panic!("Expected FullCopy shard slice"),
         }
 
@@ -857,7 +886,7 @@ mod tests {
 
     #[test]
     fn test_fetch_tensors_mixed_strategies() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         let weight_data: Vec<u8> = (0..64).collect(); // 4x4 f32
         let bias_data: Vec<u8> = (100..116).collect(); // 4 f32
@@ -869,19 +898,24 @@ mod tests {
 
         let plan = ShardPlan::new(
             HashMap::from([
-                ("layer.weight".to_string(), ShardStrategy::Colwise),
-                ("layer.bias".to_string(), ShardStrategy::Replicate),
+                (
+                    "layer.weight".to_string(),
+                    ShardPatternConfig::new(ShardStrategy::Colwise, None),
+                ),
+                (
+                    "layer.bias".to_string(),
+                    ShardPatternConfig::new(ShardStrategy::Replicate, None),
+                ),
             ]),
             2,
         );
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 0);
-
-        let results = loader
-            .fetch_tensors(&["layer.weight", "layer.bias"])
+            .with_shard_plan(plan, 0)
             .unwrap();
+
+        let results = loader.fetch_all_tensors().unwrap();
 
         let result_map: HashMap<&str, &FetchResult> = results
             .iter()
@@ -900,27 +934,31 @@ mod tests {
         let bias_result = result_map.get("layer.bias").unwrap();
         assert!(matches!(
             bias_result.shard_slice,
-            Some(ShardSlice::FullCopy)
+            Some(ShardSlice::FullCopy { .. })
         ));
         assert_eq!(bias_result.buffer.as_slice().unwrap(), bias_data.as_slice());
     }
 
     #[test]
     fn test_fetch_tensor_1d_colwise() {
-        use crate::shard_plan::{ShardPlan, ShardStrategy};
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
 
         // 1D tensor: 8 f32s = 32 bytes
         let data: Vec<u8> = (0..32).collect();
         let file = create_test_safetensor(vec![("vec", Dtype::F32, vec![8], data.clone())]);
 
         let plan = ShardPlan::new(
-            HashMap::from([("vec".to_string(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "vec".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             2,
         );
 
         let mut loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
             .unwrap()
-            .with_shard_plan(plan, 0);
+            .with_shard_plan(plan, 0)
+            .unwrap();
 
         let result = loader.fetch_tensor("vec").unwrap();
 
@@ -935,5 +973,74 @@ mod tests {
         // First half: 16 bytes
         assert_eq!(result.buffer.len(), 16);
         assert_eq!(result.buffer.as_slice().unwrap(), &data[0..16]);
+    }
+
+    #[test]
+    fn test_fetch_tensor_skip_rank_filtered() {
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
+
+        let data: Vec<u8> = (0..64).collect();
+        let file = create_test_safetensor(vec![("weight", Dtype::F32, vec![4, 4], data)]);
+
+        // Only rank 0 should load this tensor
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "weight".to_string(),
+                ShardPatternConfig::new(ShardStrategy::Replicate, Some(vec![0])),
+            )]),
+            2,
+        );
+
+        // Rank 1 should skip - tensor won't be in the loader's tensors map
+        let loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 1)
+            .unwrap();
+
+        // The tensor should be filtered out entirely from keys()
+        assert!(
+            !loader.tensors.contains_key("weight"),
+            "Rank 1 should not have filtered tensor"
+        );
+    }
+
+    #[test]
+    fn test_fetch_tensors_mixed_with_skip() {
+        use crate::shard_plan::{ShardPatternConfig, ShardPlan, ShardStrategy};
+
+        let weight_data: Vec<u8> = (0..64).collect();
+        let expert_data: Vec<u8> = (100..164).collect();
+
+        let file = create_test_safetensor(vec![
+            ("layer.weight", Dtype::F32, vec![4, 4], weight_data.clone()),
+            ("expert.0.weight", Dtype::F32, vec![4, 4], expert_data),
+        ]);
+
+        let plan = ShardPlan::new(
+            HashMap::from([
+                (
+                    "layer.weight".to_string(),
+                    ShardPatternConfig::new(ShardStrategy::Colwise, None), // all ranks
+                ),
+                (
+                    // Pattern uses * for numeric segments
+                    "expert.*.weight".to_string(),
+                    ShardPatternConfig::new(ShardStrategy::Replicate, Some(vec![0])), // rank 0 only
+                ),
+            ]),
+            2,
+        );
+
+        // Rank 1 should only get layer.weight, not expert.0.weight
+        let loader = TensorLoader::open(&[file.path()], hmll::Device::Cpu)
+            .unwrap()
+            .with_shard_plan(plan, 1)
+            .unwrap();
+
+        // expert.0.weight should be filtered out from keys()
+        let keys: Vec<_> = loader.keys().collect();
+        assert_eq!(keys.len(), 1, "Rank 1 should only have 1 tensor");
+        assert!(keys.iter().any(|k| k.as_str() == "layer.weight"));
+        assert!(!loader.tensors.contains_key("expert.0.weight"));
     }
 }

@@ -59,6 +59,7 @@ paddlepaddle = [
     "safetensors[numpy]",
     "paddlepaddle>=2.4.1",
 ]
+hmll = []  # io_uring backend marker; build from source with: SAFETENSORS_ENABLE_HMLL=1 pip install .
 quality = [
     "ruff",  # after updating to black 2023, also update Python version in pyproject.toml to 3.7
 ]

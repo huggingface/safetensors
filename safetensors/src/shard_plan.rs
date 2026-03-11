@@ -2,7 +2,7 @@
 
 use core::{fmt::Display, str::FromStr};
 
-use hashbrown::HashMap;
+use crate::lib::HashMap;
 
 use crate::{tensor::TensorInfo, Dtype};
 
@@ -13,6 +13,8 @@ pub enum ShardPlanError {
     InvalidStrategy(String),
     /// Sharding is not supported for unaligned dtypes
     UnalignedDtype(Dtype),
+    /// Requested tensor for shard slice computation is not present in shard plan
+    TensorNotInPlan(String),
 }
 
 impl Display for ShardPlanError {
@@ -21,6 +23,9 @@ impl Display for ShardPlanError {
             ShardPlanError::InvalidStrategy(s) => write!(f, "Invalid shard strategy: {}", s),
             ShardPlanError::UnalignedDtype(dtype) => {
                 write!(f, "Sharding not supported for unaligned dtype: {:?}", dtype)
+            }
+            ShardPlanError::TensorNotInPlan(name) => {
+                write!(f, "Requested tensor '{}' is not in shard_plan", name)
             }
         }
     }
@@ -67,9 +72,33 @@ fn name_to_pattern(name: &str) -> String {
     result
 }
 
+/// A pattern entry with shard strategy and optional rank filter
+#[derive(Debug, Clone)]
+pub struct ShardPatternConfig {
+    /// The sharding strategy for this pattern
+    pub strategy: ShardStrategy,
+    /// Optional rank filter. None means all ranks, Some(vec) means only ranks in the vec.
+    pub ranks: Option<Vec<usize>>,
+}
+
+impl ShardPatternConfig {
+    /// Create a new shard pattern config with the given strategy and optional rank filter
+    pub fn new(strategy: ShardStrategy, ranks: Option<Vec<usize>>) -> Self {
+        Self { strategy, ranks }
+    }
+
+    /// Check if the given rank is included in this pattern's rank filter
+    pub fn includes_rank(&self, rank: usize) -> bool {
+        match &self.ranks {
+            None => true,
+            Some(ranks) => ranks.contains(&rank),
+        }
+    }
+}
+
 /// Represents the byte range and shape of a shard for a given tensor, computed from the sharding
 /// strategy
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ShardSlice {
     /// Contiguous byte range that can be loaded directly
     Contiguous {
@@ -93,36 +122,54 @@ pub enum ShardSlice {
         len: usize,
     },
     /// No sharding, full copy of the tensor to all ranks
-    FullCopy,
+    FullCopy {
+        /// Output shape (same as original tensor shape)
+        shape: Vec<usize>,
+    },
+    /// Tensor is not loaded for the current rank
+    Skip,
+}
+
+impl ShardSlice {
+    /// Returns the output shape after applying this slice.
+    /// Returns None for Skip (no tensor produced).
+    pub fn shape(&self) -> Option<&[usize]> {
+        match self {
+            Self::Contiguous { shape, .. } => Some(shape),
+            Self::NarrowAfterLoad { shape, .. } => Some(shape),
+            Self::FullCopy { shape } => Some(shape),
+            _ => None,
+        }
+    }
 }
 
 /// Represents a sharding plan for distributing tensors across multiple ranks
 #[derive(Debug)]
 pub struct ShardPlan {
-    patterns: HashMap<String, ShardStrategy>,
+    patterns: HashMap<String, ShardPatternConfig>,
     world_size: usize,
 }
 
 impl ShardPlan {
     /// Create a new shard plan from a given mapping of patterns
-    pub fn new(patterns: HashMap<String, ShardStrategy>, world_size: usize) -> Self {
+    pub fn new(patterns: HashMap<String, ShardPatternConfig>, world_size: usize) -> Self {
         Self {
             patterns,
             world_size,
         }
     }
 
-    /// Resolve the sharding strategy for the given tensor name
-    /// Matches the tensor name against the patterns in the plan, returning the strategy of the
+    /// Resolve the sharding configuration for the given tensor name
+    /// Matches the tensor name against the patterns in the plan, returning the config of the
     /// longest matching pattern. Patterns can include '*' as a wildcard for numeric segments,
     /// allowing for flexible matching of tensor names with varying numeric indices.
-    pub fn resolve(&self, tensor_name: &str) -> Option<ShardStrategy> {
+    pub fn resolve(&self, tensor_name: &str) -> Option<ShardPatternConfig> {
         let pattern_to_match = name_to_pattern(tensor_name);
         self.patterns
             .iter()
             .filter(|(pattern, _)| pattern_to_match.starts_with(pattern.as_str()))
             .max_by_key(|(pattern, _)| pattern.len())
-            .map(|(_, &strategy)| strategy)
+            .map(|(_, config)| config.clone())
     }
 
     /// Compute a shard slice for the given tensor and rank
@@ -135,12 +182,16 @@ impl ShardPlan {
         if let Dtype::F4 | Dtype::F6_E2M3 | Dtype::F6_E3M2 = info.dtype {
             return Err(ShardPlanError::UnalignedDtype(info.dtype));
         }
-        // XXX: should we default to Replicate or error out?
-        match (
-            info.shape.len(),
-            self.resolve(tensor_name)
-                .unwrap_or(ShardStrategy::Replicate),
-        ) {
+
+        let config = self
+            .resolve(tensor_name)
+            .ok_or_else(|| ShardPlanError::TensorNotInPlan(tensor_name.to_owned()))?;
+
+        if !config.includes_rank(rank) {
+            return Ok(ShardSlice::Skip);
+        }
+
+        match (info.shape.len(), config.strategy) {
             (1, ShardStrategy::Colwise) => {
                 let dim_size = info.shape[0];
                 let elem_bytes = info.dtype.bitsize() / 8;
@@ -159,7 +210,9 @@ impl ShardPlan {
                 })
             }
             (0, _) | (1, ShardStrategy::Rowwise) | (_, ShardStrategy::Replicate) => {
-                Ok(ShardSlice::FullCopy)
+                Ok(ShardSlice::FullCopy {
+                    shape: info.shape.clone(),
+                })
             }
             (_, ShardStrategy::Colwise) => {
                 let shard_dim = info.shape.len() - 2;
@@ -313,11 +366,15 @@ mod tests {
     #[test]
     fn resolve_dot_weight_suffix() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         assert_eq!(
-            plan.resolve("layers.0.self_attn.q_proj.weight"),
+            plan.resolve("layers.0.self_attn.q_proj.weight")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Colwise),
         );
     }
@@ -325,11 +382,15 @@ mod tests {
     #[test]
     fn resolve_dot_bias_suffix() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         assert_eq!(
-            plan.resolve("layers.31.self_attn.q_proj.bias"),
+            plan.resolve("layers.31.self_attn.q_proj.bias")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Colwise),
         );
     }
@@ -337,11 +398,15 @@ mod tests {
     #[test]
     fn resolve_hyphen_suffix() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         assert_eq!(
-            plan.resolve("layers.0.self_attn.q_proj-bias"),
+            plan.resolve("layers.0.self_attn.q_proj-bias")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Colwise),
         );
     }
@@ -350,13 +415,20 @@ mod tests {
     fn resolve_longest_prefix_wins() {
         let plan = ShardPlan::new(
             HashMap::from([
-                ("layers.*".into(), ShardStrategy::Replicate),
-                ("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise),
+                (
+                    "layers.*".into(),
+                    ShardPatternConfig::new(ShardStrategy::Replicate, None),
+                ),
+                (
+                    "layers.*.self_attn.q_proj".into(),
+                    ShardPatternConfig::new(ShardStrategy::Colwise, None),
+                ),
             ]),
             4,
         );
         assert_eq!(
-            plan.resolve("layers.0.self_attn.q_proj.weight"),
+            plan.resolve("layers.0.self_attn.q_proj.weight")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Colwise),
         );
     }
@@ -364,32 +436,47 @@ mod tests {
     #[test]
     fn resolve_no_match() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
-        assert_eq!(plan.resolve("model.embed_tokens.weight"), None);
+        assert!(plan.resolve("model.embed_tokens.weight").is_none());
     }
 
     #[test]
     fn resolve_multiple_strategies() {
         let plan = ShardPlan::new(
             HashMap::from([
-                ("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise),
-                ("layers.*.self_attn.o_proj".into(), ShardStrategy::Rowwise),
-                ("layers.*.layer_norm".into(), ShardStrategy::Replicate),
+                (
+                    "layers.*.self_attn.q_proj".into(),
+                    ShardPatternConfig::new(ShardStrategy::Colwise, None),
+                ),
+                (
+                    "layers.*.self_attn.o_proj".into(),
+                    ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+                ),
+                (
+                    "layers.*.layer_norm".into(),
+                    ShardPatternConfig::new(ShardStrategy::Replicate, None),
+                ),
             ]),
             4,
         );
         assert_eq!(
-            plan.resolve("layers.0.self_attn.q_proj.weight"),
+            plan.resolve("layers.0.self_attn.q_proj.weight")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Colwise),
         );
         assert_eq!(
-            plan.resolve("layers.0.self_attn.o_proj.weight"),
+            plan.resolve("layers.0.self_attn.o_proj.weight")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Rowwise),
         );
         assert_eq!(
-            plan.resolve("layers.0.layer_norm.weight"),
+            plan.resolve("layers.0.layer_norm.weight")
+                .map(|c| c.strategy),
             Some(ShardStrategy::Replicate),
         );
     }
@@ -397,7 +484,10 @@ mod tests {
     #[test]
     fn colwise_2d_rank0() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096, 4096]);
@@ -421,7 +511,10 @@ mod tests {
     #[test]
     fn colwise_2d_rank3() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096, 4096]);
@@ -444,7 +537,13 @@ mod tests {
 
     #[test]
     fn colwise_2d_uneven_last_rank() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 3);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            3,
+        );
         // [10, 4] F32: ceil(10/3)=4, rank 2 → rows [8,10)
         let info = ti(Dtype::F32, vec![10, 4]);
 
@@ -463,7 +562,13 @@ mod tests {
 
     #[test]
     fn colwise_2d_both_ranks_cover_full_tensor() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 2);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            2,
+        );
         let info = ti(Dtype::F32, vec![8, 4]);
         let row_bytes = 4 * 4;
 
@@ -496,7 +601,13 @@ mod tests {
 
     #[test]
     fn colwise_all_ranks_cover_full_dimension() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 4);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            4,
+        );
         let info = ti(Dtype::F32, vec![100, 64]);
         let row_bytes = 64 * 4;
 
@@ -521,7 +632,10 @@ mod tests {
     #[test]
     fn colwise_1d_rank0() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096]);
@@ -545,7 +659,10 @@ mod tests {
     #[test]
     fn colwise_1d_last_rank() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096]);
@@ -568,7 +685,13 @@ mod tests {
 
     #[test]
     fn colwise_3d_shards_dim_minus_2() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 2);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            2,
+        );
         // [2, 8, 4] F32: dim -2 = dim 1, row_bytes = 4 * 4 = 16
         let info = ti(Dtype::F32, vec![2, 8, 4]);
 
@@ -588,7 +711,10 @@ mod tests {
     #[test]
     fn rowwise_2d_rank0() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.mlp.down_proj".into(), ShardStrategy::Rowwise)]),
+            HashMap::from([(
+                "layers.*.mlp.down_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+            )]),
             2,
         );
         let info = ti(Dtype::F16, vec![4096, 11008]);
@@ -618,7 +744,10 @@ mod tests {
     #[test]
     fn rowwise_2d_rank1() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.mlp.down_proj".into(), ShardStrategy::Rowwise)]),
+            HashMap::from([(
+                "layers.*.mlp.down_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+            )]),
             2,
         );
         let info = ti(Dtype::F16, vec![4096, 11008]);
@@ -647,7 +776,13 @@ mod tests {
 
     #[test]
     fn rowwise_2d_uneven() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Rowwise)]), 3);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+            )]),
+            3,
+        );
         // [4, 10] F32: ceil(10/3)=4, rank 2 → cols [8,10)
         let info = ti(Dtype::F32, vec![4, 10]);
 
@@ -672,7 +807,13 @@ mod tests {
 
     #[test]
     fn rowwise_all_ranks_cover_full_dimension() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Rowwise)]), 4);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+            )]),
+            4,
+        );
         let info = ti(Dtype::F32, vec![64, 100]);
 
         let mut total_cols = 0;
@@ -701,7 +842,10 @@ mod tests {
     #[test]
     fn rowwise_1d_replicated() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.mlp.down_proj".into(), ShardStrategy::Rowwise)]),
+            HashMap::from([(
+                "layers.*.mlp.down_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Rowwise, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096]);
@@ -709,13 +853,16 @@ mod tests {
         let result = plan
             .compute_slice("layers.0.mlp.down_proj.bias", &info, 0)
             .unwrap();
-        assert!(matches!(result, ShardSlice::FullCopy));
+        assert!(matches!(result, ShardSlice::FullCopy { .. }));
     }
 
     #[test]
     fn replicate_2d() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.layer_norm".into(), ShardStrategy::Replicate)]),
+            HashMap::from([(
+                "layers.*.layer_norm".into(),
+                ShardPatternConfig::new(ShardStrategy::Replicate, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096, 4096]);
@@ -723,13 +870,16 @@ mod tests {
         let result = plan
             .compute_slice("layers.0.layer_norm.weight", &info, 0)
             .unwrap();
-        assert!(matches!(result, ShardSlice::FullCopy));
+        assert!(matches!(result, ShardSlice::FullCopy { .. }));
     }
 
     #[test]
     fn replicate_1d() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.layer_norm".into(), ShardStrategy::Replicate)]),
+            HashMap::from([(
+                "layers.*.layer_norm".into(),
+                ShardPatternConfig::new(ShardStrategy::Replicate, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![4096]);
@@ -737,25 +887,31 @@ mod tests {
         let result = plan
             .compute_slice("layers.0.layer_norm.weight", &info, 0)
             .unwrap();
-        assert!(matches!(result, ShardSlice::FullCopy));
+        assert!(matches!(result, ShardSlice::FullCopy { .. }));
     }
 
     #[test]
-    fn no_match_defaults_to_full_copy() {
+    fn no_match_errors() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.self_attn.q_proj".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.self_attn.q_proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         let info = ti(Dtype::F16, vec![32000, 4096]);
 
-        let result = plan.compute_slice("lm_head.weight", &info, 0).unwrap();
-        assert!(matches!(result, ShardSlice::FullCopy));
+        let result = plan.compute_slice("lm_head.weight", &info, 0);
+        assert!(matches!(result, Err(ShardPlanError::TensorNotInPlan(_))));
     }
 
     #[test]
     fn scalar_full_copy() {
         let plan = ShardPlan::new(
-            HashMap::from([("layers.*.norm".into(), ShardStrategy::Colwise)]),
+            HashMap::from([(
+                "layers.*.norm".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
             4,
         );
         let info = TensorInfo {
@@ -767,12 +923,18 @@ mod tests {
         let result = plan
             .compute_slice("layers.0.norm.weight", &info, 0)
             .unwrap();
-        assert!(matches!(result, ShardSlice::FullCopy));
+        assert!(matches!(result, ShardSlice::FullCopy { .. }));
     }
 
     #[test]
     fn f4_errors() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 2);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            2,
+        );
         let info = TensorInfo {
             dtype: Dtype::F4,
             shape: vec![8, 4],
@@ -783,7 +945,13 @@ mod tests {
 
     #[test]
     fn f6_errors() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 2);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            2,
+        );
         let info = TensorInfo {
             dtype: Dtype::F6_E2M3,
             shape: vec![8, 4],
@@ -794,7 +962,13 @@ mod tests {
 
     #[test]
     fn colwise_bf16() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 2);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            2,
+        );
         let info = ti(Dtype::BF16, vec![8, 4]);
 
         match plan.compute_slice("proj.weight", &info, 0).unwrap() {
@@ -812,19 +986,77 @@ mod tests {
 
     #[test]
     fn colwise_f8() {
-        let plan = ShardPlan::new(HashMap::from([("proj".into(), ShardStrategy::Colwise)]), 2);
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "proj".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, None),
+            )]),
+            2,
+        );
         let info = ti(Dtype::F8_E4M3, vec![8, 4]);
 
         match plan.compute_slice("proj.weight", &info, 0).unwrap() {
             ShardSlice::Contiguous { shape, start, end } => {
                 assert_eq!(shape, vec![4, 4]);
                 assert_eq!(start, 0);
-                assert_eq!(end, 4 * 4 * 1);
+                assert_eq!(end, 4 * 4);
             }
             other => panic!(
                 "Expected Contiguous, got {:?}",
                 std::mem::discriminant(&other)
             ),
         }
+    }
+
+    #[test]
+    fn rank_filter_skip() {
+        let plan = ShardPlan::new(
+            HashMap::from([(
+                "experts.*.gate".into(),
+                ShardPatternConfig::new(ShardStrategy::Colwise, Some(vec![0, 2])),
+            )]),
+            4,
+        );
+        let info = ti(Dtype::F16, vec![4096, 4096]);
+
+        assert!(matches!(
+            plan.compute_slice("experts.0.gate.weight", &info, 0)
+                .unwrap(),
+            ShardSlice::Contiguous { .. }
+        ));
+
+        assert!(matches!(
+            plan.compute_slice("experts.0.gate.weight", &info, 1)
+                .unwrap(),
+            ShardSlice::Skip
+        ));
+
+        assert!(matches!(
+            plan.compute_slice("experts.0.gate.weight", &info, 2)
+                .unwrap(),
+            ShardSlice::Contiguous { .. }
+        ));
+
+        assert!(matches!(
+            plan.compute_slice("experts.0.gate.weight", &info, 3)
+                .unwrap(),
+            ShardSlice::Skip
+        ));
+    }
+
+    #[test]
+    fn includes_rank_none_matches_all() {
+        let cfg = ShardPatternConfig::new(ShardStrategy::Colwise, None);
+        assert!(cfg.includes_rank(0));
+        assert!(cfg.includes_rank(100));
+    }
+
+    #[test]
+    fn includes_rank_some_filters() {
+        let cfg = ShardPatternConfig::new(ShardStrategy::Colwise, Some(vec![1, 3]));
+        assert!(!cfg.includes_rank(0));
+        assert!(cfg.includes_rank(1));
+        assert!(!cfg.includes_rank(2));
+        assert!(cfg.includes_rank(3));
     }
 }
