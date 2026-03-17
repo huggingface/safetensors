@@ -112,20 +112,41 @@ impl OpenHmll {
         results
             .into_iter()
             .map(|(name, result)| {
-                let shape = result
-                    .shard_slice
-                    .as_ref()
-                    .and_then(ShardSlice::shape)
-                    .expect("shape should not be None")
-                    .to_vec();
+                let (dlpack_shape, narrow_op) = match &result.shard_slice {
+                    Some(ShardSlice::NarrowAfterLoad {
+                        dim, start, len, ..
+                    }) => {
+                        // Buffer contains full tensor — use original shape for DLPack,
+                        // then narrow afterward
+                        (result.info.shape.clone(), Some((*dim, *start, *len)))
+                    }
+                    _ => {
+                        // Contiguous/FullCopy/None — shard_slice shape matches buffer
+                        let shape = result
+                            .shard_slice
+                            .as_ref()
+                            .and_then(ShardSlice::shape)
+                            .expect("shape should not be None")
+                            .to_vec();
+                        (shape, None)
+                    }
+                };
+
                 let capsule = dlpack::buffer_to_capsule(
                     py,
                     result.buffer,
-                    shape,
+                    dlpack_shape,
                     result.info.dtype,
                     self.device,
                 )?;
                 let tensor = torch.call_method1("from_dlpack", (capsule,))?;
+
+                let tensor = if let Some((dim, start, len)) = narrow_op {
+                    let narrowed = tensor.call_method1("narrow", (dim as i64, start as i64, len as i64))?;
+                    narrowed.call_method0("contiguous")?
+                } else {
+                    tensor
+                };
 
                 Ok((name, tensor.into()))
             })
