@@ -1,0 +1,58 @@
+name: Test Windows Storage Lifetime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/test_windows_gguf.yml'
+      - 'test_windows_repro.py'
+
+jobs:
+  test_storage_lifetime:
+    name: Test safetensors storage lifetime on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout safetensors
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
+
+      - name: Install dependencies
+        run: |
+          # Match reporter's environment: PyTorch 2.5.1, Python 3.12.8, safetensors 0.6.2
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy packaging
+          # Install gguf conversion dependencies first
+          pip install transformers sentencepiece protobuf pyyaml gguf "huggingface_hub[hf_xet]"
+          # Force exact safetensors version last (in case transformers pulled different version)
+          pip install safetensors==0.6.2 --force-reinstall
+        shell: bash
+
+      - name: Verify safetensors version
+        run: |
+          python -c "import safetensors; print(f'safetensors version: {safetensors.__version__}')"
+        shell: bash
+
+      - name: Run minimal reproduction script
+        run: |
+          python test_windows_repro.py
+        shell: bash
+
+      - name: Clone llama.cpp
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
+        shell: bash
+
+      - name: Download model for conversion test
+        run: |
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('deepseek-ai/DeepSeek-R1-Distill-Llama-8B', local_dir='./deepseek-8b')"
+        shell: bash
+
+      - name: Run convert_hf_to_gguf.py
+        run: |
+          cd llama.cpp
+          python convert_hf_to_gguf.py --outfile test.gguf ../deepseek-8b
+        shell: bash
