@@ -7,6 +7,7 @@ from packaging.version import Version
 import torch
 from safetensors import (
     deserialize,
+    deserialize_file_io_uring,
     safe_open,
     serialize,
     serialize_file,
@@ -377,6 +378,42 @@ def load(data: bytes) -> Dict[str, torch.Tensor]:
     """
     flat = deserialize(data)
     return _view2torch(flat)
+
+
+def load_file_io_uring(
+    filename: Union[str, os.PathLike],
+    device: Union[str, int] = "cpu",
+) -> Dict[str, torch.Tensor]:
+    """
+    Loads a safetensors file into torch format using Linux io_uring for faster
+    cold-cache reads.
+
+    Args:
+        filename (`str`, or `os.PathLike`):
+            The name of the file which contains the tensors
+        device (`Union[str, int]`, *optional*, defaults to `cpu`):
+            The device where the tensors need to be located after load.
+            available options are all regular torch device locations.
+
+    Returns:
+        `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`
+
+    Example:
+
+    ```python
+    from safetensors.torch import load_file_io_uring
+
+    file_path = "./my_folder/bert.safetensors"
+    loaded = load_file_io_uring(file_path)
+    ```
+    """
+    from safetensors import safe_open_io_uring
+
+    result = {}
+    with safe_open_io_uring(filename, framework="pt", device=device) as f:
+        for k in f.keys():
+            result[k] = f.get_tensor(k)
+    return result
 
 
 # torch.float8 formats require 2.1; we do not support these dtypes on earlier versions
