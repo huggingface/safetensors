@@ -196,6 +196,7 @@ def load_model(
     filename: Union[str, os.PathLike],
     strict: bool = True,
     device: Union[str, int] = "cpu",
+    assign: bool = False,
 ) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
@@ -213,6 +214,13 @@ def load_model(
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
+        assign (`bool`, *optional*, defaults to `False`):
+            Passed through to `torch.nn.Module.load_state_dict`.
+            When `True`, parameters and buffers are assigned in-place instead of
+            copied into existing tensors, which is faster for large models.
+            As with `torch.nn.Module.load_state_dict`, optimizers should be
+            created after calling this function unless
+            `torch.__future__.get_swap_module_params_on_conversion()` is `True`.
 
     Returns:
         `(missing, unexpected): (List[str], List[str])`
@@ -225,7 +233,9 @@ def load_model(
     to_removes = _remove_duplicate_names(
         model_state_dict, preferred_names=state_dict.keys()
     )
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    missing, unexpected = model.load_state_dict(
+        state_dict, strict=False, assign=assign
+    )
     missing = set(missing)
     for to_remove_group in to_removes.values():
         for to_remove in to_remove_group:
