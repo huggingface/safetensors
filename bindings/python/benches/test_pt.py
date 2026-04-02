@@ -4,7 +4,7 @@ import tempfile
 import pytest
 import torch
 
-from safetensors.torch import load_file, save_file
+from safetensors.torch import load_file, save_file, save_file_io_uring
 
 
 def create_gpt2(n_layers: int):
@@ -171,6 +171,32 @@ def test_pt_sf_save_cpu(benchmark):
 
     benchmark.pedantic(
         save_file, args=(weights, filename), setup=setup, iterations=1, rounds=5
+    )
+
+    # Clean up files
+    os.unlink(filename)
+
+
+def test_pt_sf_save_cpu_linux_io_uring(benchmark):
+    weights = create_gpt2(12)
+
+    filename = "tmp-io-uring.safetensors"
+
+    # XXX: On some platforms (tested on Linux x86_64 ext4), writing to an already existing file is slower than creating a new one.
+    # On others, such as MacOS (APFS), it's the opposite. To have more consistent benchmarks,
+    # we ensure the file does not exist before each write, which is also closer to real world usage.
+    def setup():
+        try:
+            os.unlink(filename)
+        except Exception:
+            pass
+
+    benchmark.pedantic(
+        save_file_io_uring,
+        args=(weights, filename),
+        setup=setup,
+        iterations=1,
+        rounds=5,
     )
 
     # Clean up files
