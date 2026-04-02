@@ -1430,7 +1430,6 @@ all = [
     { name = "jax" },
     { name = "jaxlib" },
     { name = "numpy" },
-    { name = "packaging" },
     { name = "paddlepaddle" },
     { name = "pytest" },
     { name = "pytest-benchmark" },
@@ -1447,7 +1446,6 @@ dev = [
     { name = "jax" },
     { name = "jaxlib" },
     { name = "numpy" },
-    { name = "packaging" },
     { name = "paddlepaddle" },
     { name = "pytest" },
     { name = "pytest-benchmark" },
@@ -1502,7 +1500,6 @@ testingfree = [
 ]
 torch = [
     { name = "numpy" },
-    { name = "packaging" },
     { name = "torch" },
 ]
 
@@ -1518,7 +1515,6 @@ requires-dist = [
     { name = "jaxlib", marker = "extra == 'jax'", specifier = ">=0.3.25" },
     { name = "mlx", marker = "extra == 'mlx'", specifier = ">=0.0.9" },
     { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.24.6" },
-    { name = "packaging", marker = "extra == 'torch'" },
     { name = "paddlepaddle", marker = "extra == 'paddlepaddle'", specifier = ">=2.4.1" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=9.0" },
     { name = "pytest", marker = "extra == 'testingfree'", specifier = ">=9.0" },
