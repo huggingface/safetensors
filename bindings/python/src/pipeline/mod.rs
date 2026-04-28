@@ -17,14 +17,13 @@
 //!   P1 fallback. Existing CPU paths already alias mmap and are fast; this
 //!   keeps behavior unchanged for non-pytorch frameworks.
 
-mod dlpack;
-
 use std::collections::VecDeque;
 
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 
+use crate::dlpack;
 use crate::{get_pydtype, Device, Framework, Open, OpenSources, SafetensorError, TORCH_MODULE};
 
 // ── Error bridge ────────────────────────────────────────────────────────
@@ -111,11 +110,7 @@ impl PrefetchHandle {
         }
     }
 
-    fn build_cuda_sources(
-        open: &OpenSources,
-        names: Vec<String>,
-        ordinal: i32,
-    ) -> PyResult<Self> {
+    fn build_cuda_sources(open: &OpenSources, names: Vec<String>, ordinal: i32) -> PyResult<Self> {
         Python::attach(|py| -> PyResult<Self> {
             let torch = TORCH_MODULE
                 .get()
@@ -157,7 +152,9 @@ impl PrefetchHandle {
                 })?;
                 let source = &open.sources[sidx];
                 let nbytes = info.data_offsets.1 - info.data_offsets.0;
-                let buf = pipeline_ref.alloc_device_buf(nbytes).map_err(PyIonicError)?;
+                let buf = pipeline_ref
+                    .alloc_device_buf(nbytes)
+                    .map_err(PyIonicError)?;
                 let dst_ptr = buf.as_device_ptr() as usize;
                 let from = (info.data_offsets.0 + source.offset) as u64;
                 let to = (info.data_offsets.1 + source.offset) as u64;
@@ -175,7 +172,8 @@ impl PrefetchHandle {
 
             // Phase 2 (no GIL): one pipeline.run drives the whole
             // checkpoint across all source files.
-            py.detach(|| pipeline_ref.run(&segments)).map_err(PyIonicError)?;
+            py.detach(|| pipeline_ref.run(&segments))
+                .map_err(PyIonicError)?;
 
             // Phase 3 (GIL): wrap each populated DeviceBuf in DLPack →
             // torch.from_dlpack. Same wrap as the single-source path;
@@ -183,12 +181,13 @@ impl PrefetchHandle {
             let from_dlpack = torch.getattr(intern!(py, "from_dlpack"))?;
             let device = dlpack::cuda_device(ordinal);
             let mut pending: VecDeque<(String, Py<PyAny>)> = VecDeque::with_capacity(names.len());
-            for ((name, buf), (shape, dtype)) in
-                names.into_iter().zip(bufs).zip(shapes.into_iter().zip(dtypes))
+            for ((name, buf), (shape, dtype)) in names
+                .into_iter()
+                .zip(bufs)
+                .zip(shapes.into_iter().zip(dtypes))
             {
                 let dl_dtype = dlpack::dtype_to_dlpack(dtype);
-                let managed = ionic_rs::dlpack::make_managed(buf, shape, dl_dtype, device);
-                let capsule = dlpack::make_capsule(py, managed)?;
+                let capsule = dlpack::to_capsule(py, buf, shape, dl_dtype, device)?;
                 let tensor = from_dlpack.call1((capsule,))?;
                 pending.push_back((name, tensor.into_pyobject(py)?.unbind().into_any()));
             }
@@ -279,23 +278,25 @@ impl PrefetchHandle {
             // Phase 2 (GIL released): drive the pipeline. Multi-millisecond
             // I/O + H2D bound; holding the GIL across this would block any
             // other Python thread.
-            py.detach(|| pipeline.run(&segments)).map_err(PyIonicError)?;
+            py.detach(|| pipeline.run(&segments))
+                .map_err(PyIonicError)?;
 
             // Phase 3 (GIL held): wrap each populated DeviceBuf as a DLPack
             // v1 capsule, hand to torch.from_dlpack. Ownership of each
-            // DeviceBuf transfers into its capsule via make_managed; once
+            // DeviceBuf transfers into its capsule via to_capsule; once
             // from_dlpack consumes, the capsule is renamed and torch owns
             // the lifecycle.
             let from_dlpack = torch.getattr(intern!(py, "from_dlpack"))?;
             let device = dlpack::cuda_device(ordinal);
 
             let mut pending: VecDeque<(String, Py<PyAny>)> = VecDeque::with_capacity(names.len());
-            for ((name, buf), (shape, dtype)) in
-                names.into_iter().zip(bufs).zip(shapes.into_iter().zip(dtypes))
+            for ((name, buf), (shape, dtype)) in names
+                .into_iter()
+                .zip(bufs)
+                .zip(shapes.into_iter().zip(dtypes))
             {
                 let dl_dtype = dlpack::dtype_to_dlpack(dtype);
-                let managed = ionic_rs::dlpack::make_managed(buf, shape, dl_dtype, device);
-                let capsule = dlpack::make_capsule(py, managed)?;
+                let capsule = dlpack::to_capsule(py, buf, shape, dl_dtype, device)?;
                 let tensor = from_dlpack.call1((capsule,))?;
                 pending.push_back((name, tensor.into_pyobject(py)?.unbind().into_any()));
             }

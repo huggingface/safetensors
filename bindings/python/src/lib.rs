@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+mod dlpack;
 #[cfg(target_os = "linux")]
 mod pipeline;
 
