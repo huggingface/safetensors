@@ -345,11 +345,8 @@ def load_file(
     loaded = load_file(file_path)
     ```
     """
-    result = {}
     with safe_open(filename, framework="pt", device=device) as f:
-        for k in f.offset_keys():
-            result[k] = f.get_tensor(k)
-    return result
+        return f.get_tensors()
 
 
 def load(data: bytes) -> Dict[str, torch.Tensor]:

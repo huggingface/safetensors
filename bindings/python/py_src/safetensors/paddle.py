@@ -141,15 +141,11 @@ def load_file(
     loaded = load_file(file_path)
     ```
     """
-    result = {}
     if paddle.__version__ >= "3.2.0":
         with safe_open(filename, framework="paddle", device=device) as f:
-            for k in f.offset_keys():
-                result[k] = f.get_tensor(k)
-    else:
-        flat = numpy.load_file(filename)
-        result = _np2paddle(flat, device)
-    return result
+            return f.get_tensors()
+    flat = numpy.load_file(filename)
+    return _np2paddle(flat, device)
 
 
 def _np2paddle(

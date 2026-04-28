@@ -226,6 +226,31 @@ class safe_open:
         """
         pass
 
+    def get_tensors(self):
+        """
+        Returns every tensor in the file as a dict keyed by name.
+
+        Equivalent to iterating `offset_keys()` and calling `get_tensor` on
+        each, but specific `framework` + `device` combinations can take an
+        internal fast path (e.g. MPS with PyTorch ≥ 2.10's
+        `_host_alias_storage` bulk-allocates and fills tensors with parallel
+        `pread(2)`).
+
+        Returns:
+            (`Dict[str, Tensor]`):
+                A dict of all tensors in the file.
+
+        Example:
+        ```python
+        from safetensors import safe_open
+
+        with safe_open("model.safetensors", framework="pt", device="mps") as f:
+            state_dict = f.get_tensors()
+
+        ```
+        """
+        pass
+
     def keys(self):
         """
         Returns the names of the tensors in the file.
