@@ -165,8 +165,19 @@ class safe_open:
 
         device (`str`, defaults to `"cpu"`):
             The device on which you want the tensors.
+
+        mmap (`bool`, *optional*, defaults to `True`):
+            Whether to memory-map the file. The default is to mmap, which is
+            the most efficient on systems with discrete CPU/GPU memory. On
+            systems with **unified** CPU/GPU memory (e.g. NVIDIA Grace
+            Blackwell / DGX Spark, Jetson Thor) mmap'd page cache and any
+            subsequent device copy share the same physical memory pool, which
+            doubles peak memory while loading large model weights and can OOM
+            well below the hardware limit. Pass `mmap=False` to read each
+            tensor from disk directly into a per-tensor buffer instead — peak
+            host memory then stays at one tensor at a time.
     """
-    def __init__(self, filename, framework, device=...):
+    def __init__(self, filename, framework, device=..., *, mmap: bool = True):
         pass
 
     def __enter__(self):

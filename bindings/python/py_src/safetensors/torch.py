@@ -196,6 +196,8 @@ def load_model(
     filename: Union[str, os.PathLike],
     strict: bool = True,
     device: Union[str, int] = "cpu",
+    *,
+    mmap: bool = True,
 ) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
@@ -213,6 +215,10 @@ def load_model(
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
+        mmap (`bool`, *optional*, defaults to `True`):
+            Forwarded to [`safe_open`]. Pass `mmap=False` on systems with
+            unified CPU/GPU memory (DGX Spark, Jetson Thor, …) to avoid
+            doubling resident memory while loading large weights.
 
     Returns:
         `(missing, unexpected): (List[str], List[str])`
@@ -220,7 +226,7 @@ def load_model(
             `unexpected` are names that are on the file, but weren't used during
             the load.
     """
-    state_dict = load_file(filename, device=device)
+    state_dict = load_file(filename, device=device, mmap=mmap)
     model_state_dict = model.state_dict()
     to_removes = _remove_duplicate_names(
         model_state_dict, preferred_names=state_dict.keys()
@@ -321,7 +327,10 @@ def save_file(
 
 
 def load_file(
-    filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
+    filename: Union[str, os.PathLike],
+    device: Union[str, int] = "cpu",
+    *,
+    mmap: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
@@ -332,6 +341,16 @@ def load_file(
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
+        mmap (`bool`, *optional*, defaults to `True`):
+            Forwarded to [`safe_open`]. The default preserves the historical
+            mmap-backed fast path. Set to `False` on systems with
+            unified CPU/GPU memory (e.g. NVIDIA Grace Blackwell / DGX Spark,
+            Jetson Thor) where the OS page cache and a CUDA device copy
+            share the same physical memory pool — mmap doubles resident
+            memory there and can OOM well below the hardware limit. With
+            `mmap=False` each tensor is read directly from disk into a
+            per-tensor buffer, so peak host memory stays at one tensor at a
+            time during the load.
 
     Returns:
         `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`
@@ -345,7 +364,7 @@ def load_file(
     loaded = load_file(file_path)
     ```
     """
-    with safe_open(filename, framework="pt", device=device) as f:
+    with safe_open(filename, framework="pt", device=device, mmap=mmap) as f:
         return f.get_tensors()
 
 

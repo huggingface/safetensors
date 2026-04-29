@@ -15,10 +15,18 @@ use safetensors::View;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::OnceLock;
+
+/// Hard upper bound on the JSON header size accepted in `mmap=False` mode.
+/// Mirrors the private `MAX_HEADER_SIZE` in `safetensors::tensor`; kept in sync
+/// here so we can refuse pathological headers before allocating to read them.
+const MAX_HEADER_SIZE_DIRECT: usize = 100_000_000;
+const HEADER_LEN_BYTES: usize = std::mem::size_of::<u64>();
 
 static TORCH_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static NUMPY_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
@@ -500,6 +508,86 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<Py<PyAny>>),
+    /// Direct file-backed storage. The file handle is kept open and tensors
+    /// are read on demand via `seek + read_exact`, without ever mmap'ing the
+    /// data section of the file. Used when the caller passes `mmap=False`,
+    /// primarily to avoid OS page-cache buildup on systems with unified
+    /// CPU/GPU memory (e.g. NVIDIA Grace Blackwell / DGX Spark, Jetson Thor)
+    /// where mmap'd page cache and a subsequent device copy both reside in
+    /// the same physical memory pool, doubling memory usage when loading
+    /// large model weights.
+    Direct(Mutex<File>),
+}
+
+/// Read the safetensors header (8-byte length prefix + JSON metadata) from an
+/// open file *without* mmap'ing it, parse it into a [`Metadata`], and verify
+/// that the file is large enough to contain all referenced tensors.
+///
+/// Returns `(header_size, metadata)`, mirroring [`SafeTensors::read_metadata`].
+fn read_metadata_from_file(file: &mut File) -> PyResult<(usize, Metadata)> {
+    let file_size: usize = file
+        .metadata()
+        .map_err(|e| SafetensorError::new_err(format!("Could not stat file: {e}")))?
+        .len()
+        .try_into()
+        .map_err(|_| SafetensorError::new_err("File too large to address on this platform"))?;
+
+    if file_size < HEADER_LEN_BYTES {
+        return Err(SafetensorError::new_err(
+            "HeaderTooSmall: file is too short to contain a safetensors header",
+        ));
+    }
+
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| SafetensorError::new_err(format!("Could not seek file: {e}")))?;
+
+    let mut header_len_bytes = [0u8; HEADER_LEN_BYTES];
+    file.read_exact(&mut header_len_bytes)
+        .map_err(|e| SafetensorError::new_err(format!("Could not read header length: {e}")))?;
+    let n: usize = u64::from_le_bytes(header_len_bytes)
+        .try_into()
+        .map_err(|_| SafetensorError::new_err("HeaderTooLarge"))?;
+
+    if n > MAX_HEADER_SIZE_DIRECT {
+        return Err(SafetensorError::new_err("HeaderTooLarge"));
+    }
+    let stop = HEADER_LEN_BYTES
+        .checked_add(n)
+        .ok_or_else(|| SafetensorError::new_err("InvalidHeaderLength: header offset overflow"))?;
+    if stop > file_size {
+        return Err(SafetensorError::new_err(
+            "InvalidHeaderLength: header runs past end of file",
+        ));
+    }
+
+    let mut header_buf = vec![0u8; n];
+    file.read_exact(&mut header_buf)
+        .map_err(|e| SafetensorError::new_err(format!("Could not read header bytes: {e}")))?;
+
+    let metadata: Metadata = serde_json::from_slice(&header_buf)
+        .map_err(|e| SafetensorError::new_err(format!("Error while deserializing header: {e}")))?;
+
+    // Cross-check declared tensor offsets against the actual file size; this
+    // is what `SafeTensors::read_metadata` does on the in-memory buffer.
+    let mut data_end: usize = 0;
+    for (_name, info) in metadata.tensors() {
+        let (_, end) = info.data_offsets;
+        if end > data_end {
+            data_end = end;
+        }
+    }
+    let expected_total = stop
+        .checked_add(data_end)
+        .ok_or_else(|| SafetensorError::new_err("InvalidHeaderLength: total size overflow"))?;
+    // Match the strict equality enforced by `SafeTensors::read_metadata` on
+    // the in-memory buffer: declared offsets must exactly fill the file.
+    if expected_total != file_size {
+        return Err(SafetensorError::new_err(format!(
+            "MetadataIncompleteBuffer: declared total {expected_total} bytes does not match file size {file_size}"
+        )));
+    }
+
+    Ok((n, metadata))
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -555,8 +643,13 @@ struct Open {
 }
 
 impl Open {
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let file = File::open(&filename).map_err(|_| {
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        device: Option<Device>,
+        mmap: bool,
+    ) -> PyResult<Self> {
+        let mut file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
                 filename.display()
@@ -570,6 +663,45 @@ impl Open {
             return Err(SafetensorError::new_err(format!(
                 "Device {device} is not supported for framework {framework}",
             )));
+        }
+
+        // `mmap=False` opt-out: read the header directly via stdlib I/O and
+        // keep the file handle around for on-demand `read_exact` per tensor.
+        // This avoids keeping the full file mapped as tensor storage; on
+        // unified-memory hardware (DGX Spark, Jetson Thor), mmap-backed file
+        // pages and a subsequent device copy both count against the same
+        // physical memory pool.
+        if !mmap {
+            let (n, metadata) = read_metadata_from_file(&mut file)?;
+            let offset = n + HEADER_LEN_BYTES;
+
+            // We still need the framework module imported so dtypes resolve.
+            Python::attach(|py| -> PyResult<()> {
+                match framework {
+                    Framework::Pytorch => {
+                        let module = PyModule::import(py, intern!(py, "torch"))?;
+                        TORCH_MODULE.get_or_init_py_attached(py, || module.into())
+                    }
+                    Framework::Paddle => {
+                        let module = PyModule::import(py, intern!(py, "paddle"))?;
+                        PADDLE_MODULE.get_or_init_py_attached(py, || module.into())
+                    }
+                    _ => {
+                        let module = PyModule::import(py, intern!(py, "numpy"))?;
+                        NUMPY_MODULE.get_or_init_py_attached(py, || module.into())
+                    }
+                };
+                Ok(())
+            })?;
+
+            return Ok(Self {
+                filename,
+                metadata,
+                offset,
+                framework,
+                device,
+                storage: Arc::new(Storage::Direct(Mutex::new(file))),
+            });
         }
 
         // SAFETY: Mmap is used to prevent allocating in Rust
@@ -945,6 +1077,43 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
+            Storage::Direct(file) => {
+                // Read just this tensor's bytes from disk into a fresh per-call
+                // buffer, then hand it off via the same PyByteArray + frombuffer
+                // path used by `Storage::Mmap`. This keeps peak host memory at
+                // one tensor at a time on systems without spare page cache.
+                let (begin, end) = info.data_offsets;
+                let nbytes = end.saturating_sub(begin);
+
+                let array: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                    let pyarray = PyByteArray::new_with(py, nbytes, |dst| {
+                        if nbytes == 0 {
+                            return Ok(());
+                        }
+                        let mut file = file.lock().map_err(|_| {
+                            std::io::Error::other("safetensors: file mutex poisoned")
+                        })?;
+                        let file_offset = (self.offset + begin) as u64;
+                        file.seek(SeekFrom::Start(file_offset))?;
+                        file.read_exact(dst)?;
+                        Ok(())
+                    })
+                    .map_err(|e| {
+                        SafetensorError::new_err(format!(
+                            "Could not read tensor {name} from file: {e}"
+                        ))
+                    })?;
+                    Ok(pyarray.into_any().into())
+                })?;
+
+                create_tensor(
+                    &self.framework,
+                    info.dtype,
+                    &info.shape,
+                    array,
+                    &self.device,
+                )
+            }
         }
     }
 
@@ -1176,6 +1345,17 @@ impl Open {
 ///
 ///     device (`str`, defaults to `"cpu"`):
 ///         The device on which you want the tensors.
+///
+///     mmap (`bool`, *optional*, defaults to `True`):
+///         Whether to memory-map the file. The default is to mmap, which is
+///         the most efficient on systems with discrete CPU/GPU memory. On
+///         systems with **unified** CPU/GPU memory (e.g. NVIDIA Grace
+///         Blackwell / DGX Spark, Jetson Thor) mmap'd page cache and any
+///         subsequent device copy share the same physical memory pool, which
+///         doubles peak memory while loading large model weights and can
+///         OOM well below the hardware limit. Pass `mmap=False` to read each
+///         tensor from disk directly into a per-tensor buffer instead — peak
+///         host memory then stays at one tensor at a time.
 #[pyclass]
 #[allow(non_camel_case_types)]
 struct safe_open {
@@ -1195,9 +1375,14 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu)))]
-    fn new(filename: PathBuf, framework: Framework, device: Option<Device>) -> PyResult<Self> {
-        let inner = Some(Open::new(filename, framework, device)?);
+    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu), *, mmap=true))]
+    fn new(
+        filename: PathBuf,
+        framework: Framework,
+        device: Option<Device>,
+        mmap: bool,
+    ) -> PyResult<Self> {
+        let inner = Some(Open::new(filename, framework, device, mmap)?);
         Ok(Self { inner })
     }
 
@@ -1607,6 +1792,91 @@ impl PySafeSlice {
                 tensor.setattr(intern!(py, "_safetensors_storage"), storage)?;
                 Ok(tensor.into())
             }),
+            Storage::Direct(file) => {
+                // Slicing of the raw on-disk bytes: read the full tensor into
+                // an owned buffer first (cheap relative to the slice work that
+                // follows) and reuse the exact `TensorView::sliced_data` path
+                // that `Storage::Mmap` uses, so behavior is bit-identical.
+                let pyslices = slices;
+                let slices: Slice = pyslices.extract()?;
+                let is_list = pyslices.is_instance_of::<PyList>();
+                let slices: Vec<SliceIndex> = match slices {
+                    Slice::Slice(slice) => vec![slice],
+                    Slice::Slices(slices) => {
+                        if slices.is_empty() && is_list {
+                            vec![SliceIndex::Slice(PySlice::new(pyslices.py(), 0, 0, 0))]
+                        } else if is_list {
+                            return Err(SafetensorError::new_err(
+                                "Non empty lists are not implemented",
+                            ));
+                        } else {
+                            slices
+                        }
+                    }
+                };
+
+                let (begin, end) = self.info.data_offsets;
+                let nbytes = end.saturating_sub(begin);
+                let mut data = vec![0u8; nbytes];
+                if nbytes > 0 {
+                    let mut file = file.lock().map_err(|_| {
+                        SafetensorError::new_err("safetensors: file mutex poisoned")
+                    })?;
+                    let file_offset = (self.offset + begin) as u64;
+                    file.seek(SeekFrom::Start(file_offset)).map_err(|e| {
+                        SafetensorError::new_err(format!("Could not seek file: {e}"))
+                    })?;
+                    file.read_exact(&mut data).map_err(|e| {
+                        SafetensorError::new_err(format!(
+                            "Could not read tensor bytes for slicing: {e}"
+                        ))
+                    })?;
+                }
+
+                let shape = self.info.shape.clone();
+                let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), &data)
+                    .map_err(|e| {
+                        SafetensorError::new_err(format!("Error preparing tensor view: {e}"))
+                    })?;
+                let slices: Vec<TensorIndexer> = slices
+                    .into_iter()
+                    .zip(shape)
+                    .enumerate()
+                    .map(slice_to_indexer)
+                    .collect::<Result<_, _>>()?;
+
+                let iterator = tensor.sliced_data(&slices).map_err(|e| {
+                    SafetensorError::new_err(format!(
+                        "Error during slicing {} with shape {:?}: {e}",
+                        Disp(slices),
+                        self.info.shape,
+                    ))
+                })?;
+                let newshape = iterator.newshape();
+
+                let mut offset = 0;
+                let length = iterator.remaining_byte_len();
+                Python::attach(|py| {
+                    let array: Py<PyAny> =
+                        PyByteArray::new_with(py, length, |bytes: &mut [u8]| {
+                            for slice in iterator {
+                                let len = slice.len();
+                                bytes[offset..offset + slice.len()].copy_from_slice(slice);
+                                offset += len;
+                            }
+                            Ok(())
+                        })?
+                        .into_any()
+                        .into();
+                    create_tensor(
+                        &self.framework,
+                        self.info.dtype,
+                        &newshape,
+                        array,
+                        &self.device,
+                    )
+                })
+            }
         }
     }
 }
@@ -1853,15 +2123,20 @@ impl _safe_open_handle {
 #[pymethods]
 impl _safe_open_handle {
     #[new]
-    #[pyo3(signature = (f, framework, device=Some(Device::Cpu)))]
-    fn new(f: Py<PyAny>, framework: Framework, device: Option<Device>) -> PyResult<Self> {
+    #[pyo3(signature = (f, framework, device=Some(Device::Cpu), *, mmap=true))]
+    fn new(
+        f: Py<PyAny>,
+        framework: Framework,
+        device: Option<Device>,
+        mmap: bool,
+    ) -> PyResult<Self> {
         let filename = Python::attach(|py| -> PyResult<PathBuf> {
             let _ = f.getattr(py, "fileno")?;
             let filename = f.getattr(py, "name")?;
             let filename: PathBuf = filename.extract(py)?;
             Ok(filename)
         })?;
-        let inner = Some(Open::new(filename, framework, device)?);
+        let inner = Some(Open::new(filename, framework, device, mmap)?);
         Ok(Self { inner })
     }
 
