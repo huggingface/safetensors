@@ -1018,8 +1018,6 @@ impl Open {
         info: &TensorInfo,
         file: &Arc<File>,
     ) -> PyResult<Py<PyAny>> {
-        use std::os::unix::fs::FileExt;
-
         let (begin, end) = info.data_offsets;
         let nbytes = end - begin;
         let file_offset = (self.offset + begin) as u64;
@@ -1027,7 +1025,7 @@ impl Open {
         let array: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
             let pyarray = PyByteArray::new_with(py, nbytes, |dst| {
                 if !dst.is_empty() {
-                    file.read_exact_at(dst, file_offset).map_err(|e| {
+                    read_exact_at(file, dst, file_offset).map_err(|e| {
                         SafetensorError::new_err(format!(
                             "Could not read tensor {name} from file: {e}"
                         ))
@@ -1053,8 +1051,6 @@ impl Open {
     /// pinned host buffer is dropped right after the transfer so peak host
     /// residency stays at one tensor.
     fn get_tensor_pinned_cuda(&self, name: &str, info: &TensorInfo) -> PyResult<Py<PyAny>> {
-        use std::os::unix::fs::FileExt;
-
         let (begin, end) = info.data_offsets;
         let nbytes = end - begin;
 
@@ -1085,7 +1081,7 @@ impl Open {
                             let buf = unsafe {
                                 std::slice::from_raw_parts_mut(write_ptr as *mut u8, nbytes)
                             };
-                            file.read_exact_at(buf, file_offset)
+                            read_exact_at(file, buf, file_offset)
                         });
                         read_result.map_err(|e| {
                             SafetensorError::new_err(format!("pread failed for tensor {name}: {e}"))
@@ -1551,17 +1547,15 @@ impl PySafeSlice {
                 self.slice_bytes_to_tensor(slices, data)
             }
             Storage::ReadFile(file) => {
-                use std::os::unix::fs::FileExt;
                 let (begin, end) = self.info.data_offsets;
                 let nbytes = end - begin;
                 let mut data = vec![0u8; nbytes];
                 if nbytes > 0 {
-                    file.read_exact_at(&mut data, (self.offset + begin) as u64)
-                        .map_err(|e| {
-                            SafetensorError::new_err(format!(
-                                "Could not read tensor bytes for slicing: {e}"
-                            ))
-                        })?;
+                    read_exact_at(file, &mut data, (self.offset + begin) as u64).map_err(|e| {
+                        SafetensorError::new_err(format!(
+                            "Could not read tensor bytes for slicing: {e}"
+                        ))
+                    })?;
                 }
                 self.slice_bytes_to_tensor(slices, &data)
             }
@@ -1746,6 +1740,30 @@ struct PreadJob {
     write_ptr: usize,
 }
 
+fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_exact_at(buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut written = 0;
+        while written < buf.len() {
+            let n = file.seek_read(&mut buf[written..], offset + written as u64)?;
+            if n == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "read_exact_at: early EOF",
+                ));
+            }
+            written += n;
+        }
+        Ok(())
+    }
+}
+
 /// Run a set of pread(2) jobs in parallel without holding the GIL.
 ///
 /// Caller must ensure each `(write_ptr, nbytes)` names a distinct, mutable,
@@ -1757,7 +1775,6 @@ fn parallel_pread(
     file: &File,
     jobs: &[PreadJob],
 ) -> Result<(), (String, std::io::Error)> {
-    use std::os::unix::fs::FileExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     py.detach(|| {
@@ -1783,7 +1800,7 @@ fn parallel_pread(
                         let buf = unsafe {
                             std::slice::from_raw_parts_mut(job.write_ptr as *mut u8, job.nbytes)
                         };
-                        file.read_exact_at(buf, job.file_offset)
+                        read_exact_at(file, buf, job.file_offset)
                             .map_err(|e| (job.name.clone(), e))?;
                     }
                 }));
