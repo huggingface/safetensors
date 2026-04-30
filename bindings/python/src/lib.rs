@@ -1733,6 +1733,7 @@ fn get_module<'a>(
 }
 
 /// One pread(2) job: read `nbytes` from `file_offset` into `write_ptr`.
+#[allow(dead_code)]
 struct PreadJob {
     name: String,
     file_offset: u64,
@@ -1770,6 +1771,7 @@ fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()
 /// allocated buffer that outlives this call (the GIL is released for the
 /// duration). The number of workers is capped at 8: beyond that, NVMe and
 /// Apple SSD reads should be I/O-bound rather than CPU-bound.
+#[allow(dead_code)]
 fn parallel_pread(
     py: Python<'_>,
     file: &File,
