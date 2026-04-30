@@ -165,8 +165,12 @@ class safe_open:
 
         device (`str`, defaults to `"cpu"`):
             The device on which you want the tensors.
+
+        backend (`str`, *keyword-only*, defaults to `"mmap"`):
+            Storage backend used to serve tensor bytes. `"mmap"` (default) and
+            `"read_file"` uses `pread(2)` to read tensor bytes.
     """
-    def __init__(self, filename, framework, device=...):
+    def __init__(self, filename, framework, device=..., *, backend: str = "mmap"):
         pass
 
     def __enter__(self):

@@ -117,7 +117,7 @@ def load(data: bytes, device: str = "cpu") -> Dict[str, paddle.Tensor]:
 
 
 def load_file(
-    filename: Union[str, os.PathLike], device="cpu"
+    filename: Union[str, os.PathLike], device="cpu", *, backend: str = "mmap"
 ) -> Dict[str, paddle.Tensor]:
     """
     Loads a safetensors file into paddle format.
@@ -128,6 +128,9 @@ def load_file(
         device (`Union[Dict[str, any], str]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular paddle device locations
+        backend (`str`, *optional*, defaults to `"mmap"`):
+            Storage backend used to serve tensor bytes. `"mmap"` (default)
+            and `"read_file"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `Dict[str, paddle.Tensor]`: dictionary that contains name as key, value as `paddle.Tensor`
@@ -142,9 +145,11 @@ def load_file(
     ```
     """
     if paddle.__version__ >= "3.2.0":
-        with safe_open(filename, framework="paddle", device=device) as f:
+        with safe_open(
+            filename, framework="paddle", device=device, backend=backend
+        ) as f:
             return f.get_tensors()
-    flat = numpy.load_file(filename)
+    flat = numpy.load_file(filename, backend=backend)
     return _np2paddle(flat, device)
 
 

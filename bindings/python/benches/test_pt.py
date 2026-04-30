@@ -64,6 +64,18 @@ def test_pt_sf_load_cpu(benchmark):
         assert torch.allclose(v, tv)
 
 
+def test_pt_sf_load_cpu_read_file(benchmark):
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file, f.name, backend="read_file")
+    os.unlink(f.name)
+
+    for k, v in weights.items():
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
 def test_pt_pt_load_cpu_small(benchmark):
     weights = create_lora(500)
     with tempfile.NamedTemporaryFile(delete=False) as f:
@@ -82,6 +94,19 @@ def test_pt_sf_load_cpu_small(benchmark):
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name)
+    os.unlink(f.name)
+
+    for k, v in weights.items():
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
+def test_pt_sf_load_cpu_small_read_file(benchmark):
+    weights = create_lora(500)
+
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file, f.name, backend="read_file")
     os.unlink(f.name)
 
     for k, v in weights.items():
@@ -119,6 +144,20 @@ def test_pt_sf_load_gpu(benchmark):
         assert torch.allclose(v, tv)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda")
+def test_pt_sf_load_gpu_read_file(benchmark):
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file, f.name, device="cuda:0", backend="read_file")
+    os.unlink(f.name)
+
+    for k, v in weights.items():
+        v = v.cuda()
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
 @pytest.mark.skipif(
     not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(),
     reason="requires mps",
@@ -147,6 +186,28 @@ def test_pt_sf_load_mps(benchmark):
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_file(weights, f.name)
         result = benchmark(load_file, f.name, device="mps")
+    os.unlink(f.name)
+
+    for k, v in weights.items():
+        v = v.to(device="mps")
+        tv = result[k]
+        assert torch.allclose(v, tv)
+
+
+@pytest.mark.skipif(
+    not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available(),
+    reason="requires mps",
+)
+def test_pt_sf_load_mps_read_file(benchmark):
+    # NOTE: on MPS, get_tensors() takes the host-alias bulk fast path
+    # whenever `torch.mps._host_alias_storage` is available — regardless of
+    # the `backend` kwarg. This bench therefore exercises the bulk path on
+    # supported torch builds. To benchmark the per-tensor read_file code on
+    # MPS specifically, use `benches/bench_mps_load.py` with `force_slow()`.
+    weights = create_gpt2(12)
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        save_file(weights, f.name)
+        result = benchmark(load_file, f.name, device="mps", backend="read_file")
     os.unlink(f.name)
 
     for k, v in weights.items():

@@ -99,13 +99,18 @@ def load(data: bytes) -> Dict[str, Array]:
     return _np2jnp(flat)
 
 
-def load_file(filename: Union[str, os.PathLike]) -> Dict[str, Array]:
+def load_file(
+    filename: Union[str, os.PathLike], *, backend: str = "mmap"
+) -> Dict[str, Array]:
     """
     Loads a safetensors file into flax format.
 
     Args:
         filename (`str`, or `os.PathLike`)):
             The name of the file which contains the tensors
+        backend (`str`, *optional*, defaults to `"mmap"`):
+            Storage backend used to serve tensor bytes. `"mmap"` (default)
+            and `"read_file"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `Dict[str, Array]`: dictionary that contains name as key, value as `Array`
@@ -119,7 +124,7 @@ def load_file(filename: Union[str, os.PathLike]) -> Dict[str, Array]:
     loaded = load_file(file_path)
     ```
     """
-    with safe_open(filename, framework="flax") as f:
+    with safe_open(filename, framework="flax", backend=backend) as f:
         return f.get_tensors()
 
 

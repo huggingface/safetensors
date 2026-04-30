@@ -196,6 +196,8 @@ def load_model(
     filename: Union[str, os.PathLike],
     strict: bool = True,
     device: Union[str, int] = "cpu",
+    *,
+    backend: str = "mmap",
 ) -> Tuple[List[str], List[str]]:
     """
     Loads a given filename onto a torch model.
@@ -213,6 +215,9 @@ def load_model(
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
+        backend (`str`, *optional*, defaults to `"mmap"`):
+            Storage backend used to serve tensor bytes. `"mmap"` (default)
+            and `"read_file"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `(missing, unexpected): (List[str], List[str])`
@@ -220,7 +225,7 @@ def load_model(
             `unexpected` are names that are on the file, but weren't used during
             the load.
     """
-    state_dict = load_file(filename, device=device)
+    state_dict = load_file(filename, device=device, backend=backend)
     model_state_dict = model.state_dict()
     to_removes = _remove_duplicate_names(
         model_state_dict, preferred_names=state_dict.keys()
@@ -321,7 +326,10 @@ def save_file(
 
 
 def load_file(
-    filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
+    filename: Union[str, os.PathLike],
+    device: Union[str, int] = "cpu",
+    *,
+    backend: str = "mmap",
 ) -> Dict[str, torch.Tensor]:
     """
     Loads a safetensors file into torch format.
@@ -332,6 +340,9 @@ def load_file(
         device (`Union[str, int]`, *optional*, defaults to `cpu`):
             The device where the tensors need to be located after load.
             available options are all regular torch device locations.
+        backend (`str`, *optional*, defaults to `"mmap"`):
+            Storage backend used to serve tensor bytes. `"mmap"` (default)
+            and `"read_file"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`
@@ -345,7 +356,7 @@ def load_file(
     loaded = load_file(file_path)
     ```
     """
-    with safe_open(filename, framework="pt", device=device) as f:
+    with safe_open(filename, framework="pt", device=device, backend=backend) as f:
         return f.get_tensors()
 
 
