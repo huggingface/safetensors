@@ -133,7 +133,7 @@ def load_file(
             The name of the file which contains the tensors
         backend (`str`, *optional*, defaults to `"mmap"`):
             Storage backend used to serve tensor bytes. `"mmap"` (default)
-            and `"read_file"` uses `pread(2)` to read tensor bytes.
+            and `"pread"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `Dict[str, np.ndarray]`: dictionary that contains name as key, value as `np.ndarray`

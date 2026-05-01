@@ -217,7 +217,7 @@ def load_model(
             available options are all regular torch device locations.
         backend (`str`, *optional*, defaults to `"mmap"`):
             Storage backend used to serve tensor bytes. `"mmap"` (default)
-            and `"read_file"` uses `pread(2)` to read tensor bytes.
+            and `"pread"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `(missing, unexpected): (List[str], List[str])`
@@ -342,7 +342,7 @@ def load_file(
             available options are all regular torch device locations.
         backend (`str`, *optional*, defaults to `"mmap"`):
             Storage backend used to serve tensor bytes. `"mmap"` (default)
-            and `"read_file"` uses `pread(2)` to read tensor bytes.
+            and `"pread"` uses `pread(2)` to read tensor bytes.
 
     Returns:
         `Dict[str, torch.Tensor]`: dictionary that contains name as key, value as `torch.Tensor`

@@ -334,16 +334,17 @@ fn slice_to_indexer(
 enum Backend {
     Mmap,
     /// Keeps the file handle open and serves each `get_tensor` /
-    /// `get_slice` via `pread(2)`, dispatching on `(framework, device)` to
-    /// write directly into a destination buffer chosen for performance.
-    ReadFile,
+    /// `get_slice` via `pread(2)` (or its Windows equivalent),
+    /// dispatching on `(framework, device)` to write directly into a
+    /// destination buffer chosen for performance.
+    Pread,
 }
 
 impl fmt::Display for Backend {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match *self {
             Backend::Mmap => "mmap",
-            Backend::ReadFile => "read_file",
+            Backend::Pread => "pread",
         })
     }
 }
@@ -355,9 +356,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Backend {
         let name: String = ob.extract()?;
         match &name[..] {
             "mmap" => Ok(Backend::Mmap),
-            "read_file" => Ok(Backend::ReadFile),
+            "pread" => Ok(Backend::Pread),
             name => Err(SafetensorError::new_err(format!(
-                "backend {name:?} is invalid (expected one of: \"mmap\", \"read_file\")"
+                "backend {name:?} is invalid (expected one of: \"mmap\", \"pread\")"
             ))),
         }
     }
@@ -537,7 +538,7 @@ enum Storage {
     /// Holds an open file handle and
     /// serves each tensor via `pread(2)` into a fresh per-tensor host
     /// buffer, with framework/device-specific buffer choices for performance.
-    ReadFile(Arc<File>),
+    Pread(Arc<File>),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
@@ -643,14 +644,14 @@ impl Open {
             Ok(())
         })?;
 
-        if backend == Backend::ReadFile {
+        if backend == Backend::Pread {
             return Ok(Self {
                 filename,
                 metadata,
                 offset,
                 framework,
                 device,
-                storage: Arc::new(Storage::ReadFile(Arc::new(file))),
+                storage: Arc::new(Storage::Pread(Arc::new(file))),
             });
         }
 
@@ -1008,11 +1009,11 @@ impl Open {
                     Ok(tensor.into_pyobject(py)?.into())
                 })
             }
-            Storage::ReadFile(file) => self.get_tensor_read_file(name, info, file),
+            Storage::Pread(file) => self.get_tensor_pread(name, info, file),
         }
     }
 
-    fn get_tensor_read_file(
+    fn get_tensor_pread(
         &self,
         name: &str,
         info: &TensorInfo,
@@ -1056,7 +1057,7 @@ impl Open {
 
         Python::attach(|py| -> PyResult<Py<PyAny>> {
             let torch = get_module(py, &TORCH_MODULE)?;
-            let dest = prepare_torch_pinned_cpu_dest(py, torch, info.dtype, &info.shape, nbytes)?;
+            let dest = PinnedCpuDest::new(py, torch, info.dtype, &info.shape, nbytes)?;
 
             if nbytes > 0 {
                 let write_ptr = dest.write_ptr;
@@ -1073,7 +1074,7 @@ impl Open {
                             dst.copy_from_slice(src);
                         });
                     }
-                    Storage::ReadFile(file) => {
+                    Storage::Pread(file) => {
                         let file_offset = (self.offset + begin) as u64;
                         let read_result: std::io::Result<()> = py.detach(|| {
                             // SAFETY: write_ptr/nbytes name `dest.tensor`'s
@@ -1180,7 +1181,7 @@ impl Open {
                 let (begin, end) = info.data_offsets;
                 let nbytes = end - begin;
 
-                let dest = prepare_mps_dest(py, torch, &name, info.dtype, &info.shape, nbytes)?;
+                let dest = MpsDest::new(py, torch, &name, info.dtype, &info.shape, nbytes)?;
                 if let Some(alias) = dest.host_alias {
                     host_aliases.push(alias);
                     jobs.push(PreadJob {
@@ -1546,7 +1547,7 @@ impl PySafeSlice {
                     ..self.info.data_offsets.1 + self.offset];
                 self.slice_bytes_to_tensor(slices, data)
             }
-            Storage::ReadFile(file) => {
+            Storage::Pread(file) => {
                 let (begin, end) = self.info.data_offsets;
                 let nbytes = end - begin;
                 let mut data = vec![0u8; nbytes];
@@ -1741,6 +1742,15 @@ struct PreadJob {
     write_ptr: usize,
 }
 
+/// Portable positional read: fills `buf` from `file` starting at `offset`.
+///
+/// **Thread-safety:** safe to call concurrently from multiple threads on the
+/// same `File`. Both backends (Unix `pread`, Windows `ReadFile` with an
+/// `OVERLAPPED` offset) take the read position as an explicit parameter and
+/// do not consult the file handle's seek cursor. Windows does still update
+/// the synchronous handle's internal cursor as a side-effect (so it ends up
+/// at an unspecified position after concurrent calls), but we never read
+/// from that cursor — every call passes its own `offset`.
 fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -1848,52 +1858,54 @@ struct MpsDest<'py> {
     write_ptr: usize,
 }
 
-/// Allocate `torch.empty(...,device="mps")` and acquire a CPU-writable host
-/// alias to its storage.
 #[cfg(target_os = "macos")]
-fn prepare_mps_dest<'py>(
-    py: Python<'py>,
-    torch: &PyBound<'py, PyModule>,
-    name: &str,
-    dtype: Dtype,
-    logical_shape: &[usize],
-    nbytes: usize,
-) -> PyResult<MpsDest<'py>> {
-    let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
-    let storage_shape = torch_storage_shape(dtype, logical_shape)?;
-    let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
-    let device_obj: Py<PyAny> = "mps".into_pyobject(py)?.into();
-    let kwargs = [
-        (intern!(py, "dtype"), dtype_obj),
-        (intern!(py, "device"), device_obj),
-    ]
-    .into_py_dict(py)?;
-    let tensor = torch.call_method("empty", (shape_obj,), Some(&kwargs))?;
+impl<'py> MpsDest<'py> {
+    /// Allocate `torch.empty(...,device="mps")` and acquire a CPU-writable
+    /// host alias to its storage.
+    fn new(
+        py: Python<'py>,
+        torch: &PyBound<'py, PyModule>,
+        name: &str,
+        dtype: Dtype,
+        logical_shape: &[usize],
+        nbytes: usize,
+    ) -> PyResult<Self> {
+        let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
+        let storage_shape = torch_storage_shape(dtype, logical_shape)?;
+        let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
+        let device_obj: Py<PyAny> = "mps".into_pyobject(py)?.into();
+        let kwargs = [
+            (intern!(py, "dtype"), dtype_obj),
+            (intern!(py, "device"), device_obj),
+        ]
+        .into_py_dict(py)?;
+        let tensor = torch.call_method("empty", (shape_obj,), Some(&kwargs))?;
 
-    if nbytes == 0 {
-        return Ok(MpsDest {
+        if nbytes == 0 {
+            return Ok(Self {
+                tensor,
+                host_alias: None,
+                write_ptr: 0,
+            });
+        }
+
+        let mps_storage = tensor.call_method0(intern!(py, "untyped_storage"))?;
+        let mps_mod = torch.getattr(intern!(py, "mps"))?;
+        let host_alias_fn = mps_mod.getattr(intern!(py, "_host_alias_storage"))?;
+        let cpu_alias = host_alias_fn.call1((mps_storage,))?;
+        let write_ptr: usize = cpu_alias.call_method0(intern!(py, "data_ptr"))?.extract()?;
+        if write_ptr == 0 {
+            return Err(SafetensorError::new_err(format!(
+                "torch.mps._host_alias_storage returned a null data_ptr for tensor \
+                 {name} (non-shared-storage MPS allocation?)",
+            )));
+        }
+        Ok(Self {
             tensor,
-            host_alias: None,
-            write_ptr: 0,
-        });
+            host_alias: Some(cpu_alias),
+            write_ptr,
+        })
     }
-
-    let mps_storage = tensor.call_method0(intern!(py, "untyped_storage"))?;
-    let mps_mod = torch.getattr(intern!(py, "mps"))?;
-    let host_alias_fn = mps_mod.getattr(intern!(py, "_host_alias_storage"))?;
-    let cpu_alias = host_alias_fn.call1((mps_storage,))?;
-    let write_ptr: usize = cpu_alias.call_method0(intern!(py, "data_ptr"))?.extract()?;
-    if write_ptr == 0 {
-        return Err(SafetensorError::new_err(format!(
-            "torch.mps._host_alias_storage returned a null data_ptr for tensor \
-             {name} (non-shared-storage MPS allocation?)",
-        )));
-    }
-    Ok(MpsDest {
-        tensor,
-        host_alias: Some(cpu_alias),
-        write_ptr,
-    })
 }
 
 /// Pre-allocated pinned-CPU torch destination.
@@ -1902,37 +1914,39 @@ struct PinnedCpuDest<'py> {
     write_ptr: usize,
 }
 
-/// Allocate `torch.empty(...,device="cpu", pin_memory=True)` and extract the
-/// data pointer for direct pread.
-fn prepare_torch_pinned_cpu_dest<'py>(
-    py: Python<'py>,
-    torch: &PyBound<'py, PyModule>,
-    dtype: Dtype,
-    logical_shape: &[usize],
-    nbytes: usize,
-) -> PyResult<PinnedCpuDest<'py>> {
-    let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
-    let storage_shape = torch_storage_shape(dtype, logical_shape)?;
-    let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
-    let cpu_device: Py<PyAny> = "cpu".into_pyobject(py)?.into();
-    let pin: Py<PyAny> = PyBool::new(py, true).to_owned().into_any().into();
-    let kwargs = [
-        (intern!(py, "dtype"), dtype_obj),
-        (intern!(py, "device"), cpu_device),
-        (intern!(py, "pin_memory"), pin),
-    ]
-    .into_py_dict(py)?;
-    let tensor = torch.call_method("empty", (shape_obj,), Some(&kwargs))?;
+impl<'py> PinnedCpuDest<'py> {
+    /// Allocate `torch.empty(...,device="cpu", pin_memory=True)` and extract
+    /// the data pointer for direct pread.
+    fn new(
+        py: Python<'py>,
+        torch: &PyBound<'py, PyModule>,
+        dtype: Dtype,
+        logical_shape: &[usize],
+        nbytes: usize,
+    ) -> PyResult<Self> {
+        let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
+        let storage_shape = torch_storage_shape(dtype, logical_shape)?;
+        let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
+        let cpu_device: Py<PyAny> = "cpu".into_pyobject(py)?.into();
+        let pin: Py<PyAny> = PyBool::new(py, true).to_owned().into_any().into();
+        let kwargs = [
+            (intern!(py, "dtype"), dtype_obj),
+            (intern!(py, "device"), cpu_device),
+            (intern!(py, "pin_memory"), pin),
+        ]
+        .into_py_dict(py)?;
+        let tensor = torch.call_method("empty", (shape_obj,), Some(&kwargs))?;
 
-    if nbytes == 0 {
-        return Ok(PinnedCpuDest {
-            tensor,
-            write_ptr: 0,
-        });
+        if nbytes == 0 {
+            return Ok(Self {
+                tensor,
+                write_ptr: 0,
+            });
+        }
+
+        let write_ptr: usize = tensor.call_method0(intern!(py, "data_ptr"))?.extract()?;
+        Ok(Self { tensor, write_ptr })
     }
-
-    let write_ptr: usize = tensor.call_method0(intern!(py, "data_ptr"))?.extract()?;
-    Ok(PinnedCpuDest { tensor, write_ptr })
 }
 
 /// Whether this torch build exposes `torch.mps._host_alias_storage`

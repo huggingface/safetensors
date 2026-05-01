@@ -168,7 +168,7 @@ class safe_open:
 
         backend (`str`, *keyword-only*, defaults to `"mmap"`):
             Storage backend used to serve tensor bytes. `"mmap"` (default) and
-            `"read_file"` uses `pread(2)` to read tensor bytes.
+            `"pread"` uses `pread(2)` to read tensor bytes.
     """
     def __init__(self, filename, framework, device=..., *, backend: str = "mmap"):
         pass

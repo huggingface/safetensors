@@ -1,6 +1,6 @@
-"""Tests for `safe_open(..., backend="read_file")`.
+"""Tests for `safe_open(..., backend="pread")`.
 
-The `read_file` backend serves each tensor via `pread(2)` instead of mmap'ing
+The `pread` backend serves each tensor via `pread(2)` instead of mmap'ing
 the file, dropping each host buffer immediately after the device transfer so
 cumulative host residency stays bounded at one tensor.
 """
@@ -31,7 +31,7 @@ if hasattr(torch, "float8_e4m3fn"):
     SOURCE_TENSORS["fp8_e4m3fn"] = torch.zeros(8, dtype=torch.float8_e4m3fn)
 
 
-class ReadFileBackendTests(unittest.TestCase):
+class PreadBackendTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.tempdir.name, "tiny.safetensors")
@@ -54,7 +54,7 @@ class ReadFileBackendTests(unittest.TestCase):
 
     def test_safe_open_round_trip(self):
         with safe_open(
-            self.path, framework="pt", device="cpu", backend="read_file"
+            self.path, framework="pt", device="cpu", backend="pread"
         ) as f:
             self.assertEqual(f.metadata(), {"foo": "bar"})
             sd = {k: f.get_tensor(k) for k in f.keys()}
@@ -62,26 +62,26 @@ class ReadFileBackendTests(unittest.TestCase):
 
     def test_get_tensors_round_trip(self):
         with safe_open(
-            self.path, framework="pt", device="cpu", backend="read_file"
+            self.path, framework="pt", device="cpu", backend="pread"
         ) as f:
             sd = f.get_tensors()
         self._assert_state_dict_equal(sd)
 
     def test_load_file_round_trip(self):
-        sd = load_file_pt(self.path, backend="read_file")
+        sd = load_file_pt(self.path, backend="pread")
         self._assert_state_dict_equal(sd)
 
     def test_default_backend_unchanged(self):
-        # mmap and read_file must produce identical bytes.
+        # mmap and pread must produce identical bytes.
         with safe_open(self.path, framework="pt", device="cpu") as f:
             sd_mmap = f.get_tensors()
         with safe_open(
-            self.path, framework="pt", device="cpu", backend="read_file"
+            self.path, framework="pt", device="cpu", backend="pread"
         ) as f:
-            sd_read_file = f.get_tensors()
-        self.assertEqual(set(sd_mmap.keys()), set(sd_read_file.keys()))
+            sd_pread = f.get_tensors()
+        self.assertEqual(set(sd_mmap.keys()), set(sd_pread.keys()))
         for k in sd_mmap:
-            a, b = sd_mmap[k], sd_read_file[k]
+            a, b = sd_mmap[k], sd_pread[k]
             self.assertEqual(a.dtype, b.dtype, k)
             self.assertEqual(tuple(a.shape), tuple(b.shape), k)
             if a.numel() > 0:
@@ -89,7 +89,7 @@ class ReadFileBackendTests(unittest.TestCase):
 
     def test_get_slice(self):
         with safe_open(
-            self.path, framework="pt", device="cpu", backend="read_file"
+            self.path, framework="pt", device="cpu", backend="pread"
         ) as f:
             slice_obj = f.get_slice("fp32_2d")
             self.assertEqual(list(slice_obj.get_shape()), [3, 4])
@@ -111,7 +111,7 @@ class ReadFileBackendTests(unittest.TestCase):
 
         dst = Tiny()
         self.assertFalse(torch.equal(src.lin.weight, dst.lin.weight))
-        load_model(dst, path, backend="read_file")
+        load_model(dst, path, backend="pread")
         self.assertTrue(torch.equal(src.lin.weight, dst.lin.weight))
         self.assertTrue(torch.equal(src.lin.bias, dst.lin.bias))
 
@@ -128,7 +128,7 @@ class ReadFileBackendTests(unittest.TestCase):
             dst.write(src.read(n // 2))
         with self.assertRaises(Exception):
             with safe_open(
-                bad_path, framework="pt", device="cpu", backend="read_file"
+                bad_path, framework="pt", device="cpu", backend="pread"
             ) as f:
                 _ = f.get_tensors()
 
@@ -143,7 +143,7 @@ class ReadFileBackendTests(unittest.TestCase):
             f.write(b"\x00")
         with self.assertRaises(Exception):
             with safe_open(
-                bad_path, framework="pt", device="cpu", backend="read_file"
+                bad_path, framework="pt", device="cpu", backend="pread"
             ) as f:
                 _ = f.get_tensors()
 
@@ -157,7 +157,7 @@ class ReadFileBackendTests(unittest.TestCase):
         }
         save_np(np_data, np_path)
 
-        with safe_open(np_path, framework="numpy", backend="read_file") as f:
+        with safe_open(np_path, framework="numpy", backend="pread") as f:
             for k, expected in np_data.items():
                 got = f.get_tensor(k)
                 self.assertEqual(got.dtype, expected.dtype, k)
