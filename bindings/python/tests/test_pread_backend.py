@@ -31,6 +31,18 @@ if hasattr(torch, "float8_e4m3fn"):
     SOURCE_TENSORS["fp8_e4m3fn"] = torch.zeros(8, dtype=torch.float8_e4m3fn)
 
 
+def _tensors_equal(a: torch.Tensor, b: torch.Tensor) -> bool:
+    # torch.equal is not implemented for sub-byte / fp8 dtypes on some builds,
+    # so reinterpret the underlying storage as uint8 and compare bytes.
+    try:
+        return torch.equal(a, b)
+    except RuntimeError:
+        return torch.equal(
+            a.contiguous().view(torch.uint8),
+            b.contiguous().view(torch.uint8),
+        )
+
+
 class PreadBackendTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -47,10 +59,7 @@ class PreadBackendTests(unittest.TestCase):
             self.assertEqual(actual.dtype, expected.dtype, k)
             self.assertEqual(tuple(actual.shape), tuple(expected.shape), k)
             if expected.numel() > 0:
-                self.assertTrue(
-                    torch.equal(actual.cpu(), expected.cpu()),
-                    f"tensor {k!r} differs",
-                )
+                self.assertTrue(_tensors_equal(actual.cpu(), expected.cpu()), k)
 
     def test_safe_open_round_trip(self):
         with safe_open(self.path, framework="pt", device="cpu", backend="pread") as f:
@@ -79,7 +88,7 @@ class PreadBackendTests(unittest.TestCase):
             self.assertEqual(a.dtype, b.dtype, k)
             self.assertEqual(tuple(a.shape), tuple(b.shape), k)
             if a.numel() > 0:
-                self.assertTrue(torch.equal(a.cpu(), b.cpu()), k)
+                self.assertTrue(_tensors_equal(a.cpu(), b.cpu()), k)
 
     def test_get_slice(self):
         with safe_open(self.path, framework="pt", device="cpu", backend="pread") as f:
