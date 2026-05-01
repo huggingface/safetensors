@@ -1847,10 +1847,22 @@ fn torch_storage_shape(dtype: Dtype, logical_shape: &[usize]) -> PyResult<Vec<us
     Ok(shape)
 }
 
-/// Pre-allocated MPS destination ready for a `pread` write. `write_ptr` is the
-/// host-aliased CPU pointer to the MPS tensor's MTLBuffer; `host_alias` keeps
-/// that alias storage alive across the writes — drop only after the trailing
-/// `mps.synchronize()`.
+/// Pre-allocated MPS destination ready for a `pread` write.
+///
+/// - `tensor`: the MPS tensor returned to the user; its underlying storage
+///   owns the MTLBuffer.
+/// - `write_ptr`: a host-mapped address into that MTLBuffer (obtained via
+///   `torch.mps._host_alias_storage().data_ptr()`). Valid for as long as
+///   the MTLBuffer lives — i.e., as long as `tensor` lives — since shared-
+///   storage MTLBuffers expose a stable CPU pointer for their full
+///   lifetime.
+/// - `host_alias`: the intermediate CPU-storage Python wrapper produced by
+///   `_host_alias_storage`. Held defensively across the writes; not
+///   strictly required for `write_ptr` to remain valid (the MTLBuffer is
+///   already pinned by `tensor`), but cheap insurance against any
+///   side-effect of dropping the CPU view mid-write. Independent of the
+///   trailing `mps.synchronize()`, which exists to flush CPU writes to
+///   subsequent MPS reads.
 #[cfg(target_os = "macos")]
 struct MpsDest<'py> {
     tensor: PyBound<'py, PyAny>,

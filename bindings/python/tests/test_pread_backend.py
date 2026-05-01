@@ -53,17 +53,13 @@ class PreadBackendTests(unittest.TestCase):
                 )
 
     def test_safe_open_round_trip(self):
-        with safe_open(
-            self.path, framework="pt", device="cpu", backend="pread"
-        ) as f:
+        with safe_open(self.path, framework="pt", device="cpu", backend="pread") as f:
             self.assertEqual(f.metadata(), {"foo": "bar"})
             sd = {k: f.get_tensor(k) for k in f.keys()}
         self._assert_state_dict_equal(sd)
 
     def test_get_tensors_round_trip(self):
-        with safe_open(
-            self.path, framework="pt", device="cpu", backend="pread"
-        ) as f:
+        with safe_open(self.path, framework="pt", device="cpu", backend="pread") as f:
             sd = f.get_tensors()
         self._assert_state_dict_equal(sd)
 
@@ -75,9 +71,7 @@ class PreadBackendTests(unittest.TestCase):
         # mmap and pread must produce identical bytes.
         with safe_open(self.path, framework="pt", device="cpu") as f:
             sd_mmap = f.get_tensors()
-        with safe_open(
-            self.path, framework="pt", device="cpu", backend="pread"
-        ) as f:
+        with safe_open(self.path, framework="pt", device="cpu", backend="pread") as f:
             sd_pread = f.get_tensors()
         self.assertEqual(set(sd_mmap.keys()), set(sd_pread.keys()))
         for k in sd_mmap:
@@ -88,9 +82,7 @@ class PreadBackendTests(unittest.TestCase):
                 self.assertTrue(torch.equal(a.cpu(), b.cpu()), k)
 
     def test_get_slice(self):
-        with safe_open(
-            self.path, framework="pt", device="cpu", backend="pread"
-        ) as f:
+        with safe_open(self.path, framework="pt", device="cpu", backend="pread") as f:
             slice_obj = f.get_slice("fp32_2d")
             self.assertEqual(list(slice_obj.get_shape()), [3, 4])
             sub = slice_obj[:, 1:3]
