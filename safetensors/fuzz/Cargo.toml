@@ -8,6 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+arbitrary = "1"
 libfuzzer-sys = "0.4"
 
 [dependencies.safetensors]
@@ -23,5 +24,11 @@ debug = 1
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "structured_roundtrip"
+path = "fuzz_targets/structured_roundtrip.rs"
 test = false
 doc = false

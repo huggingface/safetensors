@@ -573,7 +573,7 @@ impl Serialize for Metadata {
             names[index] = name;
         }
 
-        let length = self.metadata.as_ref().map_or(0, HashMap::len);
+        let length = self.metadata.as_ref().map_or(0, |_| 1);
         let mut map = serializer.serialize_map(Some(self.tensors.len() + length))?;
 
         if let Some(metadata) = &self.metadata {
@@ -1147,6 +1147,16 @@ mod tests {
             ]
         );
         let _parsed = SafeTensors::deserialize(&out).unwrap();
+    }
+
+    #[test]
+    fn test_empty_with_empty_metadata_map() {
+        let tensors: HashMap<String, TensorView> = HashMap::new();
+        let metadata: Option<HashMap<String, String>> = Some(HashMap::new());
+
+        let out = serialize(&tensors, metadata).unwrap();
+        let parsed = SafeTensors::deserialize(&out).unwrap();
+        assert!(parsed.is_empty());
     }
 
     #[test]
