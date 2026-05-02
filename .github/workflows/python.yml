@@ -101,35 +101,18 @@ jobs:
           sudo apt-get install libhdf5-dev
 
       - name: Install (tensorflow)
-        if: matrix.version.arch != 'x64-freethreaded' && matrix.os != 'windows-11-arm' && matrix.version.python != '3.14'
+        if: matrix.version.arch != 'x64-freethreaded' && matrix.os != 'windows-11-arm'
         run: |
-          pip install .[tensorflow]
-          # XXX: I assume this is still the case for 3.10
-          # Force reinstall of numpy, tensorflow uses numpy 2 even on 3.9
-          pip install ${{ matrix.version.numpy }}
-        shell: bash
-
-      - name: Install (tensorflow) (Python 3.14)
-        if: matrix.version.arch != 'x64-freethreaded' && matrix.os != 'windows-11-arm' && matrix.version.python == '3.14'
-        run: |
-          pip install .[tf-nightly]
+          pip install ".[${{ matrix.version.python == '3.14' && 'tf-nightly' || 'tensorflow' }}]"
           # XXX: I assume this is still the case for 3.10
           # Force reinstall of numpy, tensorflow uses numpy 2 even on 3.9
           pip install ${{ matrix.version.numpy }}
         shell: bash
 
       - name: Install (jax, flax)
-        if: runner.os != 'Windows' && matrix.version.arch != 'x64-freethreaded'
+        if: runner.os != 'Windows'
         run:
           pip install .[jax]
-        shell: bash
-
-      - name: Install (jax, flax from source)
-        if: matrix.version.arch == 'x64-freethreaded'
-        run: |
-          # https://github.com/google/flax/issues/5027#issuecomment-3771977410
-          pip install git+https://github.com/google/flax.git
-          pip install jax jaxlib
         shell: bash
 
       - name: Install (mlx)

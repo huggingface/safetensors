@@ -18,6 +18,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Typing :: Typed",
 ]
@@ -32,7 +33,7 @@ Source = 'https://github.com/huggingface/safetensors'
 numpy = ["numpy>=1.24.6"]
 torch = ["safetensors[numpy]", "torch>=2.4"]
 tensorflow = ["safetensors[numpy]", "tensorflow>=2.11.0"]
-tf-nightly = ["safetensors[numpy]", "tf-nightly>=2.11.0"]
+tf-nightly = ["safetensors[numpy]", "tf-nightly"]
 # pinning tf version 2.11.0 for doc-builder
 pinned-tf = ["safetensors[numpy]", "tensorflow==2.18.0"]
 jax = ["safetensors[numpy]", "flax>=0.6.3", "jax>=0.3.25", "jaxlib>=0.3.25"]
@@ -52,14 +53,6 @@ testing = [
   "hypothesis>=6.70.2",
   "fsspec>=2024.6.0",
   "s3fs>=2024.6.0",
-]
-testingfree = [
-  "safetensors[numpy]",
-  "setuptools_rust>=1.12.0",
-  "pytest>=9.0",
-  "pytest-benchmark>=5.2",
-  # "python-afl>=0.7.3",
-  "hypothesis>=6.70.2",
 ]
 all = [
   "safetensors[torch]",
