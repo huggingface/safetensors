@@ -1469,32 +1469,6 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SourceInput {
     }
 }
 
-/// Sniff `.index.json` and resolve to a flat list of source files.
-/// Single non-index path → `[path]`; explicit list → as-is; index path →
-/// parsed manifest.
-pub(crate) fn resolve_source_paths(input: SourceInput) -> PyResult<Vec<PathBuf>> {
-    match input {
-        SourceInput::Single(p) => {
-            // `.index.json` (or `model.safetensors.index.json`) — manifest.
-            // Anything else is treated as a single source file.
-            if is_index_json(&p) {
-                parse_index_json(&p)
-            } else {
-                Ok(vec![p])
-            }
-        }
-        SourceInput::Multiple(paths) => {
-            if paths.is_empty() {
-                Err(SafetensorError::new_err(
-                    "safe_open: empty source list".to_string(),
-                ))
-            } else {
-                Ok(paths)
-            }
-        }
-    }
-}
-
 fn is_index_json(path: &Path) -> bool {
     // Match either `<anything>.index.json` (HF convention) or a bare
     // `.index.json`. `extension()` only returns the last component, so
@@ -1601,15 +1575,27 @@ impl safe_open {
         device: Option<Device>,
         backend: Backend,
     ) -> PyResult<Self> {
-        let paths = resolve_source_paths(filename)?;
-        let inner = if paths.len() == 1 {
-            // Existing single-source code path — fully unchanged for the
-            // common case: caller passed a single `*.safetensors` path.
-            let only = paths.into_iter().next().expect("len == 1");
-            SafeOpenKind::Single(Open::new(only, framework, device, backend)?)
-        } else {
-            SafeOpenKind::Multi(OpenSources::new(paths, framework, device)?)
+        let inner = match filename {
+            SourceInput::Single(p) => {
+                // `.index.json` (or `model.safetensors.index.json`)
+                // Anything else is treated as a single source file.
+                if is_index_json(&p) {
+                    SafeOpenKind::Multi(OpenSources::new(parse_index_json(&p)?, framework, device)?)
+                } else {
+                    SafeOpenKind::Single(Open::new(p, framework, device, backend)?)
+                }
+            }
+            SourceInput::Multiple(paths) => {
+                if paths.is_empty() {
+                    return Err(SafetensorError::new_err(
+                        "safe_open: empty source list".to_string(),
+                    ));
+                } else {
+                    SafeOpenKind::Multi(OpenSources::new(paths, framework, device)?)
+                }
+            }
         };
+
         Ok(Self { inner: Some(inner) })
     }
 
