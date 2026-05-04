@@ -1256,32 +1256,10 @@ impl Open {
     }
 }
 
-// ── Multi-source support ────────────────────────────────────────────────
-//
-// `OpenSources` is the multi-file equivalent of `Open` used by
-// `safe_open` when the caller passes more than one source file (or an
-// `.index.json` manifest). It is intentionally lightweight — it does
-// not mmap each source or build per-source torch storages, only reads
-// each header. Per-tensor `get_tensor` lazily constructs a fresh
-// single-file `Open` for the relevant source on demand; bulk loads are
-// expected to go through `prefetch()` which uses io_uring directly.
-
 /// Read just the header of a safetensors file (8-byte size prefix +
 /// JSON metadata). Returns the parsed [`Metadata`] and the byte offset
 /// where the data section starts (`header_size + 8`).
-///
-/// Avoids `mmap` and `SafeTensors::read_metadata`. The latter validates
-/// that the buffer covers the entire file (including the data section),
-/// which would force us to size a buffer to multi-GB just to parse a
-/// few KB of header. We instead deserialize `Metadata` directly via
-/// `serde_json::from_slice` — this still runs the per-tensor offset
-/// validation inside `Metadata::new` (called from `TryFrom<HashMetadata>`).
-/// Skipped check: the file-end coverage one, which we don't need since
-/// downstream reads go through io_uring against the file's actual size.
 pub(crate) fn read_source_metadata(path: &Path) -> PyResult<(Metadata, usize)> {
-    /// Defense-in-depth: cap the header at a generous bound so a corrupt
-    /// 8-byte prefix (claiming a multi-EiB header) can't trigger an OOM.
-    /// 100 MiB is ~3 orders of magnitude above any real safetensors header.
     const MAX_HEADER_BYTES: usize = 100 * 1024 * 1024;
 
     let mut file = File::open(path)
@@ -1422,22 +1400,6 @@ impl OpenSources {
         let info = self.sources[sidx].metadata.info(name)?;
         Some((sidx, info))
     }
-
-    /// Lazily build a single-source `Open` for the source containing `name`
-    /// and delegate to its `get_tensor`. Slow if called repeatedly for many
-    /// tensors — bulk loads should go through `prefetch()`.
-    pub fn get_tensor(&self, name: &str) -> PyResult<Py<PyAny>> {
-        let sidx = *self.name_index.get(name).ok_or_else(|| {
-            SafetensorError::new_err(format!("File does not contain tensor {name}"))
-        })?;
-        let entry = &self.sources[sidx];
-        let open = Open::new(
-            entry.filename.clone(),
-            self.framework.clone(),
-            Some(self.device.clone()),
-        )?;
-        open.get_tensor(name)
-    }
 }
 
 /// Polymorphic input accepted by [`safe_open`]. Resolved to a flat
@@ -1470,9 +1432,6 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SourceInput {
 }
 
 fn is_index_json(path: &Path) -> bool {
-    // Match either `<anything>.index.json` (HF convention) or a bare
-    // `.index.json`. `extension()` only returns the last component, so
-    // we sniff via the full filename.
     path.file_name()
         .and_then(|n| n.to_str())
         .map(|n| n.ends_with(".index.json"))
@@ -1658,14 +1617,7 @@ impl safe_open {
     ///     tensor = f.get_tensor("embedding")
     /// ```
     pub fn get_tensor(&self, name: &str) -> PyResult<Py<PyAny>> {
-        match self.inner_kind()? {
-            SafeOpenKind::Single(o) => o.get_tensor(name),
-            // Multi-source: lazily build a single-source `Open` for the
-            // matching source. Fine for occasional lookups; bulk loads
-            // should use `prefetch()` to share one io_uring engine across
-            // all sources.
-            SafeOpenKind::Multi(o) => o.get_tensor(name),
-        }
+        self.require_single("get_tensor")?.get_tensor(name)
     }
 
     /// Returns every tensor in the file as a dict keyed by name.
@@ -1724,7 +1676,7 @@ impl safe_open {
     /// Linux-only. Absent on other platforms (use `hasattr(sf, "prefetch")`
     /// to detect). CUDA-targeted loads require `libcuda.so.1` discoverable at
     /// runtime; CPU targets work without CUDA. P1 ships an eager fallback
-    /// with the final API shape — subsequent releases accelerate the internals.
+    /// with the final API shape; subsequent releases accelerate the internals.
     ///
     /// The returned handle is a single-use iterator yielding `(name, tensor)`
     /// pairs in backend-chosen order (not submission order). Iterating drains
