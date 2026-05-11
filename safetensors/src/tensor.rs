@@ -5,7 +5,11 @@ use core::fmt::Display;
 use core::str::Utf8Error;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
-use std::{io::Write, path::Path};
+use std::{
+    ffi::OsString,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 const N_LEN: usize = size_of::<u64>();
@@ -306,9 +310,12 @@ fn buffered_write_to_file<V: View>(
     tensors: &[V],
     total_size: usize,
 ) -> Result<(), SafeTensorError> {
-    let file = std::fs::File::create(path)?;
+    let path = path.as_ref();
+    // Write to a sibling tempfile then rename, so an existing `path` is never
+    // truncated under any mmap of it (e.g. tensors returned by `load_file`).
+    let temp = TempFile::new(path)?;
 
-    file.set_len(total_size as u64)?;
+    temp.file().set_len(total_size as u64)?;
 
     // Serialize tensors to a file using direct I/O (bypassing page cache) using F_NOCACHE.
     // This yields ~30% performance improvement.
@@ -316,21 +323,84 @@ fn buffered_write_to_file<V: View>(
     unsafe {
         use std::os::fd::AsRawFd;
 
-        libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
+        libc::fcntl(temp.file().as_raw_fd(), libc::F_NOCACHE, 1);
     }
 
-    let mut f = std::io::BufWriter::with_capacity(1024 * 1024, file);
+    {
+        let mut f = std::io::BufWriter::with_capacity(1024 * 1024, temp.file());
 
-    f.write_all(n.to_le_bytes().as_ref())?;
-    f.write_all(header_bytes)?;
+        f.write_all(n.to_le_bytes().as_ref())?;
+        f.write_all(header_bytes)?;
 
-    for tensor in tensors {
-        f.write_all(tensor.data().as_ref())?;
+        for tensor in tensors {
+            f.write_all(tensor.data().as_ref())?;
+        }
+
+        f.flush()?;
     }
 
-    f.flush()?;
+    std::fs::rename(temp.path(), path)?;
 
     Ok(())
+}
+
+/// A uniquely-named tempfile.
+/// On drop, removes the file at the chosen path.
+#[cfg(feature = "std")]
+struct TempFile {
+    path: PathBuf,
+    file: std::fs::File,
+}
+
+#[cfg(feature = "std")]
+impl TempFile {
+    fn new(near: &Path) -> Result<Self, SafeTensorError> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+        let parent = near.parent().unwrap_or_else(|| Path::new(""));
+        let file_name = near.file_name().unwrap_or_default();
+
+        for _ in 0..16 {
+            let mut tmp_name = OsString::from(".");
+            tmp_name.push(file_name);
+            tmp_name.push(format!(
+                ".tmp.{}.{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            let path = parent.join(tmp_name);
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => return Ok(Self { path, file }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(SafeTensorError::IoError(e)),
+            }
+        }
+        Err(SafeTensorError::IoError(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "could not allocate a unique temporary file next to destination",
+        )))
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn file(&self) -> &std::fs::File {
+        &self.file
+    }
+}
+
+#[cfg(feature = "std")]
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        // We don't check the `Result` of `remove_file`, best effort cleanup
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 /// Serialize to a regular file the dictionnary of tensors.
@@ -1305,6 +1375,51 @@ mod tests {
             let _deserialized = SafeTensors::deserialize(&raw).unwrap();
             std::fs::remove_file(&filename).unwrap();
         }
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_serialize_to_file_same_path_with_active_mmap() {
+        // Regression test for #762: on Linux, `serialize_to_file` to a path that
+        // is currently mmap'd (e.g. by views the caller is about to serialize)
+        // would truncate the destination and zero those mmap pages before the
+        // bytes were read for writing, producing a zero-filled output file.
+        use memmap2::MmapOptions;
+
+        let filename = std::env::temp_dir().join(format!(
+            "safetensors_test_762_{}_{:?}.safetensors",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_file(&filename);
+
+        let bytes: Vec<u8> = [1.0f32, 2.0, 3.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let view = TensorView::new(Dtype::F32, vec![3], &bytes).unwrap();
+        let metadata: HashMap<String, TensorView> = [("w".to_string(), view)].into_iter().collect();
+        serialize_to_file(&metadata, None, &filename).unwrap();
+
+        // Mmap the file, deserialize, and re-save to the same path with views
+        // that borrow from the mmap.
+        {
+            let file = std::fs::File::open(&filename).unwrap();
+            let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
+            let safetensors = SafeTensors::deserialize(&mmap).unwrap();
+            let mmap_tensors = safetensors.tensors();
+            serialize_to_file(
+                mmap_tensors.iter().map(|(k, v)| (k.as_str(), v)),
+                None,
+                &filename,
+            )
+            .unwrap();
+        }
+
+        let raw = std::fs::read(&filename).unwrap();
+        let reloaded = SafeTensors::deserialize(&raw).unwrap();
+        assert_eq!(reloaded.tensor("w").unwrap().data(), bytes.as_slice());
+        std::fs::remove_file(&filename).unwrap();
     }
 
     #[test]
