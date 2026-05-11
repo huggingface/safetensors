@@ -1,16 +1,9 @@
 //! NUMA topology probing and thread pinning.
-//!
-//! Ports the 98-line helper from hmll commit `c67e7c0` to Rust. Reads the
-//! GPU's NUMA node via sysfs (PCI BDF → `/sys/bus/pci/devices/<bdf>/numa_node`)
-//! and pins the calling thread to the full cpulist of that node. The io_uring
-//! SQPOLL kernel thread gets pinned separately via
-//! `io_uring::Builder::setup_sqpoll_cpu` in the iouring module.
 
 use crate::error::{Error, Result};
 
-/// Read `/sys/bus/pci/devices/<bdf>/numa_node` for a PCI BDF. The BDF must be
-/// in lowercase `DDDD:BB:DD.F` form (CUDA returns uppercase hex — callers
-/// lowercase it before calling this).
+/// `bdf` must be lowercase `DDDD:BB:DD.F` (CUDA returns uppercase; callers
+/// lowercase it).
 pub fn numa_node_for_pci(bdf: &str) -> Result<i32> {
     let path = format!("/sys/bus/pci/devices/{bdf}/numa_node");
     let s = std::fs::read_to_string(&path)
@@ -20,8 +13,8 @@ pub fn numa_node_for_pci(bdf: &str) -> Result<i32> {
         .map_err(|e| Error::NumaProbe(format!("parse {path}: {e}")))
 }
 
-/// Parse `/sys/devices/system/node/node<N>/cpulist`, which uses the
-/// `"0-23,48-71"` range-list syntax. Returns the expanded CPU id set.
+/// Parse `/sys/devices/system/node/node<N>/cpulist` (e.g. `"0-23,48-71"`)
+/// into an expanded CPU id list.
 pub fn cpulist_for_node(node: i32) -> Result<Vec<usize>> {
     if node < 0 {
         return Ok(Vec::new());
@@ -57,9 +50,8 @@ fn parse_cpulist(s: &str) -> Result<Vec<usize>> {
     Ok(cpus)
 }
 
-/// Resolve the NUMA node for a CUDA device ordinal. Returns -1 if the node
-/// is unknown (virtualized GPUs, unusual topologies) or if CUDA isn't
-/// available — both are non-fatal; callers degrade to not pinning.
+/// Returns -1 if the node is unknown (virtualized GPUs, unusual
+/// topologies, or CUDA unavailable). Callers degrade to not pinning.
 pub fn numa_node_for_device(device_ordinal: i32) -> Result<i32> {
     let dev = crate::cuda::CuDevice::get(device_ordinal)?;
     let bdf = dev.pci_bus_id()?;
@@ -67,9 +59,7 @@ pub fn numa_node_for_device(device_ordinal: i32) -> Result<i32> {
 }
 
 /// Pin the calling thread to all CPUs on the GPU's NUMA node. Returns the
-/// resolved node id on success, or `Ok(-1)` when the node is unknown (in
-/// which case nothing was pinned — caller sees a best-effort result, not
-/// an error).
+/// node id, or `Ok(-1)` if unknown (nothing pinned in that case).
 pub fn bind_to_gpu_node(device_ordinal: i32) -> Result<i32> {
     let node = numa_node_for_device(device_ordinal)?;
     if node < 0 {
@@ -80,8 +70,7 @@ pub fn bind_to_gpu_node(device_ordinal: i32) -> Result<i32> {
     Ok(node)
 }
 
-/// Pin the current thread to the given CPU set via `sched_setaffinity`.
-/// Returns Ok(()) and does nothing if `cpus` is empty.
+/// No-op if `cpus` is empty.
 pub fn pin_current_thread(cpus: &[usize]) -> Result<()> {
     if cpus.is_empty() {
         return Ok(());
@@ -99,9 +88,7 @@ pub fn pin_current_thread(cpus: &[usize]) -> Result<()> {
         let rc = libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set);
         if rc != 0 {
             let errno = *libc::__errno_location();
-            return Err(Error::NumaProbe(format!(
-                "sched_setaffinity errno={errno}"
-            )));
+            return Err(Error::NumaProbe(format!("sched_setaffinity errno={errno}")));
         }
     }
     Ok(())

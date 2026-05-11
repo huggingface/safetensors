@@ -2611,21 +2611,6 @@ impl _safe_open_handle {
         self.inner()?.get_slice(name)
     }
 
-    /// Bulk-load a set of tensors through the opt-in fast path. See
-    /// `safe_open.prefetch` for full docs — the returned handle is a
-    /// single-use iterator over `(name, tensor)` pairs.
-    #[cfg(target_os = "linux")]
-    #[pyo3(signature = (names, dtype=None, max_inflight=8))]
-    pub fn prefetch(
-        &self,
-        names: Vec<String>,
-        dtype: Option<Py<PyAny>>,
-        max_inflight: usize,
-    ) -> PyResult<pipeline::PrefetchHandle> {
-        let _ = (dtype, max_inflight);
-        pipeline::PrefetchHandle::build(self.inner()?, names)
-    }
-
     /// Start the context manager
     pub fn __enter__(slf: Py<Self>) -> Py<Self> {
         slf
@@ -2637,15 +2622,6 @@ impl _safe_open_handle {
     }
 }
 
-/// Multi-shard prefetch entry point. Opens every path in `paths`, reads
-/// each header, builds a single ionic-rs CUDA pipeline that registers all
-/// shards' fds, then runs one io_uring + DMA pass across the entire
-/// checkpoint. Returns a [`PrefetchHandle`](pipeline::PrefetchHandle) —
-/// same iterator interface as `safe_open.prefetch`.
-///
-/// Args:
-///     paths: list of safetensors shard paths (typically all `*.safetensors`
-/// A Python module implemented in Rust.
 #[pymodule(gil_used = false)]
 fn _safetensors_rust(m: &PyBound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;

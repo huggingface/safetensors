@@ -1,23 +1,17 @@
 //! Errors produced by the ionic-rs engine.
-//!
-//! Pyo3-free by design — the bindings crate provides a `From<Error> for PyErr`
-//! adapter to surface failures to Python.
 
 #[derive(Debug)]
 pub enum Error {
-    /// Tensor name not present in the open safetensors file.
     UnknownTensor(String),
-    /// CUDA driver call failed. Carries the driver's `cuResult` code and the
+    /// CUDA driver call failed; carries the driver's `cuResult` code and the
     /// symbol that produced it.
     Cuda { symbol: &'static str, code: i32 },
-    /// CUDA driver was not loadable at runtime (`libcuda.so.1` absent).
+    /// `libcuda.so.1` not loadable at runtime.
     CudaUnavailable(String),
-    /// io_uring submit/poll/register call failed.
     IoUring { op: &'static str, errno: i32 },
-    /// Failure while parsing sysfs for NUMA topology. Non-fatal — callers
-    /// fall back to not pinning. Surfaced for diagnostics only.
+    /// Failure parsing sysfs for NUMA topology. Non-fatal; callers fall back
+    /// to not pinning.
     NumaProbe(String),
-    /// Generic catch-all with context.
     Other(String),
 }
 

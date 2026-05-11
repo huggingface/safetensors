@@ -1,28 +1,13 @@
-//! Offset-based read coalescing — pure logic, no I/O. Port of ionic's
-//! `get_seq_chunks` from `~/ionic/lib/platform/linux/iouring.c:168`.
+//! Offset-based read coalescing. Pure logic, no I/O.
 //!
-//! Caller hands us a list of logical reads `(fd_idx, file_from..file_to,
-//! dst_offset, user_data)`. We:
-//!
-//!   1. Round each read to chunk-aligned boundaries.
-//!   2. Dedupe across reads that share aligned chunks (one read fills many
-//!      tensors; one chunk can be reused without re-issuing the syscall).
-//!   3. For each unique aligned chunk, build the scatter list of byte ranges
-//!      from each contributing logical read.
-//!
-//! Output is a sorted list of `ChunkRead`s ready to submit to io_uring. The
-//! caller iterates and either copies portions out (P3 standalone) or hands
-//! them to the DMA worker (P4 integration).
-//!
-//! ionic uses `qsort` over `(path, offset)` pairs; we use `BTreeMap` keyed on
-//! `(fd_idx, offset)` which dedupes and sorts in one pass.
+//! Rounds each logical read to `chunk_bytes` boundaries and dedupes overlap
+//! across reads that share aligned chunks; emits the union as
+//! [`ChunkRead`]s with per-contributor [`ScatterEntry`] lists.
 
 use std::collections::BTreeMap;
 
-/// One logical read the caller wants performed: bytes `[from, to)` in the
-/// registered file `fd_idx`, deposited at `dst_offset` in the eventual
-/// destination buffer. `user_data` rides through unchanged so callers can
-/// attribute completed scatter entries back to their tensor / parameter.
+/// One logical read: bytes `[from, to)` in registered file `fd_idx`,
+/// deposited at `dst_offset`. `user_data` rides through for attribution.
 #[derive(Debug, Clone, Copy)]
 pub struct LogicalSegment {
     pub fd_idx: u32,
@@ -32,10 +17,8 @@ pub struct LogicalSegment {
     pub user_data: u64,
 }
 
-/// One chunk-aligned read to issue against io_uring. `len == chunk_bytes`
-/// always (the coalescer pads to chunk boundaries; trailing bytes past EOF
-/// are handled by the kernel returning a short read, which the engine then
-/// trims via the actual byte count in the scatter entries).
+/// One chunk-aligned read to issue. `len == chunk_bytes` always; short reads
+/// near EOF are handled by the engine trimming via per-CQE byte counts.
 #[derive(Debug)]
 pub struct ChunkRead {
     pub fd_idx: u32,
@@ -44,9 +27,8 @@ pub struct ChunkRead {
     pub scatter: Vec<ScatterEntry>,
 }
 
-/// One byte range to lift out of a chunk's staging buffer once the chunk is
-/// resident. `staging_offset` is into the chunk; `dst_offset` is into the
-/// caller's destination buffer.
+/// One byte range to lift out of a chunk's staging buffer. `staging_offset`
+/// is into the chunk; `dst_offset` is into the caller's destination buffer.
 #[derive(Debug, Clone, Copy)]
 pub struct ScatterEntry {
     pub staging_offset: usize,
@@ -55,13 +37,9 @@ pub struct ScatterEntry {
     pub user_data: u64,
 }
 
-/// Coalesce logical reads into chunk-aligned reads.
-///
-/// `chunk_bytes` controls both alignment and per-read size — every emitted
-/// `ChunkRead.len` equals it. ionic uses 128 KiB by default; that's a sweet
-/// spot between syscall amortization and read-amplification.
-///
-/// Empty input or `chunk_bytes == 0` returns an empty plan.
+/// `chunk_bytes` controls both alignment and per-read size; every emitted
+/// `ChunkRead.len` equals it. Returns empty for empty input or `chunk_bytes
+/// == 0`.
 pub fn coalesce_chunks(segments: &[LogicalSegment], chunk_bytes: usize) -> Vec<ChunkRead> {
     if segments.is_empty() || chunk_bytes == 0 {
         return Vec::new();
@@ -69,8 +47,7 @@ pub fn coalesce_chunks(segments: &[LogicalSegment], chunk_bytes: usize) -> Vec<C
 
     let chunk = chunk_bytes as u64;
 
-    // BTreeMap keyed on (fd_idx, aligned_offset). Sorting + dedup come for
-    // free; we just append scatter entries as we encounter overlaps.
+    // BTreeMap on (fd_idx, aligned_offset): sorting + dedup in one pass.
     let mut chunks: BTreeMap<(u32, u64), Vec<ScatterEntry>> = BTreeMap::new();
 
     for seg in segments {
@@ -78,7 +55,6 @@ pub fn coalesce_chunks(segments: &[LogicalSegment], chunk_bytes: usize) -> Vec<C
             continue;
         }
         let aligned_from = (seg.from / chunk) * chunk;
-        // align_up: divides + ceils.
         let aligned_to = seg.to.div_ceil(chunk) * chunk;
 
         let mut offset = aligned_from;
@@ -86,8 +62,6 @@ pub fn coalesce_chunks(segments: &[LogicalSegment], chunk_bytes: usize) -> Vec<C
             let chunk_end = offset + chunk;
             let overlap_start = seg.from.max(offset);
             let overlap_end = seg.to.min(chunk_end);
-            // A chunk that lies entirely past `seg.to` cannot occur given the
-            // bounds, but defensive check is cheap.
             if overlap_start < overlap_end {
                 let entry = ScatterEntry {
                     staging_offset: (overlap_start - offset) as usize,
