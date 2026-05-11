@@ -1685,7 +1685,8 @@ impl safe_open {
     /// remaining tensor count.
     ///
     /// Args:
-    ///     names (`List[str]`): tensor names to prefetch.
+    ///     names (`Optional[List[str]]`, default `None`): tensor names to
+    ///         prefetch. `None` loads every tensor in the file.
     ///     dtype: optional target dtype (ignored until P5).
     ///     max_inflight (`int`, default 8): soft cap on concurrent in-flight
     ///         reads. Ignored until P3.
@@ -1693,21 +1694,30 @@ impl safe_open {
     /// Example:
     /// ```python
     /// with safe_open("model.safetensors", framework="pt", device="cuda:0") as sf:
-    ///     for name, tensor in sf.prefetch(sf.keys()):
+    ///     for name, tensor in sf.prefetch():
     ///         model.load_param(name, tensor)
     /// ```
     #[cfg(target_os = "linux")]
-    #[pyo3(signature = (names, dtype=None, max_inflight=8))]
+    #[pyo3(signature = (names=None, dtype=None, max_inflight=8))]
     pub fn prefetch(
         &self,
-        names: Vec<String>,
+        names: Option<Vec<String>>,
         dtype: Option<Py<PyAny>>,
         max_inflight: usize,
     ) -> PyResult<pipeline::PrefetchHandle> {
         let _ = (dtype, max_inflight);
         match self.inner_kind()? {
-            SafeOpenKind::Single(o) => pipeline::PrefetchHandle::build(o, names),
-            SafeOpenKind::Multi(o) => pipeline::PrefetchHandle::build_sources(o, names),
+            SafeOpenKind::Single(o) => {
+                let names = match names {
+                    Some(n) => n,
+                    None => o.keys()?,
+                };
+                pipeline::PrefetchHandle::build(o, names)
+            }
+            SafeOpenKind::Multi(o) => {
+                let names = names.unwrap_or_else(|| o.keys());
+                pipeline::PrefetchHandle::build_sources(o, names)
+            }
         }
     }
 
