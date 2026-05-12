@@ -13,8 +13,6 @@ use sys::{CudaLib, CUcontext, CUdevice, CUdeviceptr, CUevent, CUresult, CUstream
 
 use crate::error::{Error, Result};
 
-// ── Library access ──────────────────────────────────────────────────────
-
 fn check(rc: CUresult, symbol: &'static str) -> Result<()> {
     if rc == CUDA_SUCCESS {
         Ok(())
@@ -41,8 +39,6 @@ pub fn lib() -> Result<&'static CudaLib> {
     res.as_ref()
         .map_err(|s| Error::CudaUnavailable(s.clone()))
 }
-
-// ── Device ──────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]
 pub struct CuDevice(CUdevice);
@@ -95,8 +91,6 @@ impl CuDevice {
     }
 }
 
-// ── Primary context ─────────────────────────────────────────────────────
-
 /// RAII handle for a retained primary context. `Drop` releases the retention;
 /// PyTorch's refcount on the same context is unaffected.
 pub struct CuContext {
@@ -136,7 +130,6 @@ impl CuContext {
             fn drop(&mut self) {
                 if let Ok(cuda) = lib() {
                     let mut _out: CUcontext = std::ptr::null_mut();
-                    // Pop failure has no sensible recovery from a destructor.
                     unsafe { (cuda.cuCtxPopCurrent)(&mut _out) };
                 }
             }
@@ -159,8 +152,6 @@ impl Drop for CuContext {
         }
     }
 }
-
-// ── Stream ──────────────────────────────────────────────────────────────
 
 pub struct CuStream {
     stream: CUstream,
@@ -204,20 +195,16 @@ impl Drop for CuStream {
     }
 }
 
-// ── Event ───────────────────────────────────────────────────────────────
-
 pub struct CuEvent {
     event: CUevent,
 }
 
-// SAFETY: same rationale as CuStream; event ops are driver-documented as
-// thread-safe.
+// SAFETY: event ops are driver-documented as thread-safe.
 unsafe impl Send for CuEvent {}
 unsafe impl Sync for CuEvent {}
 
 impl CuEvent {
-    /// Timing-disabled (cheaper to record); we only use these as
-    /// happens-before fences.
+    /// Timing-disabled; we only use these as happens-before fences.
     pub fn new() -> Result<Self> {
         let cuda = lib()?;
         let mut e: CUevent = std::ptr::null_mut();
@@ -267,8 +254,6 @@ impl Drop for CuEvent {
     }
 }
 
-// ── Device memory ───────────────────────────────────────────────────────
-
 /// Owned device allocation. `Drop` calls `cuMemFree_v2`.
 pub struct DeviceBuf {
     ptr: CUdeviceptr,
@@ -302,8 +287,6 @@ impl Drop for DeviceBuf {
         }
     }
 }
-
-// ── Pinned host memory ──────────────────────────────────────────────────
 
 /// Page-locked host allocation. Pageable host memory silently stages through
 /// the driver's bounce buffer and serializes; pinned is required for full
@@ -345,15 +328,12 @@ impl PinnedBuf {
     /// Callers must not mutate the slice while a `cuMemcpyHtoDAsync` from it
     /// is in flight.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: we own the allocation; bytes is the exact size returned
-        // by cuMemHostAlloc.
+        // SAFETY: we own the allocation of size `bytes`.
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.bytes) }
     }
 
-    /// Immutable slice view of the pinned region.
     pub fn as_slice(&self) -> &[u8] {
-        // SAFETY: we own the allocation; bytes is the exact size returned
-        // by cuMemHostAlloc.
+        // SAFETY: we own the allocation of size `bytes`.
         unsafe { std::slice::from_raw_parts(self.ptr, self.bytes) }
     }
 
@@ -369,8 +349,6 @@ impl Drop for PinnedBuf {
         }
     }
 }
-
-// ── Transfer ────────────────────────────────────────────────────────────
 
 /// `src` must remain valid until the copy completes (use `PinnedBuf`).
 /// Context must be current.

@@ -14,8 +14,6 @@ use libloading::Library;
 
 use crate::error::{Error, Result};
 
-// ── C types ─────────────────────────────────────────────────────────────
-
 pub type CUresult = c_int;
 pub type CUdevice = c_int;
 pub type CUcontext = *mut c_void;
