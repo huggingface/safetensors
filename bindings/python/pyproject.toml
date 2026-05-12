@@ -71,6 +71,20 @@ dev = ["safetensors[all]"]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
+[tool.uv]
+# These extras pin mutually-incompatible TensorFlow versions; tell uv they
+# can never resolve together so `uv sync` doesn't try to satisfy all at once.
+# `all`/`dev` are included because they transitively depend on `pinned-tf`.
+conflicts = [
+  [
+    { extra = "tensorflow" },
+    { extra = "tf-nightly" },
+    { extra = "pinned-tf" },
+    { extra = "all" },
+    { extra = "dev" },
+  ],
+]
+
 [tool.maturin]
 python-source = "py_src"
 module-name = "safetensors._safetensors_rust"
