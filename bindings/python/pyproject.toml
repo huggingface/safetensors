@@ -57,19 +57,39 @@ testing = [
 all = [
   "safetensors[torch]",
   "safetensors[numpy]",
-  "safetensors[pinned-tf]",
   "safetensors[jax]",
   "safetensors[paddlepaddle]",
   "safetensors[convert]",
   "safetensors[quality]",
   "safetensors[testing]",
 ]
-dev = ["safetensors[all]"]
+dev = ["safetensors[all]", "safetensors[pinned-tf]"]
 
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
+
+[tool.uv]
+# `tensorflow`, `tf-nightly`, and `pinned-tf` pin mutually-incompatible TF
+# versions, so uv's universal lock can't satisfy them simultaneously.
+# `all` deliberately omits TF; `dev` adds `pinned-tf` explicitly, which is
+# why `dev` must also be declared incompatible with the other TF extras.
+conflicts = [
+  [
+    { extra = "tensorflow" },
+    { extra = "tf-nightly" },
+    { extra = "pinned-tf" },
+  ],
+  [
+    { extra = "dev" },
+    { extra = "tensorflow" },
+  ],
+  [
+    { extra = "dev" },
+    { extra = "tf-nightly" },
+  ],
+]
 
 [tool.maturin]
 python-source = "py_src"
