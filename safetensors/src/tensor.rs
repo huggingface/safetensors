@@ -1315,13 +1315,19 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", unix))]
     #[test]
     fn test_serialize_to_file_same_path_with_active_mmap() {
         // Regression test for #762: on Linux, `serialize_to_file` to a path that
         // is currently mmap'd (e.g. by views the caller is about to serialize)
         // would truncate the destination and zero those mmap pages before the
         // bytes were read for writing, producing a zero-filled output file.
+        //
+        // FIXME: Windows is unsupported. Rename-over-active-mmap requires POSIX
+        // inode semantics; `MoveFileExW` returns ERROR_ACCESS_DENIED when the
+        // destination has open handles or active section objects. Callers on
+        // Windows must drop mmaps of `path` before calling `serialize_to_file`
+        // with the same `path`.
         use memmap2::MmapOptions;
 
         let filename = std::env::temp_dir().join(format!(
