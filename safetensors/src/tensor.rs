@@ -306,9 +306,13 @@ fn buffered_write_to_file<V: View>(
     tensors: &[V],
     total_size: usize,
 ) -> Result<(), SafeTensorError> {
-    let file = std::fs::File::create(path)?;
+    let path = path.as_ref();
+    // Write to a sibling tempfile then rename, so an existing `path` is never
+    // truncated under any mmap of it (e.g. tensors returned by `load_file`).
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let temp = tempfile::NamedTempFile::new_in(parent)?;
 
-    file.set_len(total_size as u64)?;
+    temp.as_file().set_len(total_size as u64)?;
 
     // Serialize tensors to a file using direct I/O (bypassing page cache) using F_NOCACHE.
     // This yields ~30% performance improvement.
@@ -316,19 +320,23 @@ fn buffered_write_to_file<V: View>(
     unsafe {
         use std::os::fd::AsRawFd;
 
-        libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
+        libc::fcntl(temp.as_file().as_raw_fd(), libc::F_NOCACHE, 1);
     }
 
-    let mut f = std::io::BufWriter::with_capacity(1024 * 1024, file);
+    {
+        let mut f = std::io::BufWriter::with_capacity(1024 * 1024, temp.as_file());
 
-    f.write_all(n.to_le_bytes().as_ref())?;
-    f.write_all(header_bytes)?;
+        f.write_all(n.to_le_bytes().as_ref())?;
+        f.write_all(header_bytes)?;
 
-    for tensor in tensors {
-        f.write_all(tensor.data().as_ref())?;
+        for tensor in tensors {
+            f.write_all(tensor.data().as_ref())?;
+        }
+
+        f.flush()?;
     }
 
-    f.flush()?;
+    temp.persist(path).map_err(|e| e.error)?;
 
     Ok(())
 }
@@ -1305,6 +1313,57 @@ mod tests {
             let _deserialized = SafeTensors::deserialize(&raw).unwrap();
             std::fs::remove_file(&filename).unwrap();
         }
+    }
+
+    #[cfg(all(feature = "std", unix))]
+    #[test]
+    fn test_serialize_to_file_same_path_with_active_mmap() {
+        // Regression test for #762: on Linux, `serialize_to_file` to a path that
+        // is currently mmap'd (e.g. by views the caller is about to serialize)
+        // would truncate the destination and zero those mmap pages before the
+        // bytes were read for writing, producing a zero-filled output file.
+        //
+        // FIXME: Windows is unsupported. Rename-over-active-mmap requires POSIX
+        // inode semantics; `MoveFileExW` returns ERROR_ACCESS_DENIED when the
+        // destination has open handles or active section objects. Callers on
+        // Windows must drop mmaps of `path` before calling `serialize_to_file`
+        // with the same `path`.
+        use memmap2::MmapOptions;
+
+        let filename = std::env::temp_dir().join(format!(
+            "safetensors_test_762_{}_{:?}.safetensors",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_file(&filename);
+
+        let bytes: Vec<u8> = [1.0f32, 2.0, 3.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let view = TensorView::new(Dtype::F32, vec![3], &bytes).unwrap();
+        let metadata: HashMap<String, TensorView> = [("w".to_string(), view)].into_iter().collect();
+        serialize_to_file(&metadata, None, &filename).unwrap();
+
+        // Mmap the file, deserialize, and re-save to the same path with views
+        // that borrow from the mmap.
+        {
+            let file = std::fs::File::open(&filename).unwrap();
+            let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
+            let safetensors = SafeTensors::deserialize(&mmap).unwrap();
+            let mmap_tensors = safetensors.tensors();
+            serialize_to_file(
+                mmap_tensors.iter().map(|(k, v)| (k.as_str(), v)),
+                None,
+                &filename,
+            )
+            .unwrap();
+        }
+
+        let raw = std::fs::read(&filename).unwrap();
+        let reloaded = SafeTensors::deserialize(&raw).unwrap();
+        assert_eq!(reloaded.tensor("w").unwrap().data(), bytes.as_slice());
+        std::fs::remove_file(&filename).unwrap();
     }
 
     #[test]

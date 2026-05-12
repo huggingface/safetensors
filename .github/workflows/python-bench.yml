@@ -33,13 +33,13 @@ jobs:
         working-directory: ./bindings/python
         run: |
           pip install -U pip uv
-          uv sync --extra dev
+          uv sync --frozen --extra dev
 
       - name: Run tests
         working-directory: ./bindings/python
         run: |
           cargo test
-          uv run pytest --benchmark-json output.json benches/
+          uv run --frozen pytest --benchmark-json output.json benches/
       # Download previous benchmark result from cache (if exists)
       - name: Download previous benchmark data
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7  # v5
