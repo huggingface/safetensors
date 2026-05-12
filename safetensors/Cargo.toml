@@ -28,6 +28,7 @@ serde = { version = "1.0", default-features = false, features = [
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.16", features = ["serde"] }
+tempfile = { version = "3", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
@@ -39,7 +40,7 @@ proptest = "1.7"
 
 [features]
 default = ["std"]
-std = ["serde/default", "serde_json/default"]
+std = ["serde/default", "serde_json/default", "dep:tempfile"]
 # Kept for backward compatibility - no-op since alloc is always available
 alloc = []
 

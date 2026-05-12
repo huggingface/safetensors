@@ -5,11 +5,7 @@ use core::fmt::Display;
 use core::str::Utf8Error;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "std")]
-use std::{
-    ffi::OsString,
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{io::Write, path::Path};
 
 const MAX_HEADER_SIZE: usize = 100_000_000;
 const N_LEN: usize = size_of::<u64>();
@@ -313,9 +309,10 @@ fn buffered_write_to_file<V: View>(
     let path = path.as_ref();
     // Write to a sibling tempfile then rename, so an existing `path` is never
     // truncated under any mmap of it (e.g. tensors returned by `load_file`).
-    let temp = TempFile::new(path)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let temp = tempfile::NamedTempFile::new_in(parent)?;
 
-    temp.file().set_len(total_size as u64)?;
+    temp.as_file().set_len(total_size as u64)?;
 
     // Serialize tensors to a file using direct I/O (bypassing page cache) using F_NOCACHE.
     // This yields ~30% performance improvement.
@@ -323,11 +320,11 @@ fn buffered_write_to_file<V: View>(
     unsafe {
         use std::os::fd::AsRawFd;
 
-        libc::fcntl(temp.file().as_raw_fd(), libc::F_NOCACHE, 1);
+        libc::fcntl(temp.as_file().as_raw_fd(), libc::F_NOCACHE, 1);
     }
 
     {
-        let mut f = std::io::BufWriter::with_capacity(1024 * 1024, temp.file());
+        let mut f = std::io::BufWriter::with_capacity(1024 * 1024, temp.as_file());
 
         f.write_all(n.to_le_bytes().as_ref())?;
         f.write_all(header_bytes)?;
@@ -339,68 +336,9 @@ fn buffered_write_to_file<V: View>(
         f.flush()?;
     }
 
-    std::fs::rename(temp.path(), path)?;
+    temp.persist(path).map_err(|e| e.error)?;
 
     Ok(())
-}
-
-/// A uniquely-named tempfile.
-/// On drop, removes the file at the chosen path.
-#[cfg(feature = "std")]
-struct TempFile {
-    path: PathBuf,
-    file: std::fs::File,
-}
-
-#[cfg(feature = "std")]
-impl TempFile {
-    fn new(near: &Path) -> Result<Self, SafeTensorError> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-        let parent = near.parent().unwrap_or_else(|| Path::new(""));
-        let file_name = near.file_name().unwrap_or_default();
-
-        for _ in 0..16 {
-            let mut tmp_name = OsString::from(".");
-            tmp_name.push(file_name);
-            tmp_name.push(format!(
-                ".tmp.{}.{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::Relaxed)
-            ));
-            let path = parent.join(tmp_name);
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(file) => return Ok(Self { path, file }),
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(SafeTensorError::IoError(e)),
-            }
-        }
-        Err(SafeTensorError::IoError(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "could not allocate a unique temporary file next to destination",
-        )))
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
-    fn file(&self) -> &std::fs::File {
-        &self.file
-    }
-}
-
-#[cfg(feature = "std")]
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        // We don't check the `Result` of `remove_file`, best effort cleanup
-        let _ = std::fs::remove_file(&self.path);
-    }
 }
 
 /// Serialize to a regular file the dictionnary of tensors.
