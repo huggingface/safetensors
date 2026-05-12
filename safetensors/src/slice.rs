@@ -283,6 +283,13 @@ impl<'data> SliceIterator<'data> {
         if n_slice > n_shape {
             return Err(InvalidSlice::TooManySlices);
         }
+        if slices.is_empty() {
+            return Ok(Self {
+                view,
+                indices: vec![(0, view.data().len())],
+                newshape: view.shape().to_vec(),
+            });
+        }
         let mut newshape = Vec::with_capacity(view.shape().len());
 
         // Minimum span is the span of 1 item;
@@ -715,5 +722,16 @@ mod tests {
             ),
             Err(InvalidSlice::TooManySlices)
         );
+    }
+
+    #[test]
+    fn test_zero_sized_tensor_with_large_dim_does_not_panic() {
+        let data = [];
+        let tensor = TensorView::new(Dtype::U8, vec![0, usize::MAX], &data).unwrap();
+        let mut iterator = SliceIterator::new(&tensor, &[]).unwrap();
+        assert_eq!(iterator.newshape(), vec![0, usize::MAX]);
+        assert_eq!(iterator.remaining_byte_len(), 0);
+        assert_eq!(iterator.next(), Some(&data[..]));
+        assert_eq!(iterator.next(), None);
     }
 }
