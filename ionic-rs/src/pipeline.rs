@@ -196,8 +196,7 @@ fn run_scheduler_loop(
             continue;
         } else {
             return Err(Error::Other(format!(
-                "pipeline state inconsistent: completed={} total={} io=0 dma=0",
-                completed, total
+                "pipeline state inconsistent: completed={completed} total={total} io=0 dma=0"
             )));
         }
 
