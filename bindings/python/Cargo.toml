@@ -20,3 +20,4 @@ path = "../../safetensors"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLBuffer", "MTLResource"] }
+libc = "0.2"

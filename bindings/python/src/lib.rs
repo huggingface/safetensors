@@ -646,6 +646,7 @@ impl Open {
         })?;
 
         if backend == Backend::Pread {
+            disable_page_cache_macos(&file);
             return Ok(Self {
                 filename,
                 metadata,
@@ -1239,6 +1240,10 @@ impl Open {
         let file = File::open(&self.filename).map_err(|e| {
             PyFileNotFoundError::new_err(format!("Could not open {}: {e}", self.filename.display()))
         })?;
+        // Fresh fd used for direct pread into MTLBuffers — skip the page
+        // cache so the load doesn't leave a model-sized footprint in
+        // file-backed pages after we're done.
+        disable_page_cache_macos(&file);
 
         let keys = self.metadata.offset_keys();
         let mut bufs: Vec<crate::metal::MtlBuffer> = Vec::with_capacity(keys.len());
@@ -1941,6 +1946,26 @@ struct PreadJob {
     file_offset: u64,
     nbytes: usize,
     write_ptr: usize,
+}
+
+/// Mark `file` to bypass the page cache for `read`/`pread` calls on macOS.
+///
+/// `F_NOCACHE` only affects I/O syscalls on this fd — it has no effect on
+/// pages accessed via `mmap`, so this is only useful for fds we'll
+/// `pread()` from. Best-effort: failures (e.g. on filesystems that don't
+/// honor it) are ignored. No-op on non-macOS.
+#[allow(unused_variables)]
+fn disable_page_cache_macos(file: &File) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: fcntl with F_NOCACHE takes (fd, cmd, int) and returns an
+        // int. We pass an owned, valid fd from `file` and ignore the result
+        // since this is a hint, not a correctness requirement.
+        unsafe {
+            libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
+        }
+    }
 }
 
 /// Portable positional read: fills `buf` from `file` starting at `offset`.
