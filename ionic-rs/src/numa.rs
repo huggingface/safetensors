@@ -1,5 +1,7 @@
 //! NUMA topology probing and thread pinning.
 
+use std::ops::Deref;
+
 use crate::error::{Error, Result};
 
 /// `bdf` must be lowercase `DDDD:BB:DD.F` (CUDA returns uppercase; callers
@@ -60,24 +62,54 @@ pub fn numa_node_for_device(device_ordinal: i32) -> Result<i32> {
 
 /// Pin the calling thread to all CPUs on the GPU's NUMA node. Returns the
 /// node id, or `Ok(-1)` if unknown (nothing pinned in that case).
-pub fn bind_to_gpu_node(device_ordinal: i32) -> Result<i32> {
+pub fn bind_to_gpu_node(device_ordinal: i32) -> Result<PinGuard> {
     let node = numa_node_for_device(device_ordinal)?;
     if node < 0 {
-        return Ok(-1);
+        return Ok(PinGuard {
+            node: -1,
+            prior: None,
+        });
     }
     let cpus = cpulist_for_node(node)?;
-    pin_current_thread(&cpus)?;
-    Ok(node)
+    let prior = pin_current_thread(&cpus)?;
+    Ok(PinGuard { node, prior })
+}
+
+pub struct PinGuard {
+    node: i32,
+    prior: Option<libc::cpu_set_t>,
+}
+
+impl Deref for PinGuard {
+    type Target = i32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
+
+impl Drop for PinGuard {
+    fn drop(&mut self) {
+        if let Some(prior) = self.prior {
+            unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &prior) };
+        }
+    }
 }
 
 /// No-op if `cpus` is empty.
-pub fn pin_current_thread(cpus: &[usize]) -> Result<()> {
+pub fn pin_current_thread(cpus: &[usize]) -> Result<Option<libc::cpu_set_t>> {
     if cpus.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     // SAFETY: zero-initialization of cpu_set_t is valid; CPU_SET / CPU_ZERO
     // are defined for any index in [0, CPU_SETSIZE).
-    unsafe {
+    let prior = unsafe {
+        let mut prior = std::mem::zeroed();
+        let rc = libc::sched_getaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &mut prior);
+        if rc < 0 {
+            let errno = *libc::__errno_location();
+            return Err(Error::NumaProbe(format!("sched_getaffinity errno={errno}")));
+        }
         let mut set: libc::cpu_set_t = std::mem::zeroed();
         libc::CPU_ZERO(&mut set);
         for &c in cpus {
@@ -90,8 +122,9 @@ pub fn pin_current_thread(cpus: &[usize]) -> Result<()> {
             let errno = *libc::__errno_location();
             return Err(Error::NumaProbe(format!("sched_setaffinity errno={errno}")));
         }
-    }
-    Ok(())
+        prior
+    };
+    Ok(Some(prior))
 }
 
 #[cfg(test)]

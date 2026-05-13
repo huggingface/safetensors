@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use ionic_rs::numa;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
@@ -62,6 +63,8 @@ impl PrefetchHandle {
 
     fn build_cuda_sources(open: &OpenSources, names: Vec<String>, ordinal: i32) -> PyResult<Self> {
         Python::attach(|py| -> PyResult<Self> {
+            // XXX: pinning is best effort, we ignore the result
+            let _node = numa::bind_to_gpu_node(ordinal);
             let torch = TORCH_MODULE
                 .get()
                 .ok_or_else(|| SafetensorError::new_err("torch module not initialized"))?
@@ -118,6 +121,8 @@ impl PrefetchHandle {
 
     fn build_cuda(open: &Open, names: Vec<String>, ordinal: i32) -> PyResult<Self> {
         Python::attach(|py| -> PyResult<Self> {
+            // XXX: pinning is best effort, we ignore the result
+            let _node = numa::bind_to_gpu_node(ordinal);
             let torch = TORCH_MODULE
                 .get()
                 .ok_or_else(|| SafetensorError::new_err("torch module not initialized"))?
