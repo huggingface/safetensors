@@ -123,6 +123,60 @@ pub(crate) fn dtype_to_dlpack(dtype: Dtype) -> DLDataType {
     }
 }
 
+/// Whether torch's `from_dlpack` accepts this dtype natively. DLPack v1.0
+/// reserved codes for F4/F6/F8 variants (8..=18) but PyTorch hasn't wired
+/// them up; passing them as `OpaqueHandle` raises `BufferError: Unsupported
+/// code 3`. For such dtypes the MPS path produces a `uint8` capsule of the
+/// torch storage shape and the consumer does `.view(target_dtype)` to
+/// reinterpret — same bytes, correct dtype, no copy.
+pub(crate) fn dlpack_supported_native(dtype: Dtype) -> bool {
+    matches!(
+        dtype,
+        Dtype::BOOL
+            | Dtype::I8
+            | Dtype::I16
+            | Dtype::I32
+            | Dtype::I64
+            | Dtype::U8
+            | Dtype::U16
+            | Dtype::U32
+            | Dtype::U64
+            | Dtype::F16
+            | Dtype::F32
+            | Dtype::F64
+            | Dtype::BF16
+            | Dtype::C64
+    )
+}
+
+/// For dtypes torch doesn't accept via DLPack natively, the corresponding
+/// `torch.<dtype>` name we can `.view()` to after importing as `uint8`.
+/// `None` means there's no torch equivalent at all (fall back to copy path).
+pub(crate) fn torch_view_target(dtype: Dtype) -> Option<&'static str> {
+    Some(match dtype {
+        Dtype::F4 => "float4_e2m1fn_x2",
+        Dtype::F8_E5M2 => "float8_e5m2",
+        Dtype::F8_E4M3 => "float8_e4m3fn",
+        Dtype::F8_E8M0 => "float8_e8m0fnu",
+        _ => return None,
+    })
+}
+
+/// `uint8` capsule dtype. Used as the wire dtype for `view`-cast targets.
+pub(crate) fn uint8_dlpack() -> DLDataType {
+    DLDataType {
+        code: DLDataTypeCode::UInt,
+        bits: 8,
+        lanes: 1,
+    }
+}
+
+/// Whether torch's MPS fast path can ingest this dtype — either via native
+/// DLPack support or via the `uint8 + view`-cast workaround.
+pub(crate) fn torch_mps_compatible(dtype: Dtype) -> bool {
+    dlpack_supported_native(dtype) || torch_view_target(dtype).is_some()
+}
+
 #[allow(dead_code)]
 pub(crate) fn cpu_device() -> DLDevice {
     DLDevice {

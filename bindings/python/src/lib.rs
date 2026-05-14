@@ -870,7 +870,10 @@ impl Open {
         }
 
         #[cfg(target_os = "macos")]
-        if self.device == Device::Mps && self.framework != Framework::Tensorflow {
+        if self.device == Device::Mps
+            && self.framework == Framework::Pytorch
+            && dlpack::torch_mps_compatible(info.dtype)
+        {
             return self.get_tensor_mps(name, info);
         }
 
@@ -1183,7 +1186,7 @@ impl Open {
 
     /// Single-tensor MPS path: alloc a Shared `MTLBuffer`, fill it from the
     /// active storage source (`mmap` memcpy or `pread`), and hand off via
-    /// DLPack. Mirror of `get_tensors_mps` for one tensor.
+    /// DLPack
     #[cfg(target_os = "macos")]
     fn get_tensor_mps(&self, name: &str, info: &TensorInfo) -> PyResult<Py<PyAny>> {
         let (begin, end) = info.data_offsets;
@@ -1264,7 +1267,14 @@ impl Open {
     /// destination — no staging copy).
     pub fn get_tensors(&self) -> PyResult<Py<PyDict>> {
         #[cfg(target_os = "macos")]
-        if self.device == Device::Mps && self.framework != Framework::Tensorflow {
+        if self.device == Device::Mps
+            && self.framework == Framework::Pytorch
+            && self
+                .metadata
+                .tensors()
+                .values()
+                .all(|info| dlpack::torch_mps_compatible(info.dtype))
+        {
             return self.get_tensors_mps();
         }
 
@@ -1729,8 +1739,9 @@ impl PySafeSlice {
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         #[cfg(target_os = "macos")]
         if self.device == Device::Mps
-            && self.framework != Framework::Tensorflow
+            && self.framework == Framework::Pytorch
             && !matches!(self.storage.as_ref(), Storage::Paddle(_))
+            && dlpack::torch_mps_compatible(self.info.dtype)
         {
             return self.slice_mps(slices);
         }
@@ -2066,6 +2077,10 @@ fn torch_storage_shape(dtype: Dtype, logical_shape: &[usize]) -> PyResult<Vec<us
 /// For zero-byte tensors the caller passes a buffer that was clamp-allocated
 /// to 1 byte by `MtlBuffer::alloc_shared`; the DLPack shape still carries a
 /// zero dim so `numel == 0` for the framework consumer.
+///
+/// For dtypes torch's DLPack doesn't accept natively (F4/F8 variants), the
+/// capsule's wire dtype is `uint8` and we `.view(target)` on the torch side
+/// — same bytes, correct dtype, no copy.
 #[cfg(target_os = "macos")]
 fn mps_tensor_from_buf(
     py: Python<'_>,
@@ -2076,15 +2091,51 @@ fn mps_tensor_from_buf(
 ) -> PyResult<Py<PyAny>> {
     let storage_shape = torch_storage_shape(dtype, logical_shape)?;
     let shape_i64: Vec<i64> = storage_shape.iter().map(|&n| n as i64).collect();
-    let dl_dtype = dlpack::dtype_to_dlpack(dtype);
+
+    let view_target = if dlpack::dlpack_supported_native(dtype) {
+        None
+    } else {
+        dlpack::torch_view_target(dtype)
+    };
+    let dl_dtype = if view_target.is_some() {
+        dlpack::uint8_dlpack()
+    } else {
+        dlpack::dtype_to_dlpack(dtype)
+    };
+
     let device = dlpack::metal_device();
     let capsule = dlpack::to_capsule(py, buf, shape_i64, dl_dtype, device)?;
-    ingest_dlpack_mps(py, framework, capsule)
+    let tensor = ingest_dlpack_mps(py, framework, capsule)?;
+
+    if let Some(name) = view_target {
+        // Reinterpret uint8 bytes as the actual dtype. Currently torch-only;
+        // dispatch gate ensures other frameworks don't reach here for
+        // non-native dtypes.
+        let torch = get_module(py, &TORCH_MODULE)?;
+        let target = torch.getattr(name)?;
+        let viewed = tensor
+            .bind(py)
+            .call_method1(intern!(py, "view"), (target,))?;
+        Ok(viewed.unbind())
+    } else {
+        Ok(tensor)
+    }
 }
 
 /// Framework-specific `from_dlpack` dispatch for a Metal-typed capsule.
 ///
-/// Tensorflow is excluded — callers must route it through the copy path.
+/// Today only Pytorch is wired. `Open::new`'s framework guard rejects
+/// non-Cpu device for all other frameworks, so this is the only reachable
+/// arm. The remaining frameworks return an explicit error to keep the
+/// surface honest if the upstream guard is ever widened:
+///
+/// - **MLX**: no `from_dlpack` exists; `mx.array(capsule)` fails. The
+///   public Metal-zero-copy path tracked at ml-explore/mlx#2855 isn't
+///   shipped yet (needs allocator::Buffer wrapping + Deleter plumbing).
+///   The numpy-buffer-protocol path is *not* end-to-end zero-copy:
+///   MLX copies into its own MTLBuffer on first GPU dispatch.
+/// - **Numpy / Jax / Paddle / Flax**: not relevant for MPS — none have a
+///   functioning MPS device path.
 #[cfg(target_os = "macos")]
 fn ingest_dlpack_mps(
     py: Python<'_>,
@@ -2098,36 +2149,12 @@ fn ingest_dlpack_mps(
                 .call_method1(intern!(py, "from_dlpack"), (capsule,))?
                 .into())
         }
-        Framework::Mlx => {
-            let mlx = PyModule::import(py, intern!(py, "mlx.core"))?;
-            MLX_MODULE.get_or_init_py_attached(py, || {
-                PyModule::import(py, intern!(py, "mlx")).unwrap().into()
-            });
-            Ok(mlx
-                .call_method1(intern!(py, "from_dlpack"), (capsule,))?
-                .into())
-        }
-        Framework::Numpy => {
-            let np = get_module(py, &NUMPY_MODULE)?;
-            Ok(np
-                .call_method1(intern!(py, "from_dlpack"), (capsule,))?
-                .into())
-        }
-        Framework::Paddle => {
-            let paddle = PyModule::import(py, intern!(py, "paddle.utils.dlpack"))?;
-            Ok(paddle
-                .call_method1(intern!(py, "from_dlpack"), (capsule,))?
-                .into())
-        }
-        Framework::Flax => {
-            let jax = PyModule::import(py, intern!(py, "jax.dlpack"))?;
-            Ok(jax
-                .call_method1(intern!(py, "from_dlpack"), (capsule,))?
-                .into())
-        }
         Framework::Tensorflow => Err(SafetensorError::new_err(
             "Tensorflow uses the copy path; should not reach DLPack ingestion",
         )),
+        other => Err(SafetensorError::new_err(format!(
+            "MPS DLPack ingestion is not implemented for framework {other}"
+        ))),
     }
 }
 
