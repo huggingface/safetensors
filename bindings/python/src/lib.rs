@@ -1,12 +1,17 @@
 #![deny(missing_docs)]
 //! Dummy doc
+#[cfg(target_os = "macos")]
+mod dlpack;
+#[cfg(target_os = "macos")]
+mod metal;
+
 use core::slice;
 use memmap2::{Mmap, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::OnceLockExt;
 use pyo3::types::IntoPyDict;
-use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyList, PySlice};
+use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyEllipsis, PyList, PySlice, PyTuple};
 use pyo3::Bound as PyBound;
 use pyo3::{intern, PyErr};
 use safetensors::slice::TensorIndexer;
@@ -26,9 +31,6 @@ static TENSORFLOW_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static FLAX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static MLX_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
 static PADDLE_MODULE: OnceLock<Py<PyModule>> = OnceLock::new();
-
-#[cfg(target_os = "macos")]
-static MPS_HOST_ALIAS_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 /// Describes a single tensor passed to [`serialize`] / [`serialize_file`].
 ///
@@ -292,41 +294,86 @@ fn deserialize(py: Python, bytes: &[u8]) -> PyResult<Vec<(String, HashMap<String
     Ok(items)
 }
 
-fn slice_to_indexer(
-    (dim_idx, (slice_index, dim)): (usize, (SliceIndex, usize)),
-) -> Result<TensorIndexer, PyErr> {
-    match slice_index {
-        SliceIndex::Slice(slice) => {
-            let py_start = slice.getattr(intern!(slice.py(), "start"))?;
-            let start: Option<usize> = py_start.extract()?;
-            let start = if let Some(start) = start {
-                Bound::Included(start)
-            } else {
-                Bound::Unbounded
-            };
+/// Convert a Python slicing argument into the crate's `TensorIndexer` form.
+///
+/// Accepts: a single slice / int / `Ellipsis`, a tuple of those (with at
+/// most one `Ellipsis` that expands to fill remaining dims), or `[]` (empty
+/// list → degenerate empty selection along the first dim). Non-empty lists
+/// are rejected to match prior behavior.
+fn parse_indexers(slices: &PyBound<'_, PyAny>, shape: &[usize]) -> PyResult<Vec<TensorIndexer>> {
+    let py = slices.py();
 
-            let py_stop = slice.getattr(intern!(slice.py(), "stop"))?;
-            let stop: Option<usize> = py_stop.extract()?;
-            let stop = if let Some(stop) = stop {
-                Bound::Excluded(stop)
-            } else {
-                Bound::Unbounded
-            };
-            Ok(TensorIndexer::Narrow(start, stop))
+    let items: Vec<PyBound<'_, PyAny>> = if let Ok(tup) = slices.cast::<PyTuple>() {
+        tup.iter().collect()
+    } else if let Ok(lst) = slices.cast::<PyList>() {
+        if lst.is_empty() {
+            // Preserve the previous "empty list = empty selection" behavior.
+            return Ok(vec![TensorIndexer::Narrow(
+                Bound::Included(0),
+                Bound::Excluded(0),
+            )]);
         }
-        SliceIndex::Index(idx) => {
-            if idx < 0 {
-                let idx = dim.checked_add_signed(idx as isize).ok_or_else(|| {
+        return Err(SafetensorError::new_err(
+            "Non empty lists are not implemented",
+        ));
+    } else {
+        vec![slices.clone()]
+    };
+
+    let ellipsis_count = items
+        .iter()
+        .filter(|it| it.is_instance_of::<PyEllipsis>())
+        .count();
+    if ellipsis_count > 1 {
+        return Err(SafetensorError::new_err(
+            "Only one ellipsis (...) is allowed in slice index",
+        ));
+    }
+    let n_explicit = items.len() - ellipsis_count;
+    let n_expansion = shape.len().saturating_sub(n_explicit);
+
+    let mut indexers: Vec<TensorIndexer> = Vec::with_capacity(shape.len());
+    let mut dim_idx = 0usize;
+    for it in items {
+        if it.is_instance_of::<PyEllipsis>() {
+            for _ in 0..n_expansion {
+                indexers.push(TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded));
+                dim_idx += 1;
+            }
+        } else if let Ok(slice) = it.cast::<PySlice>() {
+            let start: Option<usize> = slice.getattr(intern!(py, "start"))?.extract()?;
+            let stop: Option<usize> = slice.getattr(intern!(py, "stop"))?.extract()?;
+            let start_b = match start {
+                Some(s) => Bound::Included(s),
+                None => Bound::Unbounded,
+            };
+            let stop_b = match stop {
+                Some(s) => Bound::Excluded(s),
+                None => Bound::Unbounded,
+            };
+            indexers.push(TensorIndexer::Narrow(start_b, stop_b));
+            dim_idx += 1;
+        } else if let Ok(idx) = it.extract::<i32>() {
+            let dim = shape.get(dim_idx).copied().unwrap_or(0);
+            let resolved = if idx < 0 {
+                dim.checked_add_signed(idx as isize).ok_or_else(|| {
                     SafetensorError::new_err(format!(
                         "Invalid index {idx} for dimension {dim_idx} of size {dim}"
                     ))
-                })?;
-                Ok(TensorIndexer::Select(idx))
+                })?
             } else {
-                Ok(TensorIndexer::Select(idx as usize))
-            }
+                idx as usize
+            };
+            indexers.push(TensorIndexer::Select(resolved));
+            dim_idx += 1;
+        } else {
+            return Err(SafetensorError::new_err(format!(
+                "Unsupported slice index at position {dim_idx}: expected slice, int, or ellipsis"
+            )));
         }
     }
+
+    Ok(indexers)
 }
 
 /// Storage backend used to serve tensor bytes.
@@ -645,6 +692,7 @@ impl Open {
         })?;
 
         if backend == Backend::Pread {
+            disable_page_cache_macos(&file);
             return Ok(Self {
                 filename,
                 metadata,
@@ -819,6 +867,14 @@ impl Open {
             if let Device::Cuda(_) = self.device {
                 return self.get_tensor_pinned_cuda(name, info);
             }
+        }
+
+        #[cfg(target_os = "macos")]
+        if self.device == Device::Mps
+            && self.framework == Framework::Pytorch
+            && dlpack::torch_mps_compatible(info.dtype)
+        {
+            return self.get_tensor_mps(name, info);
         }
 
         match &self.storage.as_ref() {
@@ -1128,21 +1184,98 @@ impl Open {
         })
     }
 
+    /// Single-tensor MPS path: alloc a Shared `MTLBuffer`, fill it from the
+    /// active storage source (`mmap` memcpy or `pread`), and hand off via
+    /// DLPack
+    #[cfg(target_os = "macos")]
+    fn get_tensor_mps(&self, name: &str, info: &TensorInfo) -> PyResult<Py<PyAny>> {
+        let (begin, end) = info.data_offsets;
+        let nbytes = end - begin;
+
+        // alloc_shared clamps 0 -> 1 so zero-byte tensors still get a real
+        // buffer to hand off; the DLPack shape carries the zero dim.
+        let buf = crate::metal::MtlBuffer::alloc_shared(nbytes)
+            .map_err(|e| SafetensorError::new_err(format!("MTLBuffer alloc for {name}: {e}")))?;
+        if nbytes > 0 {
+            let write_ptr_u = buf.contents_ptr() as usize;
+            match self.storage.as_ref() {
+                Storage::Mmap(mmap) => {
+                    let src = &mmap[self.offset + begin..self.offset + end];
+                    // SAFETY: write_ptr addresses a freshly-allocated MTLBuffer
+                    // of exactly `nbytes` we own; src is the live mmap region.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(src.as_ptr(), write_ptr_u as *mut u8, nbytes);
+                    }
+                }
+                Storage::Pread(file) => {
+                    let file_offset = (self.offset + begin) as u64;
+                    let read_result: std::io::Result<()> = Python::attach(|py| {
+                        py.detach(|| {
+                            // SAFETY: write_ptr/nbytes name a freshly-allocated
+                            // MTLBuffer; no other thread sees it yet.
+                            let dst = unsafe {
+                                std::slice::from_raw_parts_mut(write_ptr_u as *mut u8, nbytes)
+                            };
+                            read_exact_at(file, dst, file_offset)
+                        })
+                    });
+                    read_result
+                        .map_err(|e| SafetensorError::new_err(format!("pread for {name}: {e}")))?;
+                }
+                Storage::Torch(storage) => {
+                    Python::attach(|py| -> PyResult<()> {
+                        let storage_obj = storage
+                            .get()
+                            .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?
+                            .bind(py);
+                        let src_data_ptr: usize = storage_obj
+                            .call_method0(intern!(py, "data_ptr"))?
+                            .extract()?;
+                        let src_addr = src_data_ptr + self.offset + begin;
+                        py.detach(|| {
+                            // SAFETY: src spans the torch UntypedStorage held alive
+                            // by `self.storage`; dst is our owned MTLBuffer.
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    src_addr as *const u8,
+                                    write_ptr_u as *mut u8,
+                                    nbytes,
+                                );
+                            }
+                        });
+                        Ok(())
+                    })?;
+                }
+                Storage::Paddle(_) => {
+                    return Err(SafetensorError::new_err(
+                        "Paddle + MPS is not a supported combination",
+                    ));
+                }
+            }
+        }
+
+        Python::attach(|py| mps_tensor_from_buf(py, &self.framework, info.dtype, &info.shape, buf))
+    }
+
     /// Returns every tensor in the file as a `{name: Tensor}` dict.
     ///
-    /// Default behavior is a sequential loop over `get_tensor`. Pytorch + MPS
-    /// (with `torch.mps._host_alias_storage` available) takes an internal
-    /// fast path: bulk-allocate MPS tensors, parallel `pread(2)` straight
-    /// into their host-aliased MTLBuffers. The bulk path is safe on MPS
-    /// because the MPS tensor *is* the destination — there's no separate
-    /// staging buffer, total memory stays at 1× model.
+    /// Default behavior is a sequential loop over `get_tensor`. On macOS with
+    /// `device="mps"` and a non-Tensorflow framework, bulk-allocates Metal
+    /// shared-storage `MTLBuffer`s ourselves, parallel-`pread`s into their
+    /// host-coherent contents pointer, and hands ownership to the framework
+    /// via DLPack. Total memory stays at 1× model (the MTLBuffer is the
+    /// destination — no staging copy).
     pub fn get_tensors(&self) -> PyResult<Py<PyDict>> {
         #[cfg(target_os = "macos")]
-        if self.framework == Framework::Pytorch
-            && self.device == Device::Mps
-            && mps_host_alias_available()?
+        if self.device == Device::Mps
+            && self.framework == Framework::Pytorch
+            && self
+                .metadata
+                .tensors()
+                .values()
+                .all(|info| dlpack::torch_mps_compatible(info.dtype))
         {
-            return self.get_tensors_parallel_mps();
+            return self.get_tensors_mps();
         }
 
         Python::attach(|py| -> PyResult<Py<PyDict>> {
@@ -1155,66 +1288,61 @@ impl Open {
         })
     }
 
-    /// Bulk-allocates MPS tensors, then parallel-`pread`s straight into
-    /// their host-aliased MTLBuffers. Requires `torch.mps._host_alias_storage`
-    /// (pytorch/pytorch#180961); caller must have verified.
+    /// Bulk-allocates Shared-mode `MTLBuffer`s, parallel-`pread`s straight
+    /// into each buffer's host-coherent contents pointer, then DLPack-hands
+    /// the buffers off to the framework.
     #[cfg(target_os = "macos")]
-    fn get_tensors_parallel_mps(&self) -> PyResult<Py<PyDict>> {
+    fn get_tensors_mps(&self) -> PyResult<Py<PyDict>> {
         let file = File::open(&self.filename).map_err(|e| {
             PyFileNotFoundError::new_err(format!("Could not open {}: {e}", self.filename.display()))
         })?;
+        // Fresh fd used for direct pread into MTLBuffers — skip the page
+        // cache so the load doesn't leave a model-sized footprint in
+        // file-backed pages after we're done.
+        disable_page_cache_macos(&file);
+
+        let keys = self.metadata.offset_keys();
+        let mut bufs: Vec<crate::metal::MtlBuffer> = Vec::with_capacity(keys.len());
+        let mut jobs: Vec<PreadJob> = Vec::with_capacity(keys.len());
+        let mut metas: Vec<(String, Dtype, Vec<usize>)> = Vec::with_capacity(keys.len());
+
+        for name in &keys {
+            let info = self.metadata.info(name).ok_or_else(|| {
+                SafetensorError::new_err(format!("Missing tensor info for {name}"))
+            })?;
+            let (begin, end) = info.data_offsets;
+            let nbytes = end - begin;
+            metas.push((name.clone(), info.dtype, info.shape.clone()));
+
+            // alloc_shared clamps 0 -> 1 internally; zero-byte tensors still
+            // get a valid MTLBuffer and the DLPack shape carries the zero dim.
+            let buf = crate::metal::MtlBuffer::alloc_shared(nbytes).map_err(|e| {
+                SafetensorError::new_err(format!("MTLBuffer alloc for {name}: {e}"))
+            })?;
+            if nbytes > 0 {
+                jobs.push(PreadJob {
+                    name: name.clone(),
+                    file_offset: (self.offset + begin) as u64,
+                    nbytes,
+                    write_ptr: buf.contents_ptr() as usize,
+                });
+            }
+            bufs.push(buf);
+        }
 
         Python::attach(|py| -> PyResult<Py<PyDict>> {
-            let torch = get_module(py, &TORCH_MODULE)?;
-            let mps_mod = torch.getattr(intern!(py, "mps"))?;
-
-            let keys = self.metadata.offset_keys();
-            let mut entries: Vec<(String, PyBound<'_, PyAny>)> = Vec::with_capacity(keys.len());
-            // Aliases pin the source MPS storages; keep alive across parallel writes.
-            let mut host_aliases: Vec<PyBound<'_, PyAny>> = Vec::with_capacity(keys.len());
-            let mut jobs: Vec<PreadJob> = Vec::with_capacity(keys.len());
-
-            for name in keys {
-                let info = self.metadata.info(&name).ok_or_else(|| {
-                    SafetensorError::new_err(format!("Missing tensor info for {name}"))
-                })?;
-                let (begin, end) = info.data_offsets;
-                let nbytes = end - begin;
-
-                let dest = MpsDest::new(py, torch, &name, info.dtype, &info.shape, nbytes)?;
-                if let Some(alias) = dest.host_alias {
-                    host_aliases.push(alias);
-                    jobs.push(PreadJob {
-                        name: name.clone(),
-                        file_offset: (self.offset + begin) as u64,
-                        nbytes,
-                        write_ptr: dest.write_ptr,
-                    });
-                }
-                entries.push((name, dest.tensor));
-            }
-
-            // Drain in-flight GPU work before writing through the CPU alias.
-            mps_mod.call_method0(intern!(py, "synchronize"))?;
-
             if let Err((name, e)) = parallel_pread(py, &file, &jobs) {
                 return Err(SafetensorError::new_err(format!(
                     "pread failed for tensor {name}: {e}"
                 )));
             }
 
-            // Make CPU writes visible to subsequent GPU reads.
-            mps_mod.call_method0(intern!(py, "synchronize"))?;
-
-            let result = PyDict::new(py);
-            for (name, tensor) in entries {
-                result.set_item(name, tensor)?;
+            let dict = PyDict::new(py);
+            for ((name, dtype, shape), buf) in metas.into_iter().zip(bufs) {
+                let tensor = mps_tensor_from_buf(py, &self.framework, dtype, &shape, buf)?;
+                dict.set_item(&name, tensor)?;
             }
-
-            // Drop aliases after synchronize so pinned MPS storages outlive writes.
-            drop(host_aliases);
-
-            Ok(result.into())
+            Ok(dict.into())
         })
     }
 
@@ -1344,10 +1472,8 @@ impl safe_open {
     /// Returns every tensor in the file as a dict keyed by name.
     ///
     /// Equivalent to iterating `offset_keys()` and calling `get_tensor` on
-    /// each, but specific `framework` + `device` combinations take an
-    /// internal fast path (e.g. MPS with PyTorch ≥ 2.10's
-    /// `_host_alias_storage` bulk-allocates and fills tensors with parallel
-    /// `pread(2)`).
+    /// each; for `device="mps"` it instead bulk-allocates Shared MTLBuffers,
+    /// parallel-`pread(2)`s into them, and hands them off via DLPack.
     ///
     /// Returns:
     ///     (`Dict[str, Tensor]`):
@@ -1404,18 +1530,6 @@ struct PySafeSlice {
     storage: Arc<Storage>,
 }
 
-#[derive(FromPyObject)]
-enum SliceIndex<'a> {
-    Slice(PyBound<'a, PySlice>),
-    Index(i32),
-}
-
-#[derive(FromPyObject)]
-enum Slice<'a> {
-    Slice(SliceIndex<'a>),
-    Slices(Vec<SliceIndex<'a>>),
-}
-
 use std::fmt;
 struct Disp(Vec<TensorIndexer>);
 
@@ -1437,33 +1551,9 @@ impl PySafeSlice {
         slices: &PyBound<'_, PyAny>,
         data: &[u8],
     ) -> PyResult<Py<PyAny>> {
-        let pyslices = slices;
-        let parsed: Slice = pyslices.extract()?;
-        let is_list = pyslices.is_instance_of::<PyList>();
-        let parsed: Vec<SliceIndex> = match parsed {
-            Slice::Slice(slice) => vec![slice],
-            Slice::Slices(slices) => {
-                if slices.is_empty() && is_list {
-                    vec![SliceIndex::Slice(PySlice::new(pyslices.py(), 0, 0, 0))]
-                } else if is_list {
-                    return Err(SafetensorError::new_err(
-                        "Non empty lists are not implemented",
-                    ));
-                } else {
-                    slices
-                }
-            }
-        };
-
-        let shape = self.info.shape.clone();
+        let indexers = parse_indexers(slices, &self.info.shape)?;
         let tensor = TensorView::new(self.info.dtype, self.info.shape.clone(), data)
             .map_err(|e| SafetensorError::new_err(format!("Error preparing tensor view: {e}")))?;
-        let indexers: Vec<TensorIndexer> = parsed
-            .into_iter()
-            .zip(shape)
-            .enumerate()
-            .map(slice_to_indexer)
-            .collect::<Result<_, _>>()?;
 
         let iterator = tensor.sliced_data(&indexers).map_err(|e| {
             SafetensorError::new_err(format!(
@@ -1494,6 +1584,112 @@ impl PySafeSlice {
                 array,
                 &self.device,
             )
+        })
+    }
+
+    /// MPS slice path: alloc a Shared `MTLBuffer` sized for the post-slice
+    /// tensor, fill each source segment directly into it via pread/memcpy,
+    /// then hand off via DLPack. Skips the bytearray + CPU tensor +
+    /// `.to("mps")` round-trip the general path takes.
+    #[cfg(target_os = "macos")]
+    fn slice_mps(&self, slices: &PyBound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let indexers = parse_indexers(slices, &self.info.shape)?;
+
+        let (ranges, newshape) =
+            safetensors::slice::slice_byte_ranges(self.info.dtype, &self.info.shape, &indexers)
+                .map_err(|e| {
+                    SafetensorError::new_err(format!(
+                        "Error during slicing {} with shape {:?}: {e}",
+                        Disp(indexers.clone()),
+                        self.info.shape,
+                    ))
+                })?;
+
+        let total: usize = ranges.iter().map(|(a, b)| b - a).sum();
+        // alloc_shared clamps 0 -> 1 so empty slices still get a real
+        // buffer to hand off; the DLPack shape carries the zero dim.
+        let buf = crate::metal::MtlBuffer::alloc_shared(total)
+            .map_err(|e| SafetensorError::new_err(format!("MTLBuffer alloc for slice: {e}")))?;
+        if total > 0 {
+            let write_ptr_u = buf.contents_ptr() as usize;
+            let tensor_base = self.offset + self.info.data_offsets.0;
+
+            match self.storage.as_ref() {
+                Storage::Mmap(mmap) => {
+                    let mut dst_off = 0usize;
+                    for &(src_lo, src_hi) in &ranges {
+                        let len = src_hi - src_lo;
+                        let src = &mmap[tensor_base + src_lo..tensor_base + src_hi];
+                        // SAFETY: write_ptr_u/len address a freshly-allocated
+                        // MTLBuffer of exactly `total` bytes; src is the live mmap.
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                src.as_ptr(),
+                                (write_ptr_u + dst_off) as *mut u8,
+                                len,
+                            );
+                        }
+                        dst_off += len;
+                    }
+                }
+                Storage::Pread(file) => {
+                    let ranges_ref = &ranges;
+                    let read_result: std::io::Result<()> = Python::attach(|py| {
+                        py.detach(|| {
+                            let mut dst_off = 0usize;
+                            for &(src_lo, src_hi) in ranges_ref {
+                                let len = src_hi - src_lo;
+                                // SAFETY: freshly-allocated MTLBuffer, disjoint segments.
+                                let dst = unsafe {
+                                    std::slice::from_raw_parts_mut(
+                                        (write_ptr_u + dst_off) as *mut u8,
+                                        len,
+                                    )
+                                };
+                                read_exact_at(file, dst, (tensor_base + src_lo) as u64)?;
+                                dst_off += len;
+                            }
+                            Ok(())
+                        })
+                    });
+                    read_result
+                        .map_err(|e| SafetensorError::new_err(format!("pread for slice: {e}")))?;
+                }
+                Storage::Torch(storage) => {
+                    Python::attach(|py| -> PyResult<()> {
+                        let storage_obj = storage
+                            .get()
+                            .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?
+                            .bind(py);
+                        let src_data_ptr: usize = storage_obj
+                            .call_method0(intern!(py, "data_ptr"))?
+                            .extract()?;
+                        let ranges_ref = &ranges;
+                        py.detach(|| {
+                            let mut dst_off = 0usize;
+                            for &(src_lo, src_hi) in ranges_ref {
+                                let len = src_hi - src_lo;
+                                // SAFETY: torch storage outlives this call via
+                                // self.storage; dst is our owned MTLBuffer.
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        (src_data_ptr + tensor_base + src_lo) as *const u8,
+                                        (write_ptr_u + dst_off) as *mut u8,
+                                        len,
+                                    );
+                                }
+                                dst_off += len;
+                            }
+                        });
+                        Ok(())
+                    })?;
+                }
+                Storage::Paddle(_) => unreachable!("Paddle excluded at __getitem__ entry"),
+            }
+        }
+
+        Python::attach(|py| {
+            mps_tensor_from_buf(py, &self.framework, self.info.dtype, &newshape, buf)
         })
     }
 }
@@ -1541,6 +1737,15 @@ impl PySafeSlice {
     }
 
     pub fn __getitem__(&self, slices: &PyBound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        #[cfg(target_os = "macos")]
+        if self.device == Device::Mps
+            && self.framework == Framework::Pytorch
+            && !matches!(self.storage.as_ref(), Storage::Paddle(_))
+            && dlpack::torch_mps_compatible(self.info.dtype)
+        {
+            return self.slice_mps(slices);
+        }
+
         match &self.storage.as_ref() {
             Storage::Mmap(mmap) => {
                 let data = &mmap[self.info.data_offsets.0 + self.offset
@@ -1742,6 +1947,26 @@ struct PreadJob {
     write_ptr: usize,
 }
 
+/// Mark `file` to bypass the page cache for `read`/`pread` calls on macOS.
+///
+/// `F_NOCACHE` only affects I/O syscalls on this fd — it has no effect on
+/// pages accessed via `mmap`, so this is only useful for fds we'll
+/// `pread()` from. Best-effort: failures (e.g. on filesystems that don't
+/// honor it) are ignored. No-op on non-macOS.
+#[allow(unused_variables)]
+fn disable_page_cache_macos(file: &File) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: fcntl with F_NOCACHE takes (fd, cmd, int) and returns an
+        // int. We pass an owned, valid fd from `file` and ignore the result
+        // since this is a hint, not a correctness requirement.
+        unsafe {
+            libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1);
+        }
+    }
+}
+
 /// Portable positional read: fills `buf` from `file` starting at `offset`.
 ///
 /// **Thread-safety:** safe to call concurrently from multiple threads on the
@@ -1781,7 +2006,7 @@ fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()
 /// allocated buffer that outlives this call (the GIL is released for the
 /// duration). The number of workers is capped at 8: beyond that, NVMe and
 /// Apple SSD reads should be I/O-bound rather than CPU-bound.
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parallel_pread(
     py: Python<'_>,
     file: &File,
@@ -1847,76 +2072,89 @@ fn torch_storage_shape(dtype: Dtype, logical_shape: &[usize]) -> PyResult<Vec<us
     Ok(shape)
 }
 
-/// Pre-allocated MPS destination ready for a `pread` write.
+/// Hand a filled `MtlBuffer` to the framework as a tensor via DLPack.
 ///
-/// - `tensor`: the MPS tensor returned to the user; its underlying storage
-///   owns the MTLBuffer.
-/// - `write_ptr`: a host-mapped address into that MTLBuffer (obtained via
-///   `torch.mps._host_alias_storage().data_ptr()`). Valid for as long as
-///   the MTLBuffer lives — i.e., as long as `tensor` lives — since shared-
-///   storage MTLBuffers expose a stable CPU pointer for their full
-///   lifetime.
-/// - `host_alias`: the intermediate CPU-storage Python wrapper produced by
-///   `_host_alias_storage`. Held defensively across the writes; not
-///   strictly required for `write_ptr` to remain valid (the MTLBuffer is
-///   already pinned by `tensor`), but cheap insurance against any
-///   side-effect of dropping the CPU view mid-write. Independent of the
-///   trailing `mps.synchronize()`, which exists to flush CPU writes to
-///   subsequent MPS reads.
+/// For zero-byte tensors the caller passes a buffer that was clamp-allocated
+/// to 1 byte by `MtlBuffer::alloc_shared`; the DLPack shape still carries a
+/// zero dim so `numel == 0` for the framework consumer.
+///
+/// For dtypes torch's DLPack doesn't accept natively (F4/F8 variants), the
+/// capsule's wire dtype is `uint8` and we `.view(target)` on the torch side
+/// — same bytes, correct dtype, no copy.
 #[cfg(target_os = "macos")]
-struct MpsDest<'py> {
-    tensor: PyBound<'py, PyAny>,
-    host_alias: Option<PyBound<'py, PyAny>>,
-    write_ptr: usize,
+fn mps_tensor_from_buf(
+    py: Python<'_>,
+    framework: &Framework,
+    dtype: Dtype,
+    logical_shape: &[usize],
+    buf: crate::metal::MtlBuffer,
+) -> PyResult<Py<PyAny>> {
+    let storage_shape = torch_storage_shape(dtype, logical_shape)?;
+    let shape_i64: Vec<i64> = storage_shape.iter().map(|&n| n as i64).collect();
+
+    let view_target = if dlpack::dlpack_supported_native(dtype) {
+        None
+    } else {
+        dlpack::torch_view_target(dtype)
+    };
+    let dl_dtype = if view_target.is_some() {
+        dlpack::uint8_dlpack()
+    } else {
+        dlpack::dtype_to_dlpack(dtype)
+    };
+
+    let device = dlpack::metal_device();
+    let capsule = dlpack::to_capsule(py, buf, shape_i64, dl_dtype, device)?;
+    let tensor = ingest_dlpack_mps(py, framework, capsule)?;
+
+    if let Some(name) = view_target {
+        // Reinterpret uint8 bytes as the actual dtype. Currently torch-only;
+        // dispatch gate ensures other frameworks don't reach here for
+        // non-native dtypes.
+        let torch = get_module(py, &TORCH_MODULE)?;
+        let target = torch.getattr(name)?;
+        let viewed = tensor
+            .bind(py)
+            .call_method1(intern!(py, "view"), (target,))?;
+        Ok(viewed.unbind())
+    } else {
+        Ok(tensor)
+    }
 }
 
+/// Framework-specific `from_dlpack` dispatch for a Metal-typed capsule.
+///
+/// Today only Pytorch is wired. `Open::new`'s framework guard rejects
+/// non-Cpu device for all other frameworks, so this is the only reachable
+/// arm. The remaining frameworks return an explicit error to keep the
+/// surface honest if the upstream guard is ever widened:
+///
+/// - **MLX**: no `from_dlpack` exists; `mx.array(capsule)` fails. The
+///   public Metal-zero-copy path tracked at ml-explore/mlx#2855 isn't
+///   shipped yet (needs allocator::Buffer wrapping + Deleter plumbing).
+///   The numpy-buffer-protocol path is *not* end-to-end zero-copy:
+///   MLX copies into its own MTLBuffer on first GPU dispatch.
+/// - **Numpy / Jax / Paddle / Flax**: not relevant for MPS — none have a
+///   functioning MPS device path.
 #[cfg(target_os = "macos")]
-impl<'py> MpsDest<'py> {
-    /// Allocate `torch.empty(...,device="mps")` and acquire a CPU-writable
-    /// host alias to its storage.
-    fn new(
-        py: Python<'py>,
-        torch: &PyBound<'py, PyModule>,
-        name: &str,
-        dtype: Dtype,
-        logical_shape: &[usize],
-        nbytes: usize,
-    ) -> PyResult<Self> {
-        let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
-        let storage_shape = torch_storage_shape(dtype, logical_shape)?;
-        let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
-        let device_obj: Py<PyAny> = "mps".into_pyobject(py)?.into();
-        let kwargs = [
-            (intern!(py, "dtype"), dtype_obj),
-            (intern!(py, "device"), device_obj),
-        ]
-        .into_py_dict(py)?;
-        let tensor = torch.call_method("empty", (shape_obj,), Some(&kwargs))?;
-
-        if nbytes == 0 {
-            return Ok(Self {
-                tensor,
-                host_alias: None,
-                write_ptr: 0,
-            });
+fn ingest_dlpack_mps(
+    py: Python<'_>,
+    framework: &Framework,
+    capsule: Py<PyAny>,
+) -> PyResult<Py<PyAny>> {
+    match framework {
+        Framework::Pytorch => {
+            let torch = get_module(py, &TORCH_MODULE)?;
+            Ok(torch
+                .call_method1(intern!(py, "from_dlpack"), (capsule,))?
+                .into())
         }
-
-        let mps_storage = tensor.call_method0(intern!(py, "untyped_storage"))?;
-        let mps_mod = torch.getattr(intern!(py, "mps"))?;
-        let host_alias_fn = mps_mod.getattr(intern!(py, "_host_alias_storage"))?;
-        let cpu_alias = host_alias_fn.call1((mps_storage,))?;
-        let write_ptr: usize = cpu_alias.call_method0(intern!(py, "data_ptr"))?.extract()?;
-        if write_ptr == 0 {
-            return Err(SafetensorError::new_err(format!(
-                "torch.mps._host_alias_storage returned a null data_ptr for tensor \
-                 {name} (non-shared-storage MPS allocation?)",
-            )));
-        }
-        Ok(Self {
-            tensor,
-            host_alias: Some(cpu_alias),
-            write_ptr,
-        })
+        Framework::Tensorflow => Err(SafetensorError::new_err(
+            "Tensorflow uses the copy path; should not reach DLPack ingestion",
+        )),
+        other => Err(SafetensorError::new_err(format!(
+            "MPS DLPack ingestion is not implemented for framework {other}"
+        ))),
     }
 }
 
@@ -1959,25 +2197,6 @@ impl<'py> PinnedCpuDest<'py> {
         let write_ptr: usize = tensor.call_method0(intern!(py, "data_ptr"))?.extract()?;
         Ok(Self { tensor, write_ptr })
     }
-}
-
-/// Whether this torch build exposes `torch.mps._host_alias_storage`
-/// (pytorch/pytorch#180961). Cached after the first call since the answer
-/// doesn't change at runtime. Torch must already be imported
-/// (guaranteed when `Open::new` ran with `Framework::Pytorch`).
-#[cfg(target_os = "macos")]
-fn mps_host_alias_available() -> PyResult<bool> {
-    if let Some(&cached) = MPS_HOST_ALIAS_AVAILABLE.get() {
-        return Ok(cached);
-    }
-    let available = Python::attach(|py| -> PyResult<bool> {
-        let torch = get_module(py, &TORCH_MODULE)?;
-        torch
-            .getattr(intern!(py, "mps"))?
-            .hasattr(intern!(py, "_host_alias_storage"))
-    })?;
-    let _ = MPS_HOST_ALIAS_AVAILABLE.set(available);
-    Ok(available)
 }
 
 fn create_tensor<'a>(
@@ -2259,7 +2478,7 @@ impl _safe_open_handle {
 
     /// Returns every tensor in the file as a dict keyed by name.
     ///
-    /// See `safe_open.get_tensors` for the fast-path behavior.
+    /// See `safe_open.get_tensors` for the device-specific dispatch.
     pub fn get_tensors(&self) -> PyResult<Py<PyDict>> {
         self.inner()?.get_tensors()
     }
