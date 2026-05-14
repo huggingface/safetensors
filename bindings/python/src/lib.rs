@@ -1255,6 +1255,7 @@ impl Open {
     /// Fill `dst` with strips packed in row-major order: for each outer-dim
     /// position, copy/pread one strip from each interval in input order.
     /// `dst.len()` must equal the sum of all strip byte counts.
+    #[allow(clippy::too_many_arguments)]
     fn fill_strided_dst(
         &self,
         name: &str,
@@ -1359,9 +1360,8 @@ impl Open {
                 let write_ptr = dest.write_ptr;
                 // SAFETY: write_ptr/total_bytes name `dest.tensor`'s pinned
                 // storage, which we just allocated and hold via `dest`.
-                let dst = unsafe {
-                    std::slice::from_raw_parts_mut(write_ptr as *mut u8, total_bytes)
-                };
+                let dst =
+                    unsafe { std::slice::from_raw_parts_mut(write_ptr as *mut u8, total_bytes) };
                 self.fill_strided_dst(
                     name,
                     info,
