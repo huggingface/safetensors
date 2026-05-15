@@ -2,7 +2,7 @@
 //! Dummy doc
 use core::slice;
 use memmap2::{Mmap, MmapOptions};
-use pyo3::exceptions::{PyException, PyFileNotFoundError};
+use pyo3::exceptions::{PyException, PyFileNotFoundError, PyNotImplementedError};
 use pyo3::prelude::*;
 use pyo3::sync::OnceLockExt;
 use pyo3::types::IntoPyDict;
@@ -1057,7 +1057,7 @@ impl Open {
 
         Python::attach(|py| -> PyResult<Py<PyAny>> {
             let torch = get_module(py, &TORCH_MODULE)?;
-            let dest = PinnedCpuDest::new(py, torch, info.dtype, &info.shape, nbytes)?;
+            let dest = TorchCpuDest::new(py, torch, info.dtype, &info.shape, nbytes, true)?;
 
             if nbytes > 0 {
                 let write_ptr = dest.write_ptr;
@@ -1125,6 +1125,270 @@ impl Open {
                 .tensor
                 .call_method("to", (cuda_device,), Some(&kwargs))?;
             Ok(cuda_tensor.into_pyobject(py)?.into())
+        })
+    }
+
+    /// Read `N` disjoint intervals along a single tensor dimension and pack
+    /// them into one contiguous output tensor — equivalent to
+    /// `torch.cat([slice_i for i in intervals], dim=dim)` but without the
+    /// intermediate per-slice tensors or the final cat.
+    ///
+    /// Used by tensor-parallel `_StridedShard` loading where a fused weight
+    /// (e.g. `gate_up_proj`) is split into interleaved stripes per rank: each
+    /// rank wants the concatenation of N rectangular sub-volumes from a
+    /// single tensor on disk.
+    pub fn get_strided_slice(
+        &self,
+        name: &str,
+        dim: usize,
+        intervals: Vec<(usize, usize)>,
+    ) -> PyResult<Py<PyAny>> {
+        let info = self.metadata.info(name).ok_or_else(|| {
+            SafetensorError::new_err(format!("File does not contain tensor {name}"))
+        })?;
+
+        if dim >= info.shape.len() {
+            return Err(SafetensorError::new_err(format!(
+                "dim {dim} out of range for tensor {name} with shape {:?}",
+                info.shape
+            )));
+        }
+        if intervals.is_empty() {
+            return Err(SafetensorError::new_err(
+                "get_strided_slice requires at least one interval".to_string(),
+            ));
+        }
+        let dim_size = info.shape[dim];
+        for (i, &(a, b)) in intervals.iter().enumerate() {
+            if a >= b {
+                return Err(SafetensorError::new_err(format!(
+                    "interval {i} = ({a}, {b}) is empty or reversed"
+                )));
+            }
+            if b > dim_size {
+                return Err(SafetensorError::new_err(format!(
+                    "interval {i} = ({a}, {b}) exceeds dim {dim} size {dim_size}"
+                )));
+            }
+        }
+
+        if matches!(self.storage.as_ref(), Storage::Paddle(_)) {
+            return Err(PyNotImplementedError::new_err(
+                "get_strided_slice does not support the Paddle storage backend yet",
+            ));
+        }
+
+        // Strip layout: in row-major, each "outer group" (combination of
+        // dims < `dim`) contributes one fixed-size row spanning the whole
+        // (dim, inner_dims) sub-volume. A row's worth of bytes is
+        // `dim_size * inner_count * dtype_bits / 8`; an interval (a, b) on
+        // `dim` carves out a contiguous slice of that row of size
+        // `(b - a) * inner_count * dtype_bits / 8`, starting `a *
+        // inner_count * dtype_bits / 8` bytes into the row. (For sub-byte
+        // dtypes any of these may not be byte-aligned; reject in that case.)
+        let dtype_bits = info.dtype.bitsize();
+        let inner_count: usize = info.shape[dim + 1..].iter().product();
+        let outer_count: usize = info.shape[..dim].iter().product();
+        let bits_per_dim_unit = inner_count * dtype_bits;
+        let row_bits = dim_size * bits_per_dim_unit;
+        if row_bits % 8 != 0 {
+            return Err(SafetensorError::new_err(format!(
+                "dim {dim} is not byte-aligned for dtype {:?}",
+                info.dtype
+            )));
+        }
+        let row_stride = row_bits / 8;
+
+        let mut interval_byte_offset: Vec<usize> = Vec::with_capacity(intervals.len());
+        let mut strip_size: Vec<usize> = Vec::with_capacity(intervals.len());
+        for (i, &(a, b)) in intervals.iter().enumerate() {
+            let start_bits = a * bits_per_dim_unit;
+            let span_bits = (b - a) * bits_per_dim_unit;
+            if start_bits % 8 != 0 || span_bits % 8 != 0 {
+                return Err(SafetensorError::new_err(format!(
+                    "interval {i} = ({a}, {b}) on dim {dim} is not byte-aligned for dtype {:?}",
+                    info.dtype
+                )));
+            }
+            interval_byte_offset.push(start_bits / 8);
+            strip_size.push(span_bits / 8);
+        }
+        let strip_total_per_row: usize = strip_size.iter().sum();
+        let total_bytes = outer_count * strip_total_per_row;
+
+        let mut out_shape = info.shape.clone();
+        out_shape[dim] = intervals.iter().map(|(a, b)| b - a).sum();
+
+        // Pytorch: allocate a torch tensor directly (no intermediate
+        // PyByteArray, no zero-init). Pin when the target is CUDA so the
+        // trailing `.to(cuda)` becomes an async DMA without a bounce buffer.
+        if self.framework == Framework::Pytorch {
+            return self.get_strided_slice_torch(
+                name,
+                info,
+                &out_shape,
+                total_bytes,
+                outer_count,
+                row_stride,
+                &interval_byte_offset,
+                &strip_size,
+            );
+        }
+
+        let array: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            let pyarray = PyByteArray::new_with(py, total_bytes, |dst| {
+                self.fill_strided_dst(
+                    name,
+                    info,
+                    outer_count,
+                    row_stride,
+                    &interval_byte_offset,
+                    &strip_size,
+                    dst,
+                )
+            })?;
+            Ok(pyarray.into_any().into())
+        })?;
+
+        create_tensor(&self.framework, info.dtype, &out_shape, array, &self.device)
+    }
+
+    /// Fill `dst` with strips packed in row-major order: for each outer-dim
+    /// position, copy/pread one strip from each interval in input order.
+    /// `dst.len()` must equal the sum of all strip byte counts.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_strided_dst(
+        &self,
+        name: &str,
+        info: &TensorInfo,
+        outer_count: usize,
+        row_stride: usize,
+        interval_byte_offset: &[usize],
+        strip_size: &[usize],
+        dst: &mut [u8],
+    ) -> PyResult<()> {
+        let (begin, _end) = info.data_offsets;
+        let src_base_in_tensor = self.offset + begin;
+        let mut cursor = 0usize;
+
+        match self.storage.as_ref() {
+            Storage::Mmap(mmap) => {
+                for g in 0..outer_count {
+                    let row_base = src_base_in_tensor + g * row_stride;
+                    for (off, &n) in interval_byte_offset.iter().zip(strip_size) {
+                        let s = row_base + off;
+                        dst[cursor..cursor + n].copy_from_slice(&mmap[s..s + n]);
+                        cursor += n;
+                    }
+                }
+            }
+            Storage::Pread(file) => {
+                let base = src_base_in_tensor as u64;
+                for g in 0..outer_count {
+                    let row_base = base + (g * row_stride) as u64;
+                    for (off, &n) in interval_byte_offset.iter().zip(strip_size) {
+                        let strip_offset = row_base + *off as u64;
+                        read_exact_at(file, &mut dst[cursor..cursor + n], strip_offset).map_err(
+                            |err| {
+                                SafetensorError::new_err(format!(
+                                    "pread failed for tensor {name} strip at file offset {strip_offset}: {err}"
+                                ))
+                            },
+                        )?;
+                        cursor += n;
+                    }
+                }
+            }
+            Storage::Torch(storage) => {
+                Python::attach(|py| -> PyResult<()> {
+                    let storage_obj: &Py<PyAny> = storage
+                        .get()
+                        .ok_or_else(|| SafetensorError::new_err("Could not find storage"))?;
+                    let storage_obj = storage_obj.bind(py);
+                    let src_data_ptr: usize = storage_obj
+                        .call_method0(intern!(py, "data_ptr"))?
+                        .extract()?;
+                    let src_base = src_data_ptr + src_base_in_tensor;
+                    py.detach(|| {
+                        for g in 0..outer_count {
+                            let row_base = src_base + g * row_stride;
+                            for (off, &n) in interval_byte_offset.iter().zip(strip_size) {
+                                // SAFETY: row_base + off..+n lives inside the torch
+                                // UntypedStorage held alive by `self.storage`,
+                                // which is Arc-rooted in this Open for the
+                                // duration of this call. dst is a borrow into
+                                // the caller's buffer; both regions are
+                                // disjoint by construction (dst is freshly
+                                // allocated, src is the file-backed storage).
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        (row_base + off) as *const u8,
+                                        dst.as_mut_ptr().add(cursor),
+                                        n,
+                                    );
+                                }
+                                cursor += n;
+                            }
+                        }
+                    });
+                    Ok(())
+                })?;
+            }
+            Storage::Paddle(_) => unreachable!("paddle path filtered earlier"),
+        }
+        Ok(())
+    }
+
+    /// Pytorch fast path for `get_strided_slice`: allocate a CPU torch
+    /// tensor sized to the cat output (pinned iff the target device is
+    /// CUDA), fill it strip-by-strip, then `.to(device)` if the eventual
+    /// target isn't CPU. Mirrors `get_tensor_pinned_cuda` but works for
+    /// CPU and MPS targets too — `torch.empty` doesn't zero-initialize the
+    /// way `PyByteArray::new_with` does, so this is the strictly cheaper
+    /// allocation strategy for PyTorch consumers.
+    #[allow(clippy::too_many_arguments)]
+    fn get_strided_slice_torch(
+        &self,
+        name: &str,
+        info: &TensorInfo,
+        out_shape: &[usize],
+        total_bytes: usize,
+        outer_count: usize,
+        row_stride: usize,
+        interval_byte_offset: &[usize],
+        strip_size: &[usize],
+    ) -> PyResult<Py<PyAny>> {
+        let pin_memory = matches!(self.device, Device::Cuda(_));
+        Python::attach(|py| -> PyResult<Py<PyAny>> {
+            let torch = get_module(py, &TORCH_MODULE)?;
+            let dest =
+                TorchCpuDest::new(py, torch, info.dtype, out_shape, total_bytes, pin_memory)?;
+
+            if total_bytes > 0 {
+                let write_ptr = dest.write_ptr;
+                // SAFETY: write_ptr/total_bytes name `dest.tensor`'s
+                // storage, which we just allocated and hold via `dest`.
+                let dst =
+                    unsafe { std::slice::from_raw_parts_mut(write_ptr as *mut u8, total_bytes) };
+                self.fill_strided_dst(
+                    name,
+                    info,
+                    outer_count,
+                    row_stride,
+                    interval_byte_offset,
+                    strip_size,
+                    dst,
+                )?;
+            }
+
+            let tensor = if matches!(self.device, Device::Cpu) {
+                dest.tensor
+            } else {
+                let device: Py<PyAny> = self.device.clone().into_pyobject(py)?.into();
+                let kwargs = PyDict::new(py);
+                dest.tensor.call_method("to", (device,), Some(&kwargs))?
+            };
+            Ok(tensor.into_pyobject(py)?.into())
         })
     }
 
@@ -1382,6 +1646,51 @@ impl safe_open {
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
         self.inner()?.get_slice(name)
+    }
+
+    /// Read `N` disjoint intervals along a single dimension and pack them
+    /// into one contiguous tensor — equivalent to
+    /// `torch.cat([f.get_slice(name)[..., a_i:b_i, ...] for (a_i, b_i) in intervals], dim=dim)`
+    /// but without materializing the per-interval tensors or the cat. The
+    /// destination is allocated once on the configured framework/device; for
+    /// PyTorch + CUDA, the dest is pinned-CPU and the result is `.to(cuda)`'d
+    /// in one async DMA.
+    ///
+    /// Intended for tensor-parallel `_StridedShard` loading where fused
+    /// weights are split into interleaved stripes per rank.
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor to read from.
+    ///     dim (`int`):
+    ///         The axis along which intervals are taken; all other axes are
+    ///         passed through in full.
+    ///     intervals (`List[Tuple[int, int]]`):
+    ///         Half-open `(start, stop)` ranges on `dim`; the output is their
+    ///         concatenation in the given order. Intervals must be non-empty
+    ///         and within `[0, shape[dim])`; overlap is allowed but
+    ///         duplicates data.
+    ///
+    /// Returns:
+    ///     (`Tensor`):
+    ///         A tensor whose shape matches the input tensor with `dim`
+    ///         replaced by `sum(b - a for (a, b) in intervals)`.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     # Interleaved tp shard of a fused gate_up_proj on TP=4 rank 0
+    ///     local = f.get_strided_slice("gate_up_proj", dim=0, intervals=[(0, 64), (256, 320)])
+    /// ```
+    pub fn get_strided_slice(
+        &self,
+        name: &str,
+        dim: usize,
+        intervals: Vec<(usize, usize)>,
+    ) -> PyResult<Py<PyAny>> {
+        self.inner()?.get_strided_slice(name, dim, intervals)
     }
 
     /// Start the context manager
@@ -1920,27 +2229,32 @@ impl<'py> MpsDest<'py> {
     }
 }
 
-/// Pre-allocated pinned-CPU torch destination.
-struct PinnedCpuDest<'py> {
+/// Pre-allocated CPU torch destination intended for direct fills via
+/// `write_ptr`. Optionally pinned when the eventual target is CUDA (so
+/// `.to(cuda)` becomes an async DMA without a bounce buffer).
+struct TorchCpuDest<'py> {
     tensor: PyBound<'py, PyAny>,
     write_ptr: usize,
 }
 
-impl<'py> PinnedCpuDest<'py> {
-    /// Allocate `torch.empty(...,device="cpu", pin_memory=True)` and extract
-    /// the data pointer for direct pread.
+impl<'py> TorchCpuDest<'py> {
+    /// Allocate `torch.empty(..., device="cpu", pin_memory=pin_memory)` and
+    /// extract the data pointer. Skipping `pin_memory` matters off the CUDA
+    /// fast path because `torch.empty` doesn't zero-initialize, unlike
+    /// `PyByteArray::new_with` which wipes the buffer before our callback.
     fn new(
         py: Python<'py>,
         torch: &PyBound<'py, PyModule>,
         dtype: Dtype,
         logical_shape: &[usize],
         nbytes: usize,
+        pin_memory: bool,
     ) -> PyResult<Self> {
         let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
         let storage_shape = torch_storage_shape(dtype, logical_shape)?;
         let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
         let cpu_device: Py<PyAny> = "cpu".into_pyobject(py)?.into();
-        let pin: Py<PyAny> = PyBool::new(py, true).to_owned().into_any().into();
+        let pin: Py<PyAny> = PyBool::new(py, pin_memory).to_owned().into_any().into();
         let kwargs = [
             (intern!(py, "dtype"), dtype_obj),
             (intern!(py, "device"), cpu_device),
@@ -2282,6 +2596,51 @@ impl _safe_open_handle {
     /// ```
     pub fn get_slice(&self, name: &str) -> PyResult<PySafeSlice> {
         self.inner()?.get_slice(name)
+    }
+
+    /// Read `N` disjoint intervals along a single dimension and pack them
+    /// into one contiguous tensor — equivalent to
+    /// `torch.cat([f.get_slice(name)[..., a_i:b_i, ...] for (a_i, b_i) in intervals], dim=dim)`
+    /// but without materializing the per-interval tensors or the cat. The
+    /// destination is allocated once on the configured framework/device; for
+    /// PyTorch + CUDA, the dest is pinned-CPU and the result is `.to(cuda)`'d
+    /// in one async DMA.
+    ///
+    /// Intended for tensor-parallel `_StridedShard` loading where fused
+    /// weights are split into interleaved stripes per rank.
+    ///
+    /// Args:
+    ///     name (`str`):
+    ///         The name of the tensor to read from.
+    ///     dim (`int`):
+    ///         The axis along which intervals are taken; all other axes are
+    ///         passed through in full.
+    ///     intervals (`List[Tuple[int, int]]`):
+    ///         Half-open `(start, stop)` ranges on `dim`; the output is their
+    ///         concatenation in the given order. Intervals must be non-empty
+    ///         and within `[0, shape[dim])`; overlap is allowed but
+    ///         duplicates data.
+    ///
+    /// Returns:
+    ///     (`Tensor`):
+    ///         A tensor whose shape matches the input tensor with `dim`
+    ///         replaced by `sum(b - a for (a, b) in intervals)`.
+    ///
+    /// Example:
+    /// ```python
+    /// from safetensors import safe_open
+    ///
+    /// with safe_open("model.safetensors", framework="pt", device=0) as f:
+    ///     # Interleaved tp shard of a fused gate_up_proj on TP=4 rank 0
+    ///     local = f.get_strided_slice("gate_up_proj", dim=0, intervals=[(0, 64), (256, 320)])
+    /// ```
+    pub fn get_strided_slice(
+        &self,
+        name: &str,
+        dim: usize,
+        intervals: Vec<(usize, usize)>,
+    ) -> PyResult<Py<PyAny>> {
+        self.inner()?.get_strided_slice(name, dim, intervals)
     }
 
     /// Start the context manager

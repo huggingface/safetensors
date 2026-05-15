@@ -207,6 +207,47 @@ class safe_open:
         """
         pass
 
+    def get_strided_slice(self, name, dim, intervals):
+        """
+        Read `N` disjoint intervals along a single dimension and pack them
+        into one contiguous tensor — equivalent to
+        `torch.cat([f.get_slice(name)[..., a_i:b_i, ...] for (a_i, b_i) in intervals], dim=dim)`
+        but without materializing the per-interval tensors or the cat. The
+        destination is allocated once on the configured framework/device;
+        for PyTorch + CUDA, the dest is pinned-CPU and the result is
+        `.to(cuda)`'d in one async DMA.
+
+        Intended for tensor-parallel `_StridedShard` loading where fused
+        weights are split into interleaved stripes per rank.
+
+        Args:
+            name (`str`):
+                The name of the tensor to read from.
+            dim (`int`):
+                The axis along which intervals are taken; all other axes
+                are passed through in full.
+            intervals (`List[Tuple[int, int]]`):
+                Half-open `(start, stop)` ranges on `dim`; the output is
+                their concatenation in the given order. Intervals must be
+                non-empty and within `[0, shape[dim])`; overlap is allowed
+                but duplicates data.
+
+        Returns:
+            (`Tensor`):
+                A tensor whose shape matches the input tensor with `dim`
+                replaced by `sum(b - a for (a, b) in intervals)`.
+
+        Example:
+        ```python
+        from safetensors import safe_open
+
+        with safe_open("model.safetensors", framework="pt", device=0) as f:
+            local = f.get_strided_slice("gate_up_proj", dim=0, intervals=[(0, 64), (256, 320)])
+
+        ```
+        """
+        pass
+
     def get_tensor(self, name):
         """
         Returns a full tensor
