@@ -1057,7 +1057,7 @@ impl Open {
 
         Python::attach(|py| -> PyResult<Py<PyAny>> {
             let torch = get_module(py, &TORCH_MODULE)?;
-            let dest = PinnedCpuDest::new(py, torch, info.dtype, &info.shape, nbytes)?;
+            let dest = TorchCpuDest::new(py, torch, info.dtype, &info.shape, nbytes, true)?;
 
             if nbytes > 0 {
                 let write_ptr = dest.write_ptr;
@@ -1219,19 +1219,20 @@ impl Open {
         let mut out_shape = info.shape.clone();
         out_shape[dim] = intervals.iter().map(|(a, b)| b - a).sum();
 
+        // Pytorch: allocate a torch tensor directly (no intermediate
+        // PyByteArray, no zero-init). Pin when the target is CUDA so the
+        // trailing `.to(cuda)` becomes an async DMA without a bounce buffer.
         if self.framework == Framework::Pytorch {
-            if let Device::Cuda(_) = self.device {
-                return self.get_strided_slice_pinned_cuda(
-                    name,
-                    info,
-                    &out_shape,
-                    total_bytes,
-                    outer_count,
-                    row_stride,
-                    &interval_byte_offset,
-                    &strip_size,
-                );
-            }
+            return self.get_strided_slice_torch(
+                name,
+                info,
+                &out_shape,
+                total_bytes,
+                outer_count,
+                row_stride,
+                &interval_byte_offset,
+                &strip_size,
+            );
         }
 
         let array: Py<PyAny> = Python::attach(|py| -> PyResult<Py<PyAny>> {
@@ -1338,10 +1339,15 @@ impl Open {
         Ok(())
     }
 
-    /// Pytorch + CUDA fast path for `get_strided_slice`: pinned CPU dest sized
-    /// to the cat output, filled strip-by-strip, then `.to(cuda)` once.
+    /// Pytorch fast path for `get_strided_slice`: allocate a CPU torch
+    /// tensor sized to the cat output (pinned iff the target device is
+    /// CUDA), fill it strip-by-strip, then `.to(device)` if the eventual
+    /// target isn't CPU. Mirrors `get_tensor_pinned_cuda` but works for
+    /// CPU and MPS targets too — `torch.empty` doesn't zero-initialize the
+    /// way `PyByteArray::new_with` does, so this is the strictly cheaper
+    /// allocation strategy for PyTorch consumers.
     #[allow(clippy::too_many_arguments)]
-    fn get_strided_slice_pinned_cuda(
+    fn get_strided_slice_torch(
         &self,
         name: &str,
         info: &TensorInfo,
@@ -1352,13 +1358,15 @@ impl Open {
         interval_byte_offset: &[usize],
         strip_size: &[usize],
     ) -> PyResult<Py<PyAny>> {
+        let pin_memory = matches!(self.device, Device::Cuda(_));
         Python::attach(|py| -> PyResult<Py<PyAny>> {
             let torch = get_module(py, &TORCH_MODULE)?;
-            let dest = PinnedCpuDest::new(py, torch, info.dtype, out_shape, total_bytes)?;
+            let dest =
+                TorchCpuDest::new(py, torch, info.dtype, out_shape, total_bytes, pin_memory)?;
 
             if total_bytes > 0 {
                 let write_ptr = dest.write_ptr;
-                // SAFETY: write_ptr/total_bytes name `dest.tensor`'s pinned
+                // SAFETY: write_ptr/total_bytes name `dest.tensor`'s
                 // storage, which we just allocated and hold via `dest`.
                 let dst =
                     unsafe { std::slice::from_raw_parts_mut(write_ptr as *mut u8, total_bytes) };
@@ -1373,12 +1381,14 @@ impl Open {
                 )?;
             }
 
-            let cuda_device: Py<PyAny> = self.device.clone().into_pyobject(py)?.into();
-            let kwargs = PyDict::new(py);
-            let cuda_tensor = dest
-                .tensor
-                .call_method("to", (cuda_device,), Some(&kwargs))?;
-            Ok(cuda_tensor.into_pyobject(py)?.into())
+            let tensor = if matches!(self.device, Device::Cpu) {
+                dest.tensor
+            } else {
+                let device: Py<PyAny> = self.device.clone().into_pyobject(py)?.into();
+                let kwargs = PyDict::new(py);
+                dest.tensor.call_method("to", (device,), Some(&kwargs))?
+            };
+            Ok(tensor.into_pyobject(py)?.into())
         })
     }
 
@@ -2219,27 +2229,32 @@ impl<'py> MpsDest<'py> {
     }
 }
 
-/// Pre-allocated pinned-CPU torch destination.
-struct PinnedCpuDest<'py> {
+/// Pre-allocated CPU torch destination intended for direct fills via
+/// `write_ptr`. Optionally pinned when the eventual target is CUDA (so
+/// `.to(cuda)` becomes an async DMA without a bounce buffer).
+struct TorchCpuDest<'py> {
     tensor: PyBound<'py, PyAny>,
     write_ptr: usize,
 }
 
-impl<'py> PinnedCpuDest<'py> {
-    /// Allocate `torch.empty(...,device="cpu", pin_memory=True)` and extract
-    /// the data pointer for direct pread.
+impl<'py> TorchCpuDest<'py> {
+    /// Allocate `torch.empty(..., device="cpu", pin_memory=pin_memory)` and
+    /// extract the data pointer. Skipping `pin_memory` matters off the CUDA
+    /// fast path because `torch.empty` doesn't zero-initialize, unlike
+    /// `PyByteArray::new_with` which wipes the buffer before our callback.
     fn new(
         py: Python<'py>,
         torch: &PyBound<'py, PyModule>,
         dtype: Dtype,
         logical_shape: &[usize],
         nbytes: usize,
+        pin_memory: bool,
     ) -> PyResult<Self> {
         let dtype_obj: Py<PyAny> = get_pydtype(torch, dtype, false)?;
         let storage_shape = torch_storage_shape(dtype, logical_shape)?;
         let shape_obj: Py<PyAny> = storage_shape.into_pyobject(py)?.into();
         let cpu_device: Py<PyAny> = "cpu".into_pyobject(py)?.into();
-        let pin: Py<PyAny> = PyBool::new(py, true).to_owned().into_any().into();
+        let pin: Py<PyAny> = PyBool::new(py, pin_memory).to_owned().into_any().into();
         let kwargs = [
             (intern!(py, "dtype"), dtype_obj),
             (intern!(py, "device"), cpu_device),
